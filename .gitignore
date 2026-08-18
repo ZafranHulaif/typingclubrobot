@@ -7,5 +7,11 @@ _*.py
 _*.png
 _*.js
 
+# Hasil build PyInstaller (exe 50MB+ tidak disimpan di git, build ulang dengan:
+#   python -m PyInstaller --onefile --name TypingBot autopilot_pw.py )
+build/
+dist/
+*.spec
+
 # Log output yang di-paste
 paste_*.txt
