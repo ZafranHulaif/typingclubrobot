@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+
+# File probe/debug sementara (dibuat saat pengembangan)
+_*.py
+_*.png
+_*.js
+
+# Log output yang di-paste
+paste_*.txt
