@@ -88,10 +88,10 @@ class App:
         speedbox.pack(side="right")
         tk.Label(speedbox, text="Kecepatan:", font=("Segoe UI", 10), fg="#9aa0ab",
                  bg=BG).pack(side="left", padx=(0, 6))
-        self.speed_var = tk.StringVar(value="Normal")
+        self.speed_var = tk.StringVar(value="Normal (140)")
         self.speed_cbox = ttk.Combobox(speedbox, textvariable=self.speed_var,
                                        state="readonly", width=8,
-                                       values=("Normal", "Cepat", "Santai"))
+                                       values=("Normal (140)", "Cepat (200)", "Santai (85)"))
         self.speed_cbox.pack(side="left")
         self.speed_cbox.bind("<<ComboboxSelected>>", self.on_speed)
 
@@ -229,9 +229,37 @@ class App:
         try:
             import autopilot_pw as bot
             self.bot = bot
+            bot.set_confirmer(self._confirm_kill)
             self._log("Modul bot dimuat. Klik Start untuk mulai.")
         except Exception as ex:
             self._log(f"GAGAL memuat bot: {ex}")
+
+    def _confirm_kill(self, nama, pid):
+        """Dialog 'port 9222 dipakai aplikasi lain, tutup paksa?'.
+        Tkinter hanya boleh dari thread utama -> jadwalkan via root.after."""
+        from tkinter import messagebox
+        hasil = {"ok": False}
+        selesai = threading.Event()
+
+        def tanya():
+            try:
+                hasil["ok"] = messagebox.askyesno(
+                    "Port 9222 dipakai",
+                    f"Port 9222 (untuk mode debug Brave) dipakai oleh:\n\n"
+                    f"{nama} (PID {pid})\n\n"
+                    "Tutup paksa aplikasi ini sekarang?\n"
+                    "(Data yang belum disimpan di aplikasi itu bisa hilang)")
+            except Exception:
+                hasil["ok"] = False
+            finally:
+                selesai.set()
+
+        try:
+            self.root.after(0, tanya)
+        except Exception:
+            return False
+        selesai.wait(timeout=180)
+        return hasil["ok"]
 
     def on_start(self):
         bot = self.bot
@@ -251,6 +279,14 @@ class App:
             self._log("Tutup semua Brave lalu klik Start lagi.")
         except BaseException as ex:
             self._log(f"[GUI] bot berhenti: {ex}")
+        finally:
+            # Putuskan Playwright supaya Start berikutnya koneksi bersih
+            # dari thread baru (objek Playwright tidak boleh lintas thread).
+            try:
+                self.bot.disconnect()
+                self._log("Koneksi ditutup. Klik Start untuk mulai lagi.")
+            except Exception:
+                pass
         self.bot_thread = None
 
     def on_pause(self):
@@ -265,7 +301,7 @@ class App:
     def on_speed(self, _=None):
         if not self.bot:
             return
-        idx = {"Normal": 0, "Cepat": 1, "Santai": 2}.get(self.speed_var.get(), 0)
+        idx = {"Normal (140)": 0, "Cepat (200)": 1, "Santai (85)": 2}.get(self.speed_var.get(), 0)
         self.bot.SPEED_IDX = idx
 
     def on_close(self):

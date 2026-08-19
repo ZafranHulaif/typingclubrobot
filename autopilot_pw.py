@@ -21,6 +21,7 @@ Stop: Ctrl+C di terminal.
 """
 
 import asyncio
+import ctypes
 import io
 import json
 import os
@@ -29,9 +30,21 @@ import re
 import subprocess
 import sys
 import time
+from urllib.parse import urlparse
 
 from PIL import Image
 from playwright.sync_api import sync_playwright
+
+# Windows: granularitas time.sleep() default ~15.6 ms - membuat jeda ketik
+# (5-40 ms) selalu membulat ke atas dan laju jauh di bawah target. Naikkan
+# resolusi timer ke 1 ms selama proses hidup.
+try:
+    _winmm = ctypes.windll.winmm
+    _winmm.timeBeginPeriod(1)
+    import atexit
+    atexit.register(lambda: _winmm.timeEndPeriod(1))
+except Exception:
+    pass
 
 try:
     import keyboard as _kb
@@ -52,7 +65,7 @@ except Exception:
 
 PAUSED = False
 STOP = False
-SPEEDS = [(1.0, "NORMAL"), (0.45, "CEPAT"), (1.8, "SANTAI")]
+SPEEDS = [(140, "NORMAL (140 wpm)"), (200, "CEPAT (200 wpm)"), (85, "SANTAI (85 wpm)")]
 SPEED_IDX = 0
 
 
@@ -110,6 +123,17 @@ UI_WORDS = {
 # ---------------------------------------------------------------------------
 
 
+def _is_edclub_url(url):
+    """Cek hostname ASLI (bukan substring!): URL Stripe yang di dalam
+    parameternya menyebut 'edclub.com' pernah menipu cek substring dan
+    bikin bot nyangkut di halaman checkout mati."""
+    try:
+        h = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    return h.endswith("edclub.com") or h.endswith("typingclub.com")
+
+
 def _cek_debug_port():
     import urllib.request
     try:
@@ -117,6 +141,58 @@ def _cek_debug_port():
             return json.loads(r.read().decode()).get("Browser", "")
     except Exception:
         return ""
+
+
+# Konfirmasi penutupan paksa aplikasi (dipasang GUI agar pakai dialog, bukan
+# console). Default: tanya via console input.
+_confirmer = None
+
+
+def set_confirmer(fn):
+    """Pasang callback konfirmasi: fn(nama, pid) -> bool (boleh ditutup?)."""
+    global _confirmer
+    _confirmer = fn
+
+
+def _tanya_tutup(nama, pid):
+    if _confirmer is not None:
+        try:
+            return bool(_confirmer(nama, pid))
+        except Exception:
+            return False
+    try:
+        r = input(f"  Port 9222 dipakai oleh {nama} (PID {pid}). Tutup paksa? [y/N] ")
+        return r.strip().lower().startswith("y")
+    except Exception:
+        return False
+
+
+def _bebaskan_port():
+    """Port 9222 dipakai proses non-Brave -> identifikasi PEMEGANG ASLINYA
+    (bisa bukan browser sama sekali, mis. Adobe), minta izin user sebelum
+    taskkill. Edge/msedge tetap ditutup langsung (aman)."""
+    pemegang = _siapa_pegang_port()
+    if not pemegang:
+        return False
+    for pid, nama in pemegang:
+        nl = nama.lower()
+        if "brave" in nl:
+            continue
+        if "edg" in nl:
+            print(f"  -> {nama} (PID {pid}) memegang port 9222, menutup paksa...")
+        else:
+            print(f"  -> port 9222 dipakai {nama} (PID {pid})")
+            if not _tanya_tutup(nama, pid):
+                print(f"     tidak jadi ditutup - port tetap dipakai {nama}.")
+                continue
+            print("     menutup paksa atas izin user...")
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                           capture_output=True, timeout=8)
+        except Exception:
+            pass
+    time.sleep(2)
+    return True
 
 
 def _siapa_pegang_port():
@@ -166,40 +242,42 @@ def _brave_sudah_jalan():
 
 
 def siapkan_browser():
-    """Pastikan ada Brave debug di port 9222. Kill Edge bila perlu."""
+    """Pastikan ada Brave debug di port 9222. Port yang dipakai aplikasi
+    lain (Adobe/WebView) ditangani dengan izin user, bukan asal ditutup."""
     browser_on_port = _cek_debug_port()
 
     if "Edg" in browser_on_port:
-        print("Port 9222 dipegang proses berbasis Edge, mencari prosesnya...")
-        for pid, nama in _siapa_pegang_port():
-            print(f"  -> {nama} (PID {pid}) memegang port 9222, menutup paksa...")
-            try:
-                subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
-                               capture_output=True, timeout=8)
-            except Exception:
-                pass
-        time.sleep(2)
+        # Bisa Edge betulan, BISA JUGA WebView2 milik aplikasi lain (mis.
+        # Adobe) yang membalas /json/version dengan string "Edg/...".
+        print("Port 9222 dipegang proses berbasis Edge/WebView, "
+              "mencari proses pemegangnya...")
+        _bebaskan_port()
         browser_on_port = _cek_debug_port()
         if "Edg" in browser_on_port:
-            print("MASIH terkunci oleh Edge. Task Manager -> End task semua Edge,")
-            print("lalu jalankan ulang program.")
+            print("MASIH terkunci. Cek pemegang port: netstat -ano | findstr :9222")
+            print("Tutup manual aplikasinya, lalu jalankan ulang program.")
             sys.exit(1)
         print("Port 9222 berhasil dibebaskan.")
 
     if not browser_on_port:
-        if _brave_sudah_jalan():
-            print("Brave jalan TANPA mode debug. Tutup semua Brave, jalankan ulang program.")
-            sys.exit(1)
-        exe = _find_brave()
-        if not exe:
-            print("Brave tidak ditemukan. Install Brave dulu.")
-            sys.exit(1)
-        print("Port 9222 kosong: membuka Brave otomatis dengan mode debug...")
-        subprocess.Popen([exe, "--remote-debugging-port=9222"], close_fds=True)
-        for _ in range(30):
-            time.sleep(0.5)
-            if _cek_debug_port().startswith("Chrome"):
-                break
+        if _siapa_pegang_port():
+            print("Port 9222 dipakai proses lain (bukan browser debug)...")
+            _bebaskan_port()
+            browser_on_port = _cek_debug_port()
+        if not browser_on_port:
+            if _brave_sudah_jalan():
+                print("Brave jalan TANPA mode debug. Tutup semua Brave, jalankan ulang program.")
+                sys.exit(1)
+            exe = _find_brave()
+            if not exe:
+                print("Brave tidak ditemukan. Install Brave dulu.")
+                sys.exit(1)
+            print("Port 9222 kosong: membuka Brave otomatis dengan mode debug...")
+            subprocess.Popen([exe, "--remote-debugging-port=9222"], close_fds=True)
+            for _ in range(30):
+                time.sleep(0.5)
+                if _cek_debug_port().startswith("Chrome"):
+                    break
 
     print("Menyambungkan Playwright ke Brave...")
     pw = sync_playwright().start()
@@ -207,14 +285,76 @@ def siapkan_browser():
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
 
     page = None
+    # Tutup sisa tab Stripe/checkout dari sesi sebelumnya (dibuat saat bot
+    # pernah salah klik CTA premium). Tab ini tidak berguna, dan pernah
+    # menipu deteksi tab edclub.
+    for pg in list(ctx.pages):
+        try:
+            h = (urlparse(pg.url).hostname or "").lower()
+        except Exception:
+            continue
+        if "stripe" in h:
+            try:
+                pg.close()
+                print(f"Tab sisa Stripe ditutup ({h})")
+            except Exception:
+                pass
+    edclub_tabs = []
     for pg in ctx.pages:
-        if "edclub.com" in pg.url or "typingclub.com" in pg.url:
-            page = pg
-            break
+        try:
+            if _is_edclub_url(pg.url):
+                edclub_tabs.append(pg)
+        except Exception:
+            continue
+    if len(edclub_tabs) > 1:
+        print(f"Perhatian: {len(edclub_tabs)} tab edclub terbuka. "
+              "Tutup yang tidak dipakai biar bot tidak nyangkut di tab kosong.")
+    # Pilih tab yang paling mungkin punya pekerjaan: .play dengan token/
+    # canvas aktif > .play apa pun > tab edclub lain. (Dulu: tab pertama
+    # yang ketemu - kalau ada tab lama nyangkut, bot diam di situ.)
+    def _score(pg):
+        try:
+            url = pg.url
+        except Exception:
+            return -1
+        s = 0
+        if ".play" in url:
+            s += 10
+        try:
+            info = pg.evaluate("() => {" + PLAYABLE_CHECK_JS + "}")
+            if info:
+                if info.get("clr"):
+                    s += 5
+                elif info.get("boxed"):
+                    s += 3
+                elif info.get("canvas"):
+                    s += 1
+                if info.get("done"):
+                    s -= 8   # layar skor/selesai = tidak ada kerjaan
+        except Exception:
+            pass
+        return s
+    if edclub_tabs:
+        page = max(edclub_tabs, key=_score)
     if page is None:
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        print("Tab edclub belum ada. Buka edclub.com di Brave, bot akan menunggu.")
+        print("Tab edclub belum ada. Membuka edclub.com otomatis...")
+        try:
+            page.goto("https://www.edclub.com/sportal/program-3.game",
+                      timeout=25000)
+        except Exception:
+            print("Gagal membuka edclub - buka manual di Brave, bot menunggu.")
     return pw, browser, page
+
+
+PLAYABLE_CHECK_JS = r"""
+// Apakah halaman ini punya pekerjaan untuk bot?
+const clr = document.querySelectorAll('span.token_unit._clr, ._clr > span.token_unit').length;
+const boxed = document.querySelectorAll('.boxed-line .boxed-char').length;
+const canvas = document.querySelectorAll('canvas').length;
+const done = !!document.querySelector('.lesson-complete, [class*="score" i], [class*="result" i]');
+return {clr: clr, boxed: boxed, canvas: canvas, done: done};
+"""
 
 
 pw = None
@@ -236,6 +376,21 @@ def connect():
     return True
 
 
+def disconnect():
+    """Putuskan koneksi Playwright dan reset cache global. WAJIB dipanggil
+    dari thread yang menjalankan connect(). Tanpa ini, restart dari GUI
+    memakai objek Playwright milik thread lama yang sudah mati ->
+    error "cannot switch to a different thread"."""
+    global pw, browser, PAGE
+    if pw is None and PAGE is None:
+        return
+    try:
+        pw.stop()
+    except Exception:
+        pass
+    pw, browser, PAGE = None, None, None
+
+
 # ---------------------------------------------------------------------------
 # Util frame & JS (Playwright: semua frame otomatis tersedia)
 # ---------------------------------------------------------------------------
@@ -245,7 +400,10 @@ def all_frames():
     try:
         return list(PAGE.frames)
     except Exception:
-        return [PAGE.main_frame]
+        try:
+            return [PAGE.main_frame]
+        except Exception:
+            return []
 
 
 def run_js(js, frame=None):
@@ -294,14 +452,35 @@ if (stdEls.length > 0) {
 }
 
 if (!out.std) {
-    const wraps = document.querySelectorAll('.boxed-line > span');
-    if (wraps.length && wraps.length < 200) {
+    // Tutorial boxed: hanya ekstrak RUN PENDING (trailing run dengan tanda
+    // class sama dengan karakter terakhir) - sama seperti _clr di lesson
+    // standar. Re-entry mid-lesson melanjutkan dari sisa, bukan retype all.
+    const tspans = Array.from(document.querySelectorAll('.boxed-line > span'))
+        .filter(sp => sp.querySelector('.boxed-char'));
+    if (tspans.length && tspans.length < 200) {
+        const tsig = sp => {
+            const ch = sp.querySelector('.boxed-char');
+            let line = '';
+            try { const l = sp.closest('.boxed-line'); line = l ? l.className : ''; } catch (e) {}
+            return (line + '|' + sp.className + '|' + ch.className).trim();
+        };
+        const tsigs = tspans.map(tsig);
+        const tlast = tsigs[tsigs.length - 1];
+        let ti = tsigs.length - 1;
+        while (ti >= 0 && tsigs[ti] === tlast) ti--;
+        // sertakan run PENDEK (<=2) sebelum trailing run = karakter AKTIF
+        // (di-highlight sendiri oleh situs asli; tanpa ini karakter aktif
+        // terjatuh dari ekstraksi -> urutan ketikan bergeser satu = desync)
+        let tstart = ti + 1;
+        if (ti >= 0) {
+            let tj = ti;
+            while (tj >= 0 && tsigs[tj] === tsigs[ti]) tj--;
+            if (ti - tj <= 2) tstart = tj + 1;
+        }
         const chars = [];
-        for (const sp of wraps) {
-            const chEl = sp.querySelector('.boxed-char');
-            if (!chEl) continue;
-            let c = (chEl.textContent || '').slice(0, 1);
-            if (c === '\u00A0' || c === ' ') c = ' ';
+        for (let k = tstart; k < tspans.length; k++) {
+            let c = (tspans[k].querySelector('.boxed-char').textContent || '').slice(0, 1);
+            if (c === '\u00a0' || c === ' ') c = ' ';
             else c = c.trim();
             if (c) chars.push(c);
         }
@@ -441,6 +620,10 @@ if (taken.length === 0) {
         try { txt = (el.innerText || '').trim().toLowerCase(); } catch (e) {}
         if (!txt || txt.length > 14 || !want[txt] || !visible(el)) continue;
         try { if (el.closest('.typable, .token_unit, .boxed-typing-lines, .boxed-line, .TPGAME')) continue; } catch (e) {}
+        // JANGAN klik tombol "continue/next" di dalam kontainer premium/
+        // upsell/checkout: itu CTA berbayar (pernah membawa bot ke Stripe
+        // Checkout). Tombol lanjut yang sah ada di navbar, bukan di modal.
+        try { if (el.closest('[class*="premium" i],[class*="upsell" i],[class*="paywall" i],[class*="checkout" i],[class*="stripe" i]')) continue; } catch (e) {}
         if (doClick(el, 'teks:"' + txt + '"')) break outer3;
     }
 }
@@ -499,10 +682,26 @@ def close_overlays_all_frames():
             first = taken[0]
             if first == _repeat_click["label"]:
                 _repeat_click["count"] += 1
-                if _repeat_click["count"] >= 4:
-                    _repeat_click["until"] = time.time() + 25
+                if _repeat_click["count"] >= 3:
+                    # Klik JS x3 tanpa hasil = pop-up premium butuh gesture
+                    # sungguhan (klik JS tidak dianggap user gesture, sama
+                    # seperti tombol play video). Eskalasi: ESC + klik mouse
+                    # CDP pada tombol tutup yang terlihat.
+                    print("[Pop-up] klik tutup tanpa hasil - eskalasi "
+                          "ESC + klik mouse sungguhan")
+                    run_js(ESC_FALLBACK_JS, fr)
+                    for sel in ('[class*="popup" i] [class*="x" i]',
+                                '[class*="modal" i] [class*="close" i]',
+                                '[class*="overlay" i] [class*="close" i]'):
+                        try:
+                            loc = PAGE.locator(sel).first
+                            if loc.is_visible():
+                                loc.click(timeout=1500)
+                                break
+                        except Exception:
+                            continue
+                    _repeat_click["until"] = time.time() + 8
                     _repeat_click["count"] = 0
-                    print(f"[Pop-up] '{first}' berulang tanpa hasil, jeda 25 detik")
             else:
                 _repeat_click["label"] = first
                 _repeat_click["count"] = 1
@@ -524,10 +723,41 @@ def close_overlays_all_frames():
 # ---------------------------------------------------------------------------
 
 
+def _clear_modifiers():
+    """Lepas modifier yang mungkin nyangkut (Shift/Ctrl/Alt). key-up tidak
+    menghasilkan karakter, jadi aman - mencegah simbol/huruf salah pada
+    lesson berikutnya (mis. sisa Shift dari lesson hold)."""
+    for key in ("Shift", "Control", "Alt", "Meta"):
+        try:
+            PAGE.keyboard.up(key)
+        except Exception:
+            pass
+
+
+_loop_overhead = 0.030   # estimasi overhead verifikasi per karakter (EWMA)
+_last_char_delay = 0.0
+
+
+def _char_delay(slow=False):
+    """Jeda per karakter dari target WPM (1 kata = 5 karakter).
+    Delay dikurangi overhead verifikasi yang terukur (loop mengukur sendiri
+    via _loop_overhead) supaya LAJU AKHIR benar-benar mendekati target:
+    140 wpm = ~86 ms/kar total, 200 = 60, 85 = 141.
+    slow=True (tutorial boxed): engine butuh waktu animasi per karakter -
+    jangan turun di bawah cadence yang terbukti aman (0.14-0.24 s)."""
+    global _last_char_delay
+    wpm = SPEEDS[SPEED_IDX][0]
+    if slow:
+        _last_char_delay = random.uniform(0.14, 0.24)
+        return _last_char_delay
+    base = 12.0 / wpm - _loop_overhead
+    base = max(base, 0.004)
+    _last_char_delay = base * random.uniform(0.85, 1.15)
+    return _last_char_delay
+
+
 def type_chars(text, max_chars=None, slow=False):
     """Ketik via CDP. slow=True untuk tutorial boxed (animasi scroll-garis)."""
-    lo, hi = (0.13, 0.24) if slow else (0.05, 0.10)
-    factor = SPEEDS[SPEED_IDX][0]
     for char in (text if max_chars is None else text[:max_chars]):
         while PAUSED and not STOP:
             time.sleep(0.15)
@@ -536,18 +766,18 @@ def type_chars(text, max_chars=None, slow=False):
         try:
             if char == "\n":
                 PAGE.keyboard.press("Enter")
-                time.sleep(0.08)
+                time.sleep(0.03 + 0.02 * random.random())
             elif char == "\t":
                 PAGE.keyboard.press("Tab")
-                time.sleep(random.uniform(lo, hi) * factor)
+                time.sleep(_char_delay(slow))
             elif char == " ":
                 # WAJIB type() bukan press(): engine butuh event keypress/input
                 # penuh untuk spasi - press() hanya kirim down/up = ditandai salah
                 PAGE.keyboard.type(" ")
-                time.sleep(random.uniform(lo, hi) * factor)
+                time.sleep(_char_delay(slow))
             else:
                 PAGE.keyboard.type(char)
-                time.sleep(random.uniform(lo, hi) * factor)
+                time.sleep(_char_delay(slow))
         except Exception:
             return False
     return True
@@ -575,13 +805,34 @@ def press_enter_guarded():
         return False
 
 
+def advance_score_screen():
+    """Layar skor: Enter dulu. Kalau Enter sudah berulang tanpa efek,
+    klik tombol lanjut dengan mouse CDP sungguhan - JS .click() tidak
+    dihitung sebagai gesture user oleh sebagian tombol edclub (sama
+    seperti tombol play video), jadi klik JS terlihat 'tanpa hasil'."""
+    if press_enter_guarded():
+        print("[Skor] Enter ditekan")
+        return True
+    for sel in (".navbar-continue", "a.navbar-continue",
+                ".lesson-complete button.btn-primary", "button.continue"):
+        try:
+            loc = PAGE.locator(sel)
+            if loc.count() == 0:
+                continue
+            loc.first.click(timeout=1500)
+            print(f"[Skor] klik lanjut via mouse: {sel}")
+            return True
+        except Exception:
+            continue
+    return False
+
+
 def focus_frame(frame):
-    """Fokus internal frame (bukan OS): window.focus + klik CDP di body."""
+    """Fokus internal frame (bukan OS): cukup window.focus + body.focus.
+    TANPA klik body - klik mouse CDP di body jatuh di atas keyboard layar
+    pada level intro (tombol menyala ORANGE = ditekan-mouse), mengganggu
+    engine dan keystroke berikutnya kadang ditelan."""
     run_js("try{window.focus();if(document.body&&document.body.focus)document.body.focus();}catch(e){}", frame)
-    try:
-        frame.locator("body").first.click(timeout=1500)
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -676,6 +927,44 @@ def read_remaining(frame):
     return run_js(READ_REMAINING_JS, frame)
 
 
+ERR_COUNT_JS = r"""
+return document.querySelectorAll('span.token_unit._err').length;
+"""
+
+
+def count_errors(frame):
+    """Jumlah karakter yang sudah ditandai salah di lesson."""
+    n = run_js(ERR_COUNT_JS, frame)
+    return n if isinstance(n, int) else None
+
+
+STATE_JS = r"""
+// Satu roundtrip untuk loop ketik: sisa teks (_clr) + jumlah salah (_err).
+const out = [];
+for (const e of document.querySelectorAll('span.token_unit._clr')) {
+    const txt = e.innerText || e.textContent;
+    if (!txt) continue;
+    if (txt.includes('\u21b5') || txt.includes('\n')) out.push('\n');
+    else if (txt.includes('\u21b9') || txt.includes('\t')) out.push('\t');
+    else if (txt === '\u00a0' || txt === ' ') out.push(' ');
+    else { const c = txt.replace(/\r?\n|\r/g, ''); if (c) out.push(c[0]); }
+}
+const err = document.querySelectorAll('span.token_unit._err').length;
+return [out.join(''), err];
+"""
+
+
+def read_state(frame):
+    """(sisa_teks, jumlah_salah) dalam SATU evaluate. None teks = tak ada
+    token pending. Dipakai di loop ketik per-karakter supaya cepat."""
+    res = run_js(STATE_JS, frame)
+    if not isinstance(res, list) or len(res) != 2:
+        return None, None
+    rem = res[0] if isinstance(res[0], str) else None
+    err = res[1] if isinstance(res[1], int) else None
+    return rem, err
+
+
 START_BANNER_JS = r"""
 // Klik banner "Start Typing" SEKALI di awal lesson (state pause awal).
 // JANGAN pernah mengklik apa pun saat sedang mengetik (bisa reset lesson!).
@@ -693,6 +982,21 @@ _std_attempts = 0
 
 def handle_standard(frame, text):
     global last_typed_text, last_action_time, _std_last_rem, _std_attempts
+    # Level terkunci premium: modal premium menutupi lesson, input mati.
+    # Dulu bot mencoba mengetik 3x (gagal, buang waktu) bahkan sempat
+    # mengklik tombol CTA premium yang membawa ke Stripe Checkout.
+    # Sekarang: langsung lewati level via tombol lanjut (klik mouse asli).
+    for fr in all_frames():
+        hint = run_js(MODAL_HINT_JS, fr)
+        if hint and hint.get("premium"):
+            print("[Premium] level terkunci premium - lewati via tombol lanjut")
+            try:
+                PAGE.locator(".navbar-continue, a.navbar-continue") \
+                    .first.click(timeout=2500)
+            except Exception:
+                pass
+            last_action_time = time.time()
+            return True
     hold = run_js(HOLD_LESSON_JS, frame) or {}
     hold_key = hold.get("key")
 
@@ -715,7 +1019,7 @@ def handle_standard(frame, text):
 
     # stabilisasi: sisa teks tidak berubah sebentar (halaman siap)
     for _ in range(8):
-        time.sleep(0.25)
+        time.sleep(0.12)
         r2 = read_remaining(frame)
         if r2 is None or r2 != rem:
             rem = r2
@@ -727,7 +1031,7 @@ def handle_standard(frame, text):
     # aktifkan lesson: klik banner "Start Typing" jika sedang tampil
     if run_js(START_BANNER_JS, frame):
         print("[Standard] banner Start Typing diklik")
-        time.sleep(0.6)
+        time.sleep(0.4)
         rem = read_remaining(frame) or ""
 
     typed_any = False
@@ -735,51 +1039,149 @@ def handle_standard(frame, text):
         if hold_key:
             PAGE.keyboard.down(hold_key)
             time.sleep(0.15)
-        # KETIK SELF-CORRECTING: setiap potong, re-ekstrak sisa teks (_clr)
-        # lalu ketik 20 karakter pertamanya. PENTING: SELAMA MENGETIK tidak
-        # ada klik apa pun - klik di tengah ketikan bisa me-reset lesson.
-        CHUNK = 20
+        # KETIK PER-KARAKTER TERVERIFIKASI (prinsip: TIDAK BOLEH SALAH):
+        # Karakter berikutnya TIDAK PERNAH dikirim sebelum karakter saat ini
+        # terverifikasi dikonsumsi dengan benar oleh engine lesson.
+        # - salah tidak pernah berantai: deteksi terjadi 1 karakter, bukan 20.
+        # - kalau konsumsi tidak persis (keystroke hilang / DOM berganti /
+        #   banner pause), ketikan BERHENTI dan realign ke DOM - tidak
+        #   pernah lanjut berdasarkan asumsi.
+        # - modifier (Shift dll.) dilepas dulu: sisa modifier = karakter
+        #   salah pada lesson berikutnya.
+        # - karakter yang ditandai salah (_err) segera di-Backspace SEKALI;
+        #   kalau situs tidak mengizinkan, dicatat dan lanjut (maks 1 char).
+        # PENTING: SELAMA MENGETIK tidak ada klik apa pun - klik di tengah
+        # ketikan bisa me-reset lesson.
+        _clear_modifiers()
+        pre_err = count_errors(frame)
+        if pre_err:
+            print(f"[Standard] {pre_err} karakter salah sudah ada sebelum mulai, "
+                  "coba koreksi dengan Backspace")
+            try:
+                for _ in range(pre_err):
+                    PAGE.keyboard.press("Backspace")
+                    time.sleep(0.06)
+                time.sleep(0.4)
+            except Exception:
+                pass
+            left = count_errors(frame)
+            if left is not None and left < pre_err:
+                rem = read_remaining(frame) or rem
+            else:
+                print("[Standard] koreksi awal tidak mempan (salah terkunci) "
+                      "- lanjut, akurasi lesson ini bisa < 100%")
         stall = 0
+        verified = 0
+        bs_ok = True
+        err_prev = count_errors(frame)
+        if err_prev is None:
+            err_prev = 0
         while True:
             if STOP:
                 break
             while PAUSED and not STOP:
                 time.sleep(0.15)
-            keep_alive_quiet(frame)
             if not rem:
                 break
-            if not type_chars(rem[:CHUNK]):
+            ch = rem[0]
+            t_char = time.time()
+            if not type_chars(ch):
                 break
             typed_any = True
-            time.sleep(0.25)
-            rem2 = read_remaining(frame)
+            rem2, err_after = read_state(frame)
+            if err_after is None:
+                err_after = err_prev
+            if err_after > err_prev and bs_ok:
+                # 1 karakter tertandai salah - coba hapus SEKARANG
+                try:
+                    PAGE.keyboard.press("Backspace")
+                    time.sleep(0.25)
+                except Exception:
+                    pass
+                r_chk, err_chk = read_state(frame)
+                if err_chk is not None and err_chk < err_after:
+                    rem2 = r_chk  # token kembali pending
+                    err_after = err_chk
+                else:
+                    bs_ok = False
+                    print("[Standard] 1 karakter salah tidak bisa dihapus "
+                          "(lanjut - tercatat di akurasi)")
+                    rem2 = r_chk
             if rem2 is None or rem2 == "":
-                break  # tidak ada token tersisa = lesson selesai
-            if len(rem2) < len(rem):
-                rem = rem2
-                stall = 0
-            else:
+                # BISA berarti selesai, TAPI juga "baris berikut belum
+                # muncul di DOM" (render progresif). Jangan langsung anggap
+                # selesai: tunggu grace, ketik ulang TIDAK boleh (Enter
+                # dobel = salah). Baris baru muncul < 300 ms di situs asli,
+                # jadi grace singkat cukup.
+                got = None
+                for _ in range(8):
+                    time.sleep(0.10)
+                    r = read_remaining(frame)
+                    if r:
+                        got = r
+                        break
+                if got:
+                    rem = got
+                    stall = 0
+                    continue
+                break  # benar-benar tidak ada token = lesson selesai
+            if rem2 == rem:
+                # karakter TIDAK terkonsumsi: jangan kirim apapun lagi dulu.
+                # Kasus umum: DOM butuh sesaat untuk memproses keystroke.
                 stall += 1
-                if stall >= 3:
+                time.sleep(0.05)
+                r_retry, _ = read_state(frame)
+                if r_retry is not None and r_retry != rem:
+                    rem = r_retry
+                    stall = 0
+                    verified += 1
+                    if verified % 20 == 0:
+                        keep_alive_quiet(frame)
+                    if verified % 25 == 0:
+                        esc_modals_only(frame)
+                    continue
+                if stall == 2:
+                    rem = read_remaining(frame) or rem
+                    if run_js(START_BANNER_JS, frame):
+                        print("[Standard] banner pause muncul, diklik")
+                        time.sleep(0.4)
+                        rem = read_remaining(frame) or rem
+                elif stall >= 5:
                     print("[Standard] ketikan tidak masuk, lanjut transisi")
                     break
-                # coba klik banner sekali sebagai pemulihan (lesson ter-pause)
-                if stall == 2 and run_js(START_BANNER_JS, frame):
-                    print("[Standard] banner pause muncul, diklik")
-                    rem = read_remaining(frame) or rem
-                time.sleep(0.5)
-            esc_modals_only(frame)
+                time.sleep(0.15)
+                err_prev = err_after
+                continue
+            # terkonsumsi / DOM berubah -> selalu percaya DOM terbaru
+            rem = rem2
+            stall = 0
+            verified += 1
+            err_prev = err_after
+            # kalibrasi laju: overhead aktual per karakter (verifikasi dll.)
+            # diukur & dikompensasikan di jeda karakter berikutnya.
+            global _loop_overhead
+            oh = (time.time() - t_char) - _last_char_delay
+            oh = min(max(oh, 0.0), 0.15)
+            _loop_overhead = 0.7 * _loop_overhead + 0.3 * oh
+            if verified % 20 == 0:
+                keep_alive_quiet(frame)
+            if verified % 25 == 0:
+                esc_modals_only(frame)
     finally:
         if hold_key:
             try:
                 PAGE.keyboard.up(hold_key)
             except Exception:
                 pass
+        _clear_modifiers()
     if not typed_any:
         return False
     last_typed_text = text
     stats["std"] += 1
     last_action_time = time.time()
+    err_total = count_errors(frame)
+    if err_total:
+        print(f"[Standard] lesson selesai dengan {err_total} karakter salah")
 
     deadline = time.time() + 10
     while time.time() < deadline:
@@ -788,8 +1190,7 @@ def handle_standard(frame, text):
             continue
         state, _, _ = detect_all_frames()
         if state == "score":
-            if press_enter_guarded():
-                print("[Skor] Enter ditekan")
+            advance_score_screen()
             time.sleep(0.8)
         if state in ("std", "mini", "tut"):
             break
@@ -813,21 +1214,122 @@ _tut_sig = None
 _tut_attempts = 0
 
 
+# SISA teks tutorial boxed, TANPA mengenal nama class edclub:
+# engine boxed pasti menandai karakter selesai lewat class (di span, di
+# .boxed-char, atau di .boxed-line induknya). Trik: gabungkan semua class
+# tiap karakter jadi "tanda", lalu ambil RUN TERAKHIR yang tandanya sama
+# dengan tanda karakter TERAKHIR (= run karakter yang masih pending).
+# Ditambah info tanda: kalau SEMUA karakter satu tanda & beda dari tanda
+# pending yang dikenal -> layar sudah selesai (jangan type ulang!).
+TUT_REMAIN_JS = r"""
+const spans = Array.from(document.querySelectorAll('.boxed-line > span'))
+    .filter(sp => sp.querySelector('.boxed-char'));
+if (!spans.length) return null;
+function sig(sp) {
+    const ch = sp.querySelector('.boxed-char');
+    let line = '';
+    try { const l = sp.closest('.boxed-line'); line = l ? l.className : ''; } catch (e) {}
+    return (line + '|' + sp.className + '|' + ch.className).trim();
+}
+const sigs = spans.map(sig);
+const lastSig = sigs[sigs.length - 1];
+let i = sigs.length - 1;
+while (i >= 0 && sigs[i] === lastSig) i--;
+// sertakan run PENDEK (<=2) sebelum trailing run = karakter AKTIF
+// (di-highlight sendiri oleh situs asli; tanpa ini karakter aktif
+// terjatuh dari ekstraksi -> urutan ketikan bergeser satu = desync)
+let start = i + 1;
+if (i >= 0) {
+    let j = i;
+    while (j >= 0 && sigs[j] === sigs[i]) j--;
+    if (i - j <= 2) start = j + 1;
+}
+const chars = [];
+for (let k = start; k < spans.length; k++) {
+    let c = (spans[k].querySelector('.boxed-char').textContent || '').slice(0, 1);
+    if (c === '\u00a0' || c === ' ') c = ' ';
+    else c = c.trim();
+    if (c) chars.push(c);
+}
+return {rem: chars.join(''), total: spans.length,
+        firstSig: sigs[0], lastSig: lastSig,
+        allSame: sigs.every(s => s === lastSig)};
+"""
+
+_tut_pending_sig = None
+
+
+def _tut_read(frame):
+    res = run_js(TUT_REMAIN_JS, frame)
+    return res if isinstance(res, dict) else None
+
+
+_tut_full = None
+
+
 def handle_tutorial(frame, data):
-    global _tut_sig, _tut_attempts, last_action_time
+    global _tut_sig, _tut_attempts, last_action_time, _tut_full
     text = data.get("text", "")
     if not text:
         return False
-    if text == _tut_sig and _tut_attempts >= 4:
+    if text == _tut_sig and _tut_attempts >= 6:
         return False
     if text != _tut_sig:
         _tut_sig = text
         _tut_attempts = 0
+        _tut_full = text
     _tut_attempts += 1
     focus_frame(frame)
     print(f"[Tutorial] ketik {text!r} (coba {_tut_attempts})")
-    if not type_chars(text, slow=True):
-        return False
+    if run_js(START_BANNER_JS, frame):
+        time.sleep(0.4)
+    # POLA LEVEL = LESSON STANDAR dengan UI lain (kesimpulan user, benar):
+    # ketik urutan penuh SEKALI dengan kecepatan NORMAL (140 wpm) - transisi
+    # animasi tidak perlu selesai untuk bisa lanjut. KEUALI di AWAL level:
+    # tepat setelah intro, ada jendela mati saat transisi - ketikan pertama
+    # jatuh ke ruang kosong. Tunggu layar stabil (bacaan sisa sama 2x,
+    # maks ~2 dtk) sebelum mulai. Resume hanya saat re-entry dengan suffix
+    # jujur. TANPA jalur input tambahan apapun (klik layar/event sintetis
+    # = duplikat = flash merah).
+    rem = text
+    res = _tut_read(frame)
+    stable = 0
+    for _ in range(8):
+        time.sleep(0.25)
+        r2 = _tut_read(frame)
+        if (res is not None and r2 is not None
+                and r2.get("rem") == res.get("rem")):
+            stable += 1
+        else:
+            res = r2
+            stable = 0
+        if stable >= 2:
+            break
+    if (_tut_attempts >= 2 and _tut_full and res
+            and isinstance(res.get("rem"), str)
+            and 0 < len(res["rem"]) < len(_tut_full)
+            and _tut_full.endswith(res["rem"])):
+        rem = res["rem"]
+        print(f"[Tutorial] lanjut dari sisa {len(rem)} karakter")
+    CH = 10   # potongan kecil utk keep-alive senyap di selanya
+    while rem:
+        if STOP:
+            return False
+        while PAUSED and not STOP:
+            time.sleep(0.15)
+        n = min(CH, len(rem))
+        if not type_chars(rem[:n]):
+            break
+        keep_alive_quiet(frame)
+        rem = rem[n:]
+    # akhir pola: Enter (pola user: sequence > enter). Kalau layar skor
+    # sudah muncul duluan, Enter justru menekan lanjut - aman dua-duanya.
+    time.sleep(0.8)
+    try:
+        PAGE.keyboard.press("Enter")
+        print("[Tutorial] selesai - Enter")
+    except Exception:
+        pass
     stats["tut"] += 1
     last_action_time = time.time()
     time.sleep(0.3)
@@ -1082,6 +1584,9 @@ for (const sel of sels) {
     for (const el of document.querySelectorAll(sel)) {
         if (!(el.offsetWidth || el.offsetHeight)) continue;
         const t = (el.innerText || el.textContent || '').trim().slice(0, 4);
+        // WAJIB berlabel: elemen "aktif" TANPA teks bukan tombol keyboard -
+        // pernah diklik dan menavigasi bot ke halaman daftar level.
+        if (!t || t.length > 2) continue;
         try { el.click(); } catch (e) {}
         return {key: t, sel: sel};
     }
@@ -1090,12 +1595,30 @@ return null;
 """
 
 
+_scrkey = {"key": "", "count": 0, "until": 0.0}
+
+
 def click_screen_keyboard():
     global last_action_time
+    if time.time() < _scrkey["until"]:
+        return False
     for fr in all_frames():
         hit = run_js(SCREENKEY_JS, fr)
         if hit:
-            print(f"[Keyboard-layar] klik '{hit.get('key')}' ({hit.get('sel')})")
+            k = hit.get("key") or ""
+            if k == _scrkey["key"]:
+                _scrkey["count"] += 1
+                if _scrkey["count"] >= 4:
+                    # klik berulang tanpa kemajuan (klik JS tidak selalu
+                    # diterima) - beri jeda supaya tidak spam
+                    _scrkey["until"] = time.time() + 10
+                    _scrkey["count"] = 0
+                    print("[Keyboard-layar] klik tanpa efek, jeda 10 detik")
+                    return False
+            else:
+                _scrkey["key"] = k
+                _scrkey["count"] = 1
+            print(f"[Keyboard-layar] klik '{k}' ({hit.get('sel')})")
             stats["uikey"] += 1
             last_action_time = time.time()
             return True
@@ -1116,7 +1639,8 @@ VIDEO_SKIP_JS = r"""
 const v = document.querySelector('video');
 if (!v) return false;
 try { v.muted = true; } catch (e) {}
-try { v.playbackRate = 16; } catch (e) {}
+// cukup LOMPAT ke akhir + play supaya event 'ended' menyala - tidak perlu
+// playbackRate 16x (skip instan, tanpa percepatan yang menonta video)
 try { const p = v.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
 try {
     if (v.duration && isFinite(v.duration) && v.duration > 2) {
@@ -1143,7 +1667,7 @@ def handle_video_level():
         run_js(VIDEO_SKIP_JS, fr)
         stats["video"] += 1
         last_action_time = time.time()
-        print(f"[Video] {frame_label(fr)}: diputar cepat 16x & dilompat ke akhir")
+        print(f"[Video] {frame_label(fr)}: dilompat ke akhir")
         time.sleep(0.5)
         return True
     return False
@@ -1167,12 +1691,138 @@ return null;
 INTRO_KEY_MAP = {"space": " ", "space bar": " ", "spacebar": " ", "spasi": " ",
                  "bar": " ", "enter": "Enter"}
 
+INTRO_READY_JS = r"""
+// Sinyal layar siap menerima ketikan: tombol keyboard layar untuk karakter
+// yang diminta sedang di-highlight (menyala oranye) oleh engine. Sebelum
+// highlight itu muncul, keystroke TIDAK didengar (tekanan terlalu dini =
+// hilang; itulah 'coba 1-5' di log + tombol tetap oranye menunggu).
+const sels = ['[class*="key"][class*="highlight"]', '[class*="key"][class*="active"]',
+              '.key.highlight', '.keyboard .next'];
+for (const sel of sels) {
+    for (const el of document.querySelectorAll(sel)) {
+        if (el.offsetWidth || el.offsetHeight) return true;
+    }
+}
+return false;
+"""
+
 _intro_sig = None
 _intro_attempts = 0
 
 
+SKIP_CLICK_JS = r"""
+// Cari tombol skip berdasarkan TEKS (bukan class - class edclub berubah-ubah).
+for (const el of document.querySelectorAll('button, a, [role="button"], span[onclick], div[onclick]')) {
+    const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+    if (!t || t.length > 14) continue;
+    if (!(t === 'skip' || t === 'lewati' || t.startsWith('skip') || t.startsWith('lewati'))) continue;
+    if (!(el.offsetWidth || el.offsetHeight)) continue;
+    try { el.click(); return t; } catch (e) {}
+}
+return null;
+"""
+
+
+def _click_active_screen_key():
+    """Klik mouse SUNGGUHAN (CDP) tombol keyboard layar yang sedang
+    di-highlight, di SEMUA frame. Klik JS tidak dipercaya engine; ketikan
+    juga kadang tidak masuk di layar intro. Hanya klik elemen BERLABEL
+    singkat - elemen 'aktif' tanpa teks bukan tombol keyboard (pernah
+    menavigasi bot ke halaman daftar level!)."""
+    for fr in all_frames():
+        for sel in ('[class*="key"][class*="highlight"]',
+                    '[class*="key"][class*="active"]'):
+            try:
+                locs = fr.locator(sel)
+                for i in range(min(locs.count(), 6)):
+                    el = locs.nth(i)
+                    txt = (el.inner_text(timeout=500) or "").strip()
+                    if txt and len(txt) <= 2:
+                        el.click(timeout=1500)
+                        print(f"[Intro] klik tombol keyboard layar {txt!r}")
+                        return True
+            except Exception:
+                continue
+    return False
+
+
+def _click_intro_skip():
+    """Layar intro punya tombol skip - pakai kalau ketikan tidak mau masuk.
+    Cari berdasarkan teks di semua frame; klik JS dulu, lalu klik mouse
+    sungguhan sebagai cadangan."""
+    for fr in all_frames():
+        res = run_js(SKIP_CLICK_JS, fr)
+        if res:
+            print(f"[Intro] langkah di-skip via tombol {res!r}")
+            return True
+    for fr in all_frames():
+        try:
+            for el in (fr.get_by_text("Skip", exact=True).all() or [])[:4]:
+                try:
+                    el.click(timeout=1500)
+                    print("[Intro] langkah di-skip via klik mouse 'Skip'")
+                    return True
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    return False
+
+
+def _synth_key(fr, ch):
+    """Fallback saluran ketik: dispatch KeyboardEvent sintetis (keydown +
+    keypress + keyup) langsung di dokumen frame. CDP kadang tidak masuk
+    di layar intro; beberapa engine edclub menerima event sintetis."""
+    try:
+        fr.evaluate("""(ch) => {
+            let code, kc;
+            if (ch === 'Enter') { code = 'Enter'; kc = 13; }
+            else if (ch === ' ') { code = 'Space'; kc = 32; }
+            else { code = 'Key' + ch.toUpperCase(); kc = ch.toUpperCase().charCodeAt(0); }
+            const mk = (type) => new KeyboardEvent(type, {
+                key: ch, code: code, keyCode: kc, which: kc,
+                bubbles: true, cancelable: true});
+            const kp = new KeyboardEvent('keypress', {
+                key: ch, code: code, keyCode: kc, which: kc, charCode: kc,
+                bubbles: true, cancelable: true});
+            for (const t of [window, document, document.body]) {
+                if (!t) continue;
+                try { t.dispatchEvent(mk('keydown')); } catch (e) {}
+                try { t.dispatchEvent(kp); } catch (e) {}
+                try { t.dispatchEvent(mk('keyup')); } catch (e) {}
+            }
+            return true;
+        }""", ch)
+        return True
+    except Exception:
+        return False
+
+
+def _click_labeled_key(key):
+    """Klik mouse SUNGGUHAN tombol keyboard layar yang BERLABEL huruf
+    target (mis. tombol 'f'). Input valid utk user sentuh. Dipakai HANYA
+    sebagai cadangan coba-4 (ketikan CDP beberapa kali tidak masuk)."""
+    if not key or len(key) != 1:
+        return False
+    for fr in all_frames():
+        try:
+            locs = fr.locator('[class*="key"], .keyboard *')
+            for i in range(min(locs.count(), 120)):
+                el = locs.nth(i)
+                txt = (el.inner_text(timeout=300) or "").strip()
+                if txt == key:
+                    el.click(timeout=1200)
+                    print(f"[Intro] klik tombol layar {key!r} (cadangan)")
+                    return True
+        except Exception:
+            continue
+    return False
+
+
 def handle_intro_steps():
     global _intro_sig, _intro_attempts, last_action_time
+    if _intro_attempts >= 8:
+        return False
     for fr in all_frames():
         res = run_js(INTRO_JS, fr)
         if not res:
@@ -1185,22 +1835,51 @@ def handle_intro_steps():
         else:
             key = "Enter"
         sig = (res["type"], key)
-        if sig == _intro_sig:
-            _intro_attempts += 1
-            if _intro_attempts > 6:
-                continue
-        else:
+        if sig != _intro_sig:
             _intro_sig = sig
-            _intro_attempts = 1
+            _intro_attempts = 0
+        _intro_attempts += 1
+        # POLA TUTORIAL (terbukti): tunggu layar STABIL dulu - instruksi
+        # sama 2x baca berturut-turut (jendela mati transisi ada di awal
+        # layar; menekan sebelum stabil = keystroke hilang).
+        stable = 0
+        for _ in range(10):
+            time.sleep(0.25)
+            now = run_js(INTRO_JS, fr)
+            same = bool(now) and (now.get("key"), now.get("type")) == (res.get("key"), res.get("type"))
+            if same:
+                stable += 1
+            else:
+                if now:
+                    res = now
+                stable = 0
+            if stable >= 2:
+                break
         focus_frame(fr)
         print(f"[Intro] instruksi: {res['type']} {key!r} (coba {_intro_attempts})")
-        try:
-            PAGE.keyboard.press(key)
-        except Exception:
-            return False
+        # SATU tekanan bersih. Tekanan ekstra saat layar sudah pindah =
+        # tombol salah di layar berikutnya (flash merah).
+        if _intro_attempts >= 4 and _intro_attempts % 2 == 0:
+            _click_labeled_key(key)
+        else:
+            try:
+                if key == "Enter":
+                    PAGE.keyboard.press("Enter")
+                else:
+                    PAGE.keyboard.type(key)
+            except Exception:
+                return False
+        # tunggu instruksi berganti secepat mungkin (poll 80 ms) supaya
+        # f->j praktis instan seperti tekanan manusia beruntun
+        for _ in range(30):
+            time.sleep(0.08)
+            now = run_js(INTRO_JS, fr)
+            if not now or (now.get("key"), now.get("type")) != (res.get("key"), res.get("type")):
+                stats["intro"] += 1
+                last_action_time = time.time()
+                return True
         stats["intro"] += 1
         last_action_time = time.time()
-        time.sleep(0.8)
         return True
     return False
 
@@ -1307,8 +1986,53 @@ LIST_URL = "https://www.edclub.com/sportal/program-3.game"
 _last_recovery = 0.0
 
 
+def _switch_to_playable_tab():
+    """Kalau ada tab edclub lain yang jelas punya pekerjaan (token _clr /
+    boxed aktif) sedangkan tab sekarang sunyi - pindah ke sana.
+    Return True kalau pindah."""
+    global PAGE, last_url, last_action_time
+    try:
+        pages = [pg for pg in browser.contexts[0].pages
+                 if pg is not PAGE]
+    except Exception:
+        return False
+    best, best_score = None, 0
+    for pg in pages:
+        try:
+            url = pg.url
+            if not _is_edclub_url(url):
+                continue
+            if ".play" not in url:
+                continue
+            info = pg.evaluate("() => {" + PLAYABLE_CHECK_JS + "}")
+            s = 0
+            if info:
+                if info.get("clr"):
+                    s += 5
+                elif info.get("boxed"):
+                    s += 3
+                if info.get("done"):
+                    s -= 8
+        except Exception:
+            continue
+        if s > best_score:
+            best, best_score = pg, s
+    if best is not None:
+        print(f"[TAB] pindah ke tab lain yang ada kerjaannya: "
+              f"{best.url.split('/')[-1]}")
+        PAGE = best
+        last_url = ""
+        last_action_time = time.time()
+        return True
+    return False
+
+
 def recover_and_restart_lesson():
-    """Buka tab baru ke daftar pelajaran, klik pelajaran berikutnya, tutup tab mati."""
+    """Buka ulang PELAJARAN YANG SAMA di tab baru, tutup tab mati.
+    Versi lama selalu ke daftar pelajaran lalu klik baris pertama yang
+    belum dikerjakan - itu membuat bot melompat ke unit lain dan
+    kelihatan seperti 'main level acak'. Fall back ke daftar hanya jika
+    URL lesson tidak diketahui."""
     global PAGE, last_typed_text, last_url, _last_recovery, last_action_time
     _last_recovery = time.time()
     print("[RECOVERY] Halaman macet/kosong, membuka ulang pelajaran...")
@@ -1317,39 +2041,58 @@ def recover_and_restart_lesson():
     except Exception as e:
         print(f"[RECOVERY] gagal bikin tab: {str(e)[:80]}")
         return False
-    try:
-        newpg.goto(LIST_URL, timeout=20000)
-    except Exception as e:
-        print(f"[RECOVERY] gagal buka daftar: {str(e)[:80]}")
+
+    target = last_url if (last_url and ".play" in last_url) else None
+    if target:
         try:
-            newpg.close()
+            newpg.goto(target, timeout=25000)
+            print(f"[RECOVERY] muat ulang lesson yang sama: {target.split('/')[-1]}")
+        except Exception as e:
+            print(f"[RECOVERY] gagal muat ulang: {str(e)[:80]}")
+            try:
+                newpg.close()
+            except Exception:
+                pass
+            return False
+    else:
+        try:
+            newpg.goto(LIST_URL, timeout=20000)
+        except Exception as e:
+            print(f"[RECOVERY] gagal buka daftar: {str(e)[:80]}")
+            try:
+                newpg.close()
+            except Exception:
+                pass
+            return False
+        try:
+            newpg.wait_for_selector("div.lsn_name", timeout=15000)
         except Exception:
             pass
-        return False
-    try:
-        newpg.wait_for_selector("div.lsn_name", timeout=15000)
-    except Exception:
-        pass
-    clicked = None
-    try:
-        clicked = newpg.evaluate("""
-        () => {
-            const rows = document.querySelectorAll('div.box-container.is_unlocked:not(.has_progress)');
-            for (const r of rows) {
-                const nm = r.querySelector('div.lsn_name');
-                if (nm) { nm.click(); return (nm.innerText||'').trim(); }
+        clicked = None
+        try:
+            clicked = newpg.evaluate("""
+            () => {
+                const rows = document.querySelectorAll('div.box-container.is_unlocked:not(.has_progress)');
+                for (const r of rows) {
+                    const nm = r.querySelector('div.lsn_name');
+                    if (nm) { nm.click(); return (nm.innerText||'').trim(); }
+                }
+                const any = document.querySelector('div.lsn_name');
+                if (any) { any.click(); return '(pertama) ' + (any.innerText||'').trim(); }
+                return null;
             }
-            const any = document.querySelector('div.lsn_name');
-            if (any) { any.click(); return '(pertama) ' + (any.innerText||'').trim(); }
-            return null;
-        }
-        """)
-    except Exception:
-        pass
-    if not clicked:
-        print("[RECOVERY] baris pelajaran tidak ditemukan")
-        return False
-    print(f"[RECOVERY] membuka pelajaran: {clicked}")
+            """)
+        except Exception:
+            pass
+        if not clicked:
+            print("[RECOVERY] baris pelajaran tidak ditemukan")
+            try:
+                newpg.close()
+            except Exception:
+                pass
+            return False
+        print(f"[RECOVERY] membuka pelajaran: {clicked}")
+
     for _ in range(15):
         try:
             newpg.wait_for_timeout(1000)
@@ -1378,12 +2121,15 @@ last_typed_text = ""
 last_action_time = time.time()
 last_debug_dump = 0.0
 last_url = ""
+_login_notice = 0.0
+_nav_try = 0.0
 stats = {"std": 0, "mini": 0, "ocr": 0, "popup": 0, "hold": 0, "uikey": 0, "tut": 0,
          "phaser": 0, "video": 0, "intro": 0}
 
 
 def main_loop():
-    global PAGE, last_url, last_debug_dump, last_action_time, _last_recovery, STATUS_URL
+    global PAGE, last_url, last_debug_dump, last_action_time, _last_recovery
+    global STATUS_URL, _login_notice, _nav_try
     if PAGE is None:
         try:
             connect()
@@ -1398,16 +2144,16 @@ def main_loop():
                 time.sleep(0.2)
                 continue
 
-            # anti-pause ringan tiap iterasi (banner "Start Typing" dll.)
+            # anti-pause ringan tiap iterasi (banner "Start Typing dll.")
             keep_alive_frames()
 
             url = PAGE.url
             STATUS_URL = url
-            if "edclub.com" not in url and "typingclub.com" not in url:
+            if not _is_edclub_url(url):
                 # coba cari ulang tab edclub (prioritas yang di halaman .play)
                 found = None
                 for pg in browser.contexts[0].pages:
-                    if "edclub.com" in pg.url or "typingclub.com" in pg.url:
+                    if _is_edclub_url(pg.url):
                         if ".play" in pg.url:
                             found = pg
                             break
@@ -1416,10 +2162,32 @@ def main_loop():
                 if found:
                     PAGE = found
                 else:
+                    # tidak ada tab edclub sama sekali: buka otomatis
+                    # (dulu bot diam saja menunggu selamanya)
+                    if time.time() - _nav_try > 45:
+                        _nav_try = time.time()
+                        try:
+                            PAGE.goto(LIST_URL, timeout=25000)
+                            print("[NAV] tab edclub tidak ada - dibuka otomatis")
+                        except Exception:
+                            pass
                     time.sleep(1)
                     continue
 
+            low = url.lower()
+            if "login" in low or "signin" in low or "sign-in" in low or "signup" in low:
+                # belum login: jangan spam recovery, tunggu user login manual
+                if time.time() - _login_notice > 30:
+                    _login_notice = time.time()
+                    print("[LOGIN] Halaman login terdeteksi. Login dulu di "
+                          "Brave, bot menunggu di sini...")
+                time.sleep(2)
+                continue
+
             if url != last_url:
+                # level baru: cooldown Phaser dari game sebelumnya tidak
+                # berlaku lagi (dulu bikin minigame berikutnya tunda 20 dtk)
+                _phaser_cooldown["until"] = 0.0
                 if last_url:
                     print(f"[PROGRES] {last_url.split('/')[-1]} -> {url.split('/')[-1]}  "
                           f"(std={stats['std']} tut={stats['tut']} mini={stats['mini']} "
@@ -1441,10 +2209,9 @@ def main_loop():
             elif state == "mini":
                 handle_minigame(frame, data)
             elif state == "score":
-                if press_enter_guarded():
-                    print("[Skor] Enter ditekan")
+                if advance_score_screen():
                     last_action_time = time.time()
-                time.sleep(0.5)
+                time.sleep(0.6)
             else:
                 if handle_intro_steps():
                     time.sleep(0.3)
@@ -1463,15 +2230,21 @@ def main_loop():
                     continue
                 if not try_ocr_minigame(data or {}):
                     stalled = time.time() - last_action_time
-                    if stalled > 40 and time.time() - _last_recovery > 60:
+                    # HEARTBEAT: bot tidak boleh pernah diam tanpa kabar.
+                    # (dulu: state unknown = sunyi total, kelihatan mati)
+                    if stalled > 20 and time.time() - last_debug_dump > 20:
+                        last_debug_dump = time.time()
+                        print(f"[TUNDA] tidak ada aktivitas {stalled:.0f}s di "
+                              f"{url.split('/')[-1]} - dumping state...")
+                        dump_debug_info()
+                    # Tab edclub lain mungkin punya pekerjaan (bot bisa
+                    # nyangkut di tab yang salah setelah navigasi manual).
+                    if stalled > 12 and _switch_to_playable_tab():
+                        continue
+                    if stalled > 25 and time.time() - _last_recovery > 45:
                         # halaman kemungkinan mati/kosong -> pulihkan otomatis
                         if not recover_and_restart_lesson():
                             _last_recovery = time.time()
-                    if stalled > STALL_WARN_SECONDS \
-                            and time.time() - last_debug_dump > STALL_WARN_SECONDS:
-                        last_debug_dump = time.time()
-                        print("[PERINGATAN] Tidak ada aktivitas, dumping state...")
-                        dump_debug_info()
 
             time.sleep(0.15)
 
