@@ -33,12 +33,54 @@ import time
 from PIL import Image
 from playwright.sync_api import sync_playwright
 
+try:
+    import keyboard as _kb
+    HAVE_HOTKEY = True
+except Exception:
+    HAVE_HOTKEY = False
+
 # output selalu langsung tampil (penting untuk .exe yang di-capture/di-pipe)
 try:
     sys.stdout.reconfigure(line_buffering=True)
     sys.stderr.reconfigure(line_buffering=True)
 except Exception:
     pass
+
+# ---------------------------------------------------------------------------
+# Kontrol: hotkey global (F9 pause, F10 kecepatan, F11 stop)
+# ---------------------------------------------------------------------------
+
+PAUSED = False
+STOP = False
+SPEEDS = [(1.0, "NORMAL"), (0.45, "CEPAT"), (1.8, "SANTAI")]
+SPEED_IDX = 0
+
+
+def _toggle_pause():
+    global PAUSED
+    PAUSED = not PAUSED
+    print(f">>> {'JEDA (paused)' if PAUSED else 'LANJUT (resume)'} <<<", flush=True)
+
+
+def _cycle_speed():
+    global SPEED_IDX
+    SPEED_IDX = (SPEED_IDX + 1) % len(SPEEDS)
+    print(f">>> KECEPATAN: {SPEEDS[SPEED_IDX][1]} <<<", flush=True)
+
+
+def _stop_bot():
+    global STOP
+    STOP = True
+    print(">>> STOP diminta, menutup bot... <<<", flush=True)
+
+
+if HAVE_HOTKEY:
+    try:
+        _kb.add_hotkey("f9", _toggle_pause)
+        _kb.add_hotkey("f10", _cycle_speed)
+        _kb.add_hotkey("f11", _stop_bot)
+    except Exception:
+        HAVE_HOTKEY = False
 
 BRAVE_BINARY = r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
 DEBUG_ADDRESS = "127.0.0.1:9222"
@@ -175,11 +217,23 @@ def siapkan_browser():
     return pw, browser, page
 
 
-pw, browser, PAGE = siapkan_browser()
-print(f"Terhubung! Tab aktif: {PAGE.url}")
+pw = None
+browser = None
+PAGE = None
+STATUS_URL = ""   # dibaca GUI (string biasa, aman lintas thread)
 
-if not OCR_AVAILABLE:
-    print("Catatan: 'winocr' tidak ada -> fallback OCR nonaktif (pip install winocr).")
+
+def connect():
+    """Sambungkan ke Brave. HARUS dipanggil dari thread yang sama dengan
+    main_loop() - objek Playwright tidak boleh dipakai lintas thread."""
+    global pw, browser, PAGE
+    if PAGE is not None:
+        return True
+    pw, browser, PAGE = siapkan_browser()
+    print(f"Terhubung! Tab aktif: {PAGE.url}")
+    if not OCR_AVAILABLE:
+        print("Catatan: 'winocr' tidak ada -> fallback OCR nonaktif (pip install winocr).")
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -216,13 +270,19 @@ def frame_label(frame):
 DETECT_JS = r"""
 const out = {std: null, mini: null, canvases: document.querySelectorAll('canvas').length, core: false};
 
-const stdEls = document.querySelectorAll('span.token_unit, .token_unit');
+// PENTING: teks lesson diambil HANYA dari token _clr (belum diketik).
+// Token salah (_err berisi karakter salah yang di-inject edclub ke teks)
+// tidak boleh ikut - kalau ikut, ekstraksi terkorupsi dan semua salah.
+// Efek samping positif: ini otomatis menangani lesson yang sebagian sudah
+// diketik dan baris baru yang muncul progresif (cukup re-ekstrak).
+const stdEls = document.querySelectorAll('span.token_unit._clr, ._clr > span.token_unit');
 if (stdEls.length > 0) {
     const result = [];
     for (const e of stdEls) {
         const txt = e.innerText || e.textContent;
         if (!txt) continue;
         if (txt.includes('↵') || txt.includes('\n')) result.push('\n');
+        else if (txt.includes('↹') || txt.includes('\t')) result.push('\t');
         else if (txt === '\u00A0' || txt === ' ') result.push(' ');
         else {
             const clean = txt.replace(/\r?\n|\r/g, '');
@@ -467,17 +527,27 @@ def close_overlays_all_frames():
 def type_chars(text, max_chars=None, slow=False):
     """Ketik via CDP. slow=True untuk tutorial boxed (animasi scroll-garis)."""
     lo, hi = (0.13, 0.24) if slow else (0.05, 0.10)
+    factor = SPEEDS[SPEED_IDX][0]
     for char in (text if max_chars is None else text[:max_chars]):
+        while PAUSED and not STOP:
+            time.sleep(0.15)
+        if STOP:
+            return False
         try:
             if char == "\n":
                 PAGE.keyboard.press("Enter")
                 time.sleep(0.08)
+            elif char == "\t":
+                PAGE.keyboard.press("Tab")
+                time.sleep(random.uniform(lo, hi) * factor)
             elif char == " ":
-                PAGE.keyboard.press(" ")
-                time.sleep(random.uniform(lo, hi))
+                # WAJIB type() bukan press(): engine butuh event keypress/input
+                # penuh untuk spasi - press() hanya kirim down/up = ditandai salah
+                PAGE.keyboard.type(" ")
+                time.sleep(random.uniform(lo, hi) * factor)
             else:
                 PAGE.keyboard.type(char)
-                time.sleep(random.uniform(lo, hi))
+                time.sleep(random.uniform(lo, hi) * factor)
         except Exception:
             return False
     return True
@@ -515,6 +585,61 @@ def focus_frame(frame):
 
 
 # ---------------------------------------------------------------------------
+# Anti-pause: edclub men-pause lesson saat window blur (banner "Start Typing").
+# Solusi: paksa hasFocus() selalu true + dispatch event focus + klik banner.
+# ---------------------------------------------------------------------------
+
+ANTI_PAUSE_JS = r"""
+try { Document.prototype.hasFocus = function () { return true; }; } catch (e) {}
+try { window.dispatchEvent(new Event('focus')); } catch (e) {}
+try { document.dispatchEvent(new Event('focus')); } catch (e) {}
+try { document.dispatchEvent(new Event('visibilitychange')); } catch (e) {}
+const b = document.querySelector('.drop-banner');
+if (b && (b.offsetWidth || b.offsetHeight)) {
+    try { b.click(); } catch (e) {}
+    return 'banner';
+}
+return true;
+"""
+
+
+def keep_alive_frames():
+    """Jalankan anti-pause di semua frame. Return True jika banner diklik."""
+    clicked = False
+    for fr in all_frames():
+        res = run_js(ANTI_PAUSE_JS, fr)
+        if res == "banner":
+            clicked = True
+    return clicked
+
+
+QUIET_ALIVE_JS = r"""
+// Versi TANPA KLIK: hanya patch fokus + dispatch event. Aman dipakai
+// berulang selama mengetik.
+try { Document.prototype.hasFocus = function () { return true; }; } catch (e) {}
+try { window.dispatchEvent(new Event('focus')); } catch (e) {}
+try { document.dispatchEvent(new Event('focus')); } catch (e) {}
+try { document.dispatchEvent(new Event('visibilitychange')); } catch (e) {}
+return true;
+"""
+
+
+def keep_alive_quiet(frame):
+    """Anti-pause tanpa klik apa pun (dipakai selama mengetik)."""
+    run_js(QUIET_ALIVE_JS, frame)
+
+
+def esc_modals_only(frame):
+    """Kirim ESC hanya jika ada modal achievement/premium betul-betul tampil.
+    Tidak ada klik sama sekali - aman di tengah ketikan."""
+    hint = run_js(MODAL_HINT_JS, frame)
+    if hint and (hint.get("achievement") or hint.get("premium")):
+        run_js(ESC_FALLBACK_JS, frame)
+        print(f"[Pop-up] modal ditutup via ESC saat mengetik "
+              f"({'achievement' if hint.get('achievement') else 'premium'})")
+
+
+# ---------------------------------------------------------------------------
 # Level standar (+ hold-key while typing)
 # ---------------------------------------------------------------------------
 
@@ -529,28 +654,128 @@ return null;
 """
 
 
+# Baca sisa teks yang masih harus diketik (hanya token _clr, urutan DOM).
+READ_REMAINING_JS = r"""
+const els = document.querySelectorAll('span.token_unit._clr');
+if (!els.length) return null;
+const out = [];
+for (const e of els) {
+    const txt = e.innerText || e.textContent;
+    if (!txt) continue;
+    if (txt.includes('↵') || txt.includes('\n')) out.push('\n');
+    else if (txt.includes('↹') || txt.includes('\t')) out.push('\t');
+    else if (txt === '\u00A0' || txt === ' ') out.push(' ');
+    else { const c = txt.replace(/\r?\n|\r/g, ''); if (c) out.push(c[0]); }
+}
+return out.join('');
+"""
+
+
+def read_remaining(frame):
+    """Sisa teks lesson (hanya token pending). None jika tak ada token."""
+    return run_js(READ_REMAINING_JS, frame)
+
+
+START_BANNER_JS = r"""
+// Klik banner "Start Typing" SEKALI di awal lesson (state pause awal).
+// JANGAN pernah mengklik apa pun saat sedang mengetik (bisa reset lesson!).
+const b = document.querySelector('.drop-banner');
+if (b && (b.offsetWidth || b.offsetHeight)) {
+    try { b.click(); return 'klik'; } catch (e) {}
+}
+return null;
+"""
+
+
+_std_last_rem = None
+_std_attempts = 0
+
+
 def handle_standard(frame, text):
-    global last_typed_text, last_action_time
-    if text == last_typed_text:
-        return False
+    global last_typed_text, last_action_time, _std_last_rem, _std_attempts
     hold = run_js(HOLD_LESSON_JS, frame) or {}
     hold_key = hold.get("key")
-    print(f"[Standard] Mengetik {len(text)} karakter: {text[:24]!r}..."
+
+    rem = read_remaining(frame)
+    if rem is None:
+        return False
+    # anti-busur: teks sama persis & sudah dicoba 3x -> diamkan (biarkan
+    # handler lain / recovery yang bekerja)
+    if rem == _std_last_rem:
+        _std_attempts += 1
+        if _std_attempts > 3:
+            return False
+    else:
+        _std_last_rem = rem
+        _std_attempts = 1
+
+    print(f"[Standard] Sisa {len(rem)} karakter: {rem[:24]!r}..."
           + (f" (TAHAN {hold_key!r})" if hold_key else ""))
     focus_frame(frame)
-    typed_ok = False
+
+    # stabilisasi: sisa teks tidak berubah sebentar (halaman siap)
+    for _ in range(8):
+        time.sleep(0.25)
+        r2 = read_remaining(frame)
+        if r2 is None or r2 != rem:
+            rem = r2
+            continue
+        break
+    if rem is None:
+        return False
+
+    # aktifkan lesson: klik banner "Start Typing" jika sedang tampil
+    if run_js(START_BANNER_JS, frame):
+        print("[Standard] banner Start Typing diklik")
+        time.sleep(0.6)
+        rem = read_remaining(frame) or ""
+
+    typed_any = False
     try:
         if hold_key:
             PAGE.keyboard.down(hold_key)
             time.sleep(0.15)
-        typed_ok = type_chars(text)
+        # KETIK SELF-CORRECTING: setiap potong, re-ekstrak sisa teks (_clr)
+        # lalu ketik 20 karakter pertamanya. PENTING: SELAMA MENGETIK tidak
+        # ada klik apa pun - klik di tengah ketikan bisa me-reset lesson.
+        CHUNK = 20
+        stall = 0
+        while True:
+            if STOP:
+                break
+            while PAUSED and not STOP:
+                time.sleep(0.15)
+            keep_alive_quiet(frame)
+            if not rem:
+                break
+            if not type_chars(rem[:CHUNK]):
+                break
+            typed_any = True
+            time.sleep(0.25)
+            rem2 = read_remaining(frame)
+            if rem2 is None or rem2 == "":
+                break  # tidak ada token tersisa = lesson selesai
+            if len(rem2) < len(rem):
+                rem = rem2
+                stall = 0
+            else:
+                stall += 1
+                if stall >= 3:
+                    print("[Standard] ketikan tidak masuk, lanjut transisi")
+                    break
+                # coba klik banner sekali sebagai pemulihan (lesson ter-pause)
+                if stall == 2 and run_js(START_BANNER_JS, frame):
+                    print("[Standard] banner pause muncul, diklik")
+                    rem = read_remaining(frame) or rem
+                time.sleep(0.5)
+            esc_modals_only(frame)
     finally:
         if hold_key:
             try:
                 PAGE.keyboard.up(hold_key)
             except Exception:
                 pass
-    if not typed_ok:
+    if not typed_any:
         return False
     last_typed_text = text
     stats["std"] += 1
@@ -658,9 +883,62 @@ c.record_keydown_time(chr);
 return {fed: true, chr: chr, idx: c.cur_char_index, ended: !!c.has_ended};
 """
 
+# Game multi-kata (pilih kata bebas): coba kandidat char dari semua kata
+# yang belum selesai, bukan hanya cur_char yang berurutan.
+PHASER_PROBE_JS = r"""
+const gs = [];
+for (const g of (window.Phaser ? Phaser.GAMES : [])) {
+    try {
+        const st = g.state.states[g.state.current];
+        if (st && st.core && typeof st.core.record_keydown_time === 'function') gs.push({g: g, st: st});
+    } catch (e) {}
+}
+if (!gs.length) return null;
+const pick = gs[gs.length - 1];
+if (pick.g.paused) { try { pick.g.paused = false; } catch (e) {} }
+const c = pick.st.core;
+if (c.has_ended) return {fed: false, ended: true};
+const want = arg;
+if (want) {
+    c.record_keydown_time(want);
+    return {fed: true, chr: want, idx: c.cur_char_index, word: c.cur_word_index,
+            ended: !!c.has_ended};
+}
+// kumpulkan kandidat: huruf pertama tiap kata yang belum selesai
+const cands = [];
+try {
+    for (const w of c.words) {
+        if (!w || !w.char_list || w.completed) continue;
+        const ch = w.char_list[w.index || 0] || w.char_list[0];
+        if (ch && cands.indexOf(ch) < 0) cands.push(ch);
+    }
+} catch (e) {}
+if (!cands.length && c.cur_char) cands.push(c.cur_char.chr);
+return {fed: false, cands: cands.slice(0, 8), idx: c.cur_char_index,
+        word: c.cur_word_index, ended: false};
+"""
+
+# cek state tanpa memberi ketikan
+PHASER_CHECK_JS = r"""
+const gs = [];
+for (const g of (window.Phaser ? Phaser.GAMES : [])) {
+    try {
+        const st = g.state.states[g.state.current];
+        if (st && st.core) gs.push(st.core);
+    } catch (e) {}
+}
+if (!gs.length) return null;
+const c = gs[gs.length - 1];
+return {idx: c.cur_char_index, word: c.cur_word_index, ended: !!c.has_ended};
+"""
+
+_phaser_cooldown = {"until": 0.0}
+
 
 def handle_phaser_minigame():
     global last_action_time
+    if time.time() < _phaser_cooldown["until"]:
+        return False
     for fr in all_frames():
         res = run_js(PHASER_FEED_JS, fr)
         if res is None or not res.get("fed"):
@@ -668,6 +946,7 @@ def handle_phaser_minigame():
         print(f"[Minigame/Phaser] {frame_label(fr)}: memberi ketikan via core API...")
         fed_total = 1
         stalled = 0
+        probed = False
         last_idx = res.get("idx")
         while fed_total < 150:
             time.sleep(random.uniform(0.05, 0.11))
@@ -677,8 +956,34 @@ def handle_phaser_minigame():
             idx = res.get("idx")
             if idx == last_idx:
                 stalled += 1
+                if stalled >= 4 and not probed:
+                    # cur_char tidak diterima -> game multi-kata (pilih bebas).
+                    # Coba kandidat huruf pertama dari tiap kata yang belum selesai.
+                    probed = True
+                    try:
+                        info = fr.evaluate(
+                            "(arg) => {" + PHASER_PROBE_JS + "}", None)
+                    except Exception:
+                        info = None
+                    cands = (info or {}).get("cands") or []
+                    print(f"[Minigame/Phaser] kandidat multi-kata: {cands!r}")
+                    for cand in cands:
+                        try:
+                            fr.evaluate(
+                                "(arg) => {" + PHASER_PROBE_JS + "}", cand)
+                        except Exception:
+                            continue
+                        time.sleep(0.3)
+                        chk = run_js(PHASER_CHECK_JS, fr)
+                        newidx = (chk or {}).get("idx")
+                        if newidx is not None and newidx != idx:
+                            print(f"[Minigame/Phaser] kata ditemukan via {cand!r}")
+                            stalled = 0
+                            last_idx = newidx
+                            break
                 if stalled >= 8:
-                    print("[Minigame/Phaser] indeks tidak maju, kembali ke loop utama")
+                    print("[Minigame/Phaser] indeks tidak maju, jeda 20 detik")
+                    _phaser_cooldown["until"] = time.time() + 20
                     break
             else:
                 stalled = 0
@@ -993,6 +1298,79 @@ def dump_debug_info():
 
 
 # ---------------------------------------------------------------------------
+# Recovery: halaman edclub mati/kosong -> buka tab baru + klik pelajaran aktif
+# (ditemukan: daftar pelajaran punya box-container.is_unlocked tanpa
+#  has_progress = pelajaran yang harus dikerjakan berikutnya)
+# ---------------------------------------------------------------------------
+
+LIST_URL = "https://www.edclub.com/sportal/program-3.game"
+_last_recovery = 0.0
+
+
+def recover_and_restart_lesson():
+    """Buka tab baru ke daftar pelajaran, klik pelajaran berikutnya, tutup tab mati."""
+    global PAGE, last_typed_text, last_url, _last_recovery, last_action_time
+    _last_recovery = time.time()
+    print("[RECOVERY] Halaman macet/kosong, membuka ulang pelajaran...")
+    try:
+        newpg = PAGE.context.new_page()
+    except Exception as e:
+        print(f"[RECOVERY] gagal bikin tab: {str(e)[:80]}")
+        return False
+    try:
+        newpg.goto(LIST_URL, timeout=20000)
+    except Exception as e:
+        print(f"[RECOVERY] gagal buka daftar: {str(e)[:80]}")
+        try:
+            newpg.close()
+        except Exception:
+            pass
+        return False
+    try:
+        newpg.wait_for_selector("div.lsn_name", timeout=15000)
+    except Exception:
+        pass
+    clicked = None
+    try:
+        clicked = newpg.evaluate("""
+        () => {
+            const rows = document.querySelectorAll('div.box-container.is_unlocked:not(.has_progress)');
+            for (const r of rows) {
+                const nm = r.querySelector('div.lsn_name');
+                if (nm) { nm.click(); return (nm.innerText||'').trim(); }
+            }
+            const any = document.querySelector('div.lsn_name');
+            if (any) { any.click(); return '(pertama) ' + (any.innerText||'').trim(); }
+            return null;
+        }
+        """)
+    except Exception:
+        pass
+    if not clicked:
+        print("[RECOVERY] baris pelajaran tidak ditemukan")
+        return False
+    print(f"[RECOVERY] membuka pelajaran: {clicked}")
+    for _ in range(15):
+        try:
+            newpg.wait_for_timeout(1000)
+        except Exception:
+            time.sleep(1)
+        if ".play" in newpg.url:
+            break
+    try:
+        old = PAGE
+        PAGE = newpg
+        if old is not newpg:
+            old.close()
+    except Exception:
+        pass
+    last_typed_text = ""
+    last_url = PAGE.url
+    last_action_time = time.time()
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Loop utama
 # ---------------------------------------------------------------------------
 
@@ -1003,80 +1381,110 @@ last_url = ""
 stats = {"std": 0, "mini": 0, "ocr": 0, "popup": 0, "hold": 0, "uikey": 0, "tut": 0,
          "phaser": 0, "video": 0, "intro": 0}
 
-print("Bot autopilot (Playwright) aktif di BACKGROUND. Ctrl+C untuk stop.")
 
-while True:
-    try:
-        url = PAGE.url
-        if "edclub.com" not in url and "typingclub.com" not in url:
-            # coba cari ulang tab edclub (user bisa pindah-pindah tab)
-            found = False
-            for pg in browser.contexts[0].pages:
-                if "edclub.com" in pg.url or "typingclub.com" in pg.url:
-                    PAGE = pg
-                    found = True
-                    break
-            if not found:
-                time.sleep(1)
+def main_loop():
+    global PAGE, last_url, last_debug_dump, last_action_time, _last_recovery, STATUS_URL
+    if PAGE is None:
+        try:
+            connect()
+        except SystemExit:
+            return
+    while True:
+        try:
+            if STOP:
+                print("Bot dihentikan.")
+                break
+            if PAUSED:
+                time.sleep(0.2)
                 continue
 
-        if url != last_url:
-            if last_url:
-                print(f"[PROGRES] {last_url.split('/')[-1]} -> {url.split('/')[-1]}  "
-                      f"(std={stats['std']} tut={stats['tut']} mini={stats['mini']} "
-                      f"phaser={stats['phaser']} ocr={stats['ocr']} hold={stats['hold']} "
-                      f"video={stats['video']} popup={stats['popup']})")
-            last_url = url
+            # anti-pause ringan tiap iterasi (banner "Start Typing" dll.)
+            keep_alive_frames()
 
-        if close_overlays_all_frames():
-            stats["popup"] += 1
-            time.sleep(0.6)
-            continue
+            url = PAGE.url
+            STATUS_URL = url
+            if "edclub.com" not in url and "typingclub.com" not in url:
+                # coba cari ulang tab edclub (prioritas yang di halaman .play)
+                found = None
+                for pg in browser.contexts[0].pages:
+                    if "edclub.com" in pg.url or "typingclub.com" in pg.url:
+                        if ".play" in pg.url:
+                            found = pg
+                            break
+                        if found is None:
+                            found = pg
+                if found:
+                    PAGE = found
+                else:
+                    time.sleep(1)
+                    continue
 
-        state, frame, data = detect_all_frames()
+            if url != last_url:
+                if last_url:
+                    print(f"[PROGRES] {last_url.split('/')[-1]} -> {url.split('/')[-1]}  "
+                          f"(std={stats['std']} tut={stats['tut']} mini={stats['mini']} "
+                          f"phaser={stats['phaser']} ocr={stats['ocr']} hold={stats['hold']} "
+                          f"video={stats['video']} popup={stats['popup']})")
+                last_url = url
 
-        if state == "std":
-            handle_standard(frame, data)
-        elif state == "tut":
-            handle_tutorial(frame, data)
-        elif state == "mini":
-            handle_minigame(frame, data)
-        elif state == "score":
-            if press_enter_guarded():
-                print("[Skor] Enter ditekan")
-                last_action_time = time.time()
+            if close_overlays_all_frames():
+                stats["popup"] += 1
+                time.sleep(0.6)
+                continue
+
+            state, frame, data = detect_all_frames()
+
+            if state == "std":
+                handle_standard(frame, data)
+            elif state == "tut":
+                handle_tutorial(frame, data)
+            elif state == "mini":
+                handle_minigame(frame, data)
+            elif state == "score":
+                if press_enter_guarded():
+                    print("[Skor] Enter ditekan")
+                    last_action_time = time.time()
+                time.sleep(0.5)
+            else:
+                if handle_intro_steps():
+                    time.sleep(0.3)
+                    continue
+                if handle_phaser_minigame():
+                    time.sleep(0.3)
+                    continue
+                if try_hold_level():
+                    time.sleep(0.4)
+                    continue
+                if click_screen_keyboard():
+                    time.sleep(0.4)
+                    continue
+                if handle_video_level():
+                    time.sleep(0.4)
+                    continue
+                if not try_ocr_minigame(data or {}):
+                    stalled = time.time() - last_action_time
+                    if stalled > 40 and time.time() - _last_recovery > 60:
+                        # halaman kemungkinan mati/kosong -> pulihkan otomatis
+                        if not recover_and_restart_lesson():
+                            _last_recovery = time.time()
+                    if stalled > STALL_WARN_SECONDS \
+                            and time.time() - last_debug_dump > STALL_WARN_SECONDS:
+                        last_debug_dump = time.time()
+                        print("[PERINGATAN] Tidak ada aktivitas, dumping state...")
+                        dump_debug_info()
+
+            time.sleep(0.15)
+
+        except KeyboardInterrupt:
+            print("Dihentikan manual.")
+            break
+        except Exception:
             time.sleep(0.5)
-        else:
-            if handle_intro_steps():
-                time.sleep(0.3)
-                continue
-            if handle_phaser_minigame():
-                time.sleep(0.3)
-                continue
-            if try_hold_level():
-                time.sleep(0.4)
-                continue
-            if click_screen_keyboard():
-                time.sleep(0.4)
-                continue
-            if handle_video_level():
-                time.sleep(0.4)
-                continue
-            if not try_ocr_minigame(data or {}):
-                if time.time() - last_action_time > STALL_WARN_SECONDS \
-                        and time.time() - last_debug_dump > STALL_WARN_SECONDS:
-                    last_debug_dump = time.time()
-                    print("[PERINGATAN] Tidak ada aktivitas, dumping state...")
-                    dump_debug_info()
 
-        time.sleep(0.15)
+    print(f"Selesai. Total: lesson={stats['std']} tutorial={stats['tut']} "
+          f"minigame={stats['mini']} phaser={stats['phaser']} ocr={stats['ocr']} "
+          f"hold={stats['hold']} video={stats['video']} popup={stats['popup']}")
 
-    except KeyboardInterrupt:
-        print("Dihentikan manual.")
-        break
-    except Exception:
-        time.sleep(0.5)
 
-print(f"Selesai. Total: lesson={stats['std']} tutorial={stats['tut']} "
-      f"minigame={stats['mini']} phaser={stats['phaser']} ocr={stats['ocr']} "
-      f"hold={stats['hold']} video={stats['video']} popup={stats['popup']}")
+if __name__ == "__main__":
+    main_loop()
