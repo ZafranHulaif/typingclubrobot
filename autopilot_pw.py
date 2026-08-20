@@ -59,6 +59,51 @@ try:
 except Exception:
     pass
 
+
+# Log file otomatis: semua output console TETAP tampil, tapi juga tersalin
+# ke bot.log di samping skrip (sama seperti versi GUI). Jadi log tinggal
+# dibaca dari file, tidak perlu copy-paste manual dari terminal.
+class _TeeWriter:
+    def __init__(self, stream, logpath):
+        self._stream = stream
+        try:
+            self._log = open(logpath, "a", encoding="utf-8", buffering=1)
+        except Exception:
+            self._log = None
+
+    def write(self, s):
+        try:
+            self._stream.write(s)
+        except Exception:
+            pass
+        try:
+            if self._log and s.strip():
+                self._log.write(s)
+        except Exception:
+            pass
+        return len(s)
+
+    def flush(self):
+        try:
+            self._stream.flush()
+        except Exception:
+            pass
+        try:
+            if self._log:
+                self._log.flush()
+        except Exception:
+            pass
+
+
+try:
+    _LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "bot.log")
+    sys.stdout = _TeeWriter(sys.stdout, _LOG_PATH)
+    sys.stderr = _TeeWriter(sys.stderr, _LOG_PATH)
+    print(f"== sesi {time.strftime('%Y-%m-%d %H:%M:%S')} ==")
+except Exception:
+    pass
+
 # ---------------------------------------------------------------------------
 # Kontrol: hotkey global (F9 pause, F10 kecepatan, F11 stop)
 # ---------------------------------------------------------------------------
@@ -131,6 +176,41 @@ def _is_edclub_url(url):
         h = (urlparse(url).hostname or "").lower()
     except Exception:
         return False
+    return h.endswith("edclub.com") or h.endswith("typingclub.com")
+
+
+def _real_url(pg):
+    """URL ASLI halaman via evaluate. TERBUKTI LIVE: page.url Playwright
+    bisa STALE - tab yang isinya sudah m.stripe.network masih melaporkan
+    URL edclub. location.href tidak pernah bohong."""
+    try:
+        u = pg.evaluate("() => location.href")
+        if u and isinstance(u, str):
+            return u
+    except Exception:
+        pass
+    try:
+        return pg.url
+    except Exception:
+        return ""
+
+
+def _frame_edclub(fr):
+    """Frame ini milik edclub? Frame Stripe checkout (iframe premium)
+    TIDAK BOLEH dijalankan klik apa pun - klik di dalamnya pernah
+    membawa tab ke checkout Stripe."""
+    try:
+        if fr == PAGE.main_frame:
+            return _is_edclub_url(_real_url(PAGE))
+    except Exception:
+        pass
+    try:
+        u = fr.url
+    except Exception:
+        return False
+    if not u or u.startswith("about:"):
+        return True
+    h = (urlparse(u).hostname or "").lower()
     return h.endswith("edclub.com") or h.endswith("typingclub.com")
 
 
@@ -290,7 +370,7 @@ def siapkan_browser():
     # menipu deteksi tab edclub.
     for pg in list(ctx.pages):
         try:
-            h = (urlparse(pg.url).hostname or "").lower()
+            h = (urlparse(_real_url(pg)).hostname or "").lower()
         except Exception:
             continue
         if "stripe" in h:
@@ -299,22 +379,48 @@ def siapkan_browser():
                 print(f"Tab sisa Stripe ditutup ({h})")
             except Exception:
                 pass
+    # Tab edclub sisa sesi lalu sering MATI (layar gelap / ter-bawa ke
+    # Stripe checkout) dan malah menang pemilihan tab - bot lalu nyangkut
+    # 20-25 detik sebelum recovery menyalakannya. Solusi: periksa
+    # kesehatan tiap tab, ambil SATU terbaik, tutup sisanya otomatis.
     edclub_tabs = []
     for pg in ctx.pages:
         try:
-            if _is_edclub_url(pg.url):
+            if _is_edclub_url(_real_url(pg)):
                 edclub_tabs.append(pg)
         except Exception:
             continue
-    if len(edclub_tabs) > 1:
-        print(f"Perhatian: {len(edclub_tabs)} tab edclub terbuka. "
-              "Tutup yang tidak dipakai biar bot tidak nyangkut di tab kosong.")
-    # Pilih tab yang paling mungkin punya pekerjaan: .play dengan token/
-    # canvas aktif > .play apa pun > tab edclub lain. (Dulu: tab pertama
-    # yang ketemu - kalau ada tab lama nyangkut, bot diam di situ.)
+    healthy = []
+    for pg in edclub_tabs:
+        try:
+            u1 = _real_url(pg)
+            time.sleep(0.25)
+            u2 = _real_url(pg)
+        except Exception:
+            continue
+        # URL masih berubah / pindah host = tab sedang restore atau
+        # replay redirect Stripe (hijack sisa sesi lama) - jangan dipakai.
+        if u1 != u2 or not _is_edclub_url(u2):
+            continue
+        try:
+            pg.evaluate("() => 1")   # renderer kritis -> raise di sini
+        except Exception:
+            continue
+        healthy.append(pg)
+    # Tutup tab edclub yang tidak sehat supaya tidak menumpuk.
+    for pg in edclub_tabs:
+        if pg not in healthy:
+            try:
+                pg.close()
+                print("Tab edclub mati/sisa ditutup otomatis")
+            except Exception:
+                pass
+    # Pilih yang paling mungkin punya pekerjaan: .play dengan token/canvas
+    # aktif > .play apa pun. Skor sama -> tab paling kanan (terbaru) menang;
+    # (dulu: skor sama dimenangkan tab pertama = tab lama yang mati).
     def _score(pg):
         try:
-            url = pg.url
+            url = _real_url(pg)
         except Exception:
             return -1
         s = 0
@@ -334,10 +440,46 @@ def siapkan_browser():
         except Exception:
             pass
         return s
-    if edclub_tabs:
-        page = max(edclub_tabs, key=_score)
+    if healthy:
+        page = max(healthy, key=lambda pg: (_score(pg), healthy.index(pg)))
+        others = [pg for pg in healthy if pg is not page]
+        for pg in others:
+            try:
+                pg.close()
+            except Exception:
+                pass
+        if others:
+            print(f"{len(others)} tab edclub lain ditutup otomatis "
+                  "(dipilih 1 tab terbaik)")
     if page is None:
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        # Kalau tidak ada tab edclub: buka tab baru. PERNAH GAGAL live:
+        # menutup tab Stripe sisa = satu-satunya tab di jendelanya ->
+        # Brave membongkar jendela itu -> Target.createTarget gagal sesaat.
+        # Solusi: retry + fallback ke tab yang ada / context baru.
+        for attempt in range(4):
+            try:
+                page = ctx.new_page()
+                break
+            except Exception as e:
+                print(f"Buka tab baru gagal ({attempt + 1}/4): {str(e)[:60]}")
+                time.sleep(1.5)
+        if page is None:
+            for c2 in browser.contexts:
+                try:
+                    if c2.pages:
+                        page = c2.pages[0]
+                        break
+                except Exception:
+                    continue
+        if page is None:
+            try:
+                page = browser.new_context().new_page()
+            except Exception:
+                pass
+        if page is None:
+            print("Gagal membuka tab. Buka edclub.com manual di Brave, "
+                  "lalu jalankan ulang program.")
+            sys.exit(1)
         print("Tab edclub belum ada. Membuka edclub.com otomatis...")
         try:
             page.goto("https://www.edclub.com/sportal/program-3.game",
@@ -369,7 +511,14 @@ def connect():
     global pw, browser, PAGE
     if PAGE is not None:
         return True
-    pw, browser, PAGE = siapkan_browser()
+    try:
+        pw, browser, PAGE = siapkan_browser()
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"Gagal menyambung ke Brave: {str(e)[:100]}")
+        print("Coba jalankan ulang program.")
+        sys.exit(1)
     print(f"Terhubung! Tab aktif: {PAGE.url}")
     if not OCR_AVAILABLE:
         print("Catatan: 'winocr' tidak ada -> fallback OCR nonaktif (pip install winocr).")
@@ -573,6 +722,20 @@ def detect_all_frames():
 
 OVERLAY_JS = r"""
 const taken = [];
+// Modal premium terlihat? JANGAN klik tombol lanjut apa pun - di level
+// premium klik "continue" edclub MEMBAWA TAB ke Stripe Checkout
+// (terbukti live di 2968: page.url tetap edclub, isi = m.stripe.network).
+const premModal = (() => {
+    try {
+        const dlgs = document.querySelectorAll('[class*="modal" i], [class*="popup" i], [class*="dialog" i], [role="dialog"]');
+        for (const d of dlgs) {
+            if (!(d.offsetWidth > 100 && d.offsetHeight > 80)) continue;
+            const t = (d.innerText || '').toLowerCase();
+            if (/premium|upgrade|subscription|subscribe|langganan|berlangganan|go pro|unlock all/.test(t)) return true;
+        }
+    } catch (e) {}
+    return false;
+})();
 const visible = el => { try { return !!(el.offsetWidth || el.offsetHeight); } catch (e) { return false; } };
 function doClick(el, why) { try { el.click(); taken.push(why); return true; } catch (e) { return false; } }
 
@@ -599,7 +762,7 @@ if (taken.length === 0) {
         const bt = document.body ? document.body.innerText.toLowerCase() : '';
         introScreen = bt.includes('new key introduction') || /^type the[\s\S]{1,20}?\s+key/m.test(bt.replace(/\u00a0/g, ' '));
     } catch (e) {}
-    if (!introScreen) {
+    if (!introScreen && !premModal) {
     const nextSels = ['.next-button', '.btn-continue', '.continue-button',
                       '[data-testid="lesson-next-btn"]', '.a-btn.next', '.navbar-continue'];
     outer2:
@@ -611,7 +774,7 @@ if (taken.length === 0) {
     }
 }
 
-{
+if (!premModal) {
     const want = {};
     for (const t of NEXT_TEXTS) want[t] = true;
     outer3:
@@ -666,6 +829,49 @@ for (const d of dlgs) {
 return null;
 """
 
+PREMIUM_MODAL_JS = r"""
+// Modal premium: return {x,y} = titik tombol X (edmodal-x) untuk klik
+// mouse asli, atau {zombie:true} kalau modal fullscreen TANPA X (iframe
+// checkout Stripe sudah mengambil alih). TERBUKTI LIVE di 2968: klik X
+// -> edclub otomatis lanjut ke lesson berikutnya (perilaku yang sama
+// dengan popup premium di akun teman: tutup = lanjut level).
+// CATATAN: JANGAN blokir request Stripe - modal yang checkout-nya gagal
+// termuat jadi zombie gelap menetap (ever terjadi: 'gelap' false alarm).
+let modal = null;
+for (const d of document.querySelectorAll('[class*="modal" i], [role="dialog"]')) {
+    if (d.offsetWidth > 100 && d.offsetHeight > 80) { modal = d; break; }
+}
+if (!modal) return null;
+let x = modal.querySelector('.edmodal-x');
+if (!x) x = modal.querySelector('[class*="close" i], [aria-label*="close" i]');
+if (x && (x.offsetWidth || x.offsetHeight)) {
+    const r = x.getBoundingClientRect();
+    const cx = r.left + r.width/2, cy = r.top + r.height/2;
+    const top = document.elementFromPoint(cx, cy);
+    if (top && (top === x || x.contains(top) || top.contains(x)) && !x.closest('iframe'))
+        return {x: cx, y: cy};
+}
+for (const el of modal.querySelectorAll('span, div, a, button, i')) {
+    if (!(el.offsetWidth || el.offsetHeight) || el.children.length > 1) continue;
+    const t = (el.innerText || '').trim();
+    if (t !== '\u00d7' && t !== '\u2715' && t.toLowerCase() !== 'x') continue;
+    const r = el.getBoundingClientRect();
+    if (r.width > 60 || r.height > 60) continue;
+    const cx = r.left + r.width/2, cy = r.top + r.height/2;
+    const top = document.elementFromPoint(cx, cy);
+    if (top && (top === el || el.contains(top) || top.contains(el)) && !el.closest('iframe'))
+        return {x: cx, y: cy};
+}
+for (const f of modal.querySelectorAll('iframe')) {
+    if ((f.src || '').toLowerCase().includes('stripe')) return {zombie: true};
+}
+const mt = (modal.innerText || '').toLowerCase();
+if (modal.offsetHeight > window.innerHeight * 0.5 &&
+    /premium|upgrade|subscription|langganan|berlangganan|go pro|unlock all/.test(mt))
+    return {zombie: true};
+return null;
+"""
+
 _repeat_click = {"label": "", "count": 0, "until": 0.0}
 
 
@@ -675,6 +881,8 @@ def close_overlays_all_frames():
         return 0
     total = 0
     for fr in all_frames():
+        if not _frame_edclub(fr):
+            continue
         taken = run_js(OVERLAY_JS, fr)
         if taken:
             print(f"[Pop-up] {frame_label(fr)}: {'; '.join(taken[:3])}")
@@ -684,22 +892,41 @@ def close_overlays_all_frames():
                 _repeat_click["count"] += 1
                 if _repeat_click["count"] >= 3:
                     # Klik JS x3 tanpa hasil = pop-up premium butuh gesture
-                    # sungguhan (klik JS tidak dianggap user gesture, sama
-                    # seperti tombol play video). Eskalasi: ESC + klik mouse
-                    # CDP pada tombol tutup yang terlihat.
+                    # sungguhan. Bahaya terbukti (live): klik mouse di area
+                    # iframe Stripe yang menutupi layar = TAB TERBAWA ke
+                    # checkout stripe -> bot nyangkut. Maka: hanya klik
+                    # elemen tutup yang 1) selektornya presisi (bukan
+                    # sembarang class mengandung huruf 'x') dan 2) titik
+                    # tengahnya BENAR-BENAR di atas elemen itu (cek
+                    # elementFromPoint), bukan di bawah iframe.
                     print("[Pop-up] klik tutup tanpa hasil - eskalasi "
-                          "ESC + klik mouse sungguhan")
+                          "ESC + klik mouse (dengan pengecekan posisi)")
                     run_js(ESC_FALLBACK_JS, fr)
-                    for sel in ('[class*="popup" i] [class*="x" i]',
-                                '[class*="modal" i] [class*="close" i]',
-                                '[class*="overlay" i] [class*="close" i]'):
+                    run_js(r"""
+// cari tombol tutup presisi + verifikasi tidak tertutup iframe
+const cands = [];
+for (const sel of ['[class*="popup" i] [class*="close" i]',
+                   '[class*="modal" i] [class*="close" i]',
+                   '[aria-label*="close" i]', '[data-dismiss]']) {
+    for (const el of document.querySelectorAll(sel)) {
+        if (!(el.offsetWidth || el.offsetHeight)) continue;
+        const r = el.getBoundingClientRect();
+        const cx = r.left + r.width/2, cy = r.top + r.height/2;
+        const top = document.elementFromPoint(cx, cy);
+        if (!top || (top !== el && !el.contains(top) && !top.contains(el))) continue;
+        if (el.querySelector('iframe') || el.closest('iframe')) continue;
+        cands.push({x: cx, y: cy});
+    }
+    if (cands.length) break;
+}
+window.__CLICKPT = cands.length ? cands[0] : null;
+""", fr)
+                    pt = run_js("return window.__CLICKPT;", fr)
+                    if pt:
                         try:
-                            loc = PAGE.locator(sel).first
-                            if loc.is_visible():
-                                loc.click(timeout=1500)
-                                break
+                            PAGE.mouse.click(pt["x"], pt["y"])
                         except Exception:
-                            continue
+                            pass
                     _repeat_click["until"] = time.time() + 8
                     _repeat_click["count"] = 0
             else:
@@ -708,12 +935,20 @@ def close_overlays_all_frames():
             break
     if total == 0:
         for fr in all_frames():
+            if not _frame_edclub(fr):
+                continue
             hint = run_js(MODAL_HINT_JS, fr)
-            if hint and (hint.get("achievement") or hint.get("premium")):
+            if hint and hint.get("achievement"):
                 if run_js(ESC_FALLBACK_JS, fr):
-                    print(f"[Pop-up] modal tanpa tombol tutup, kirim ESC "
-                          f"({'achievement' if hint.get('achievement') else 'premium'})")
+                    print("[Pop-up] modal tanpa tombol tutup, kirim ESC "
+                          "(achievement)")
                     total += 1
+                break
+            # JANGAN ESC modal premium: ESC pernah mengkonsumsi modal
+            # premium sekali-per-page-load TANPA memajukan level (log
+            # 08:02). Modal premium ditangani _premium_modal_action
+            # (klik X = edclub lanjut lesson berikutnya).
+            if hint and hint.get("premium"):
                 break
     return total
 
@@ -858,6 +1093,8 @@ def keep_alive_frames():
     """Jalankan anti-pause di semua frame. Return True jika banner diklik."""
     clicked = False
     for fr in all_frames():
+        if not _frame_edclub(fr):
+            continue
         res = run_js(ANTI_PAUSE_JS, fr)
         if res == "banner":
             clicked = True
@@ -1183,6 +1420,11 @@ def handle_standard(frame, text):
     if err_total:
         print(f"[Standard] lesson selesai dengan {err_total} karakter salah")
 
+    # Tunggu transisi post-lesson. PENTING: keluar SEGERA begitu URL
+    # berganti (level baru) - intro/skor->level baru tidak pernah
+    # menghasilkan state std/mini/tut, dulu loop ini burn deadline penuh
+    # (10+8 dtk) padahal level berikutnya sudah siap dikerjakan.
+    entry_url = PAGE.url
     deadline = time.time() + 10
     while time.time() < deadline:
         if close_overlays_all_frames():
@@ -1194,12 +1436,16 @@ def handle_standard(frame, text):
             time.sleep(0.8)
         if state in ("std", "mini", "tut"):
             break
+        if PAGE.url != entry_url:
+            break   # level sudah pindah - jangan tunggu sisa deadline
         time.sleep(0.25)
 
     deadline = time.time() + 8
     while time.time() < deadline:
         state, _, _ = detect_all_frames()
         if state != "unknown":
+            break
+        if PAGE.url != entry_url:
             break
         time.sleep(0.2)
     last_action_time = time.time()
@@ -1408,15 +1654,19 @@ if (want) {
 }
 // kumpulkan kandidat: huruf pertama tiap kata yang belum selesai
 const cands = [];
+let words_ok = false;
 try {
-    for (const w of c.words) {
-        if (!w || !w.char_list || w.completed) continue;
-        const ch = w.char_list[w.index || 0] || w.char_list[0];
-        if (ch && cands.indexOf(ch) < 0) cands.push(ch);
+    if (c.words && typeof c.words.length === 'number') {
+        words_ok = true;
+        for (const w of c.words) {
+            if (!w || !w.char_list || w.completed) continue;
+            const ch = w.char_list[w.index || 0] || w.char_list[0];
+            if (ch && cands.indexOf(ch) < 0) cands.push(ch);
+        }
     }
 } catch (e) {}
 if (!cands.length && c.cur_char) cands.push(c.cur_char.chr);
-return {fed: false, cands: cands.slice(0, 8), idx: c.cur_char_index,
+return {fed: false, cands: cands.slice(0, 8), words_ok: words_ok, idx: c.cur_char_index,
         word: c.cur_word_index, ended: false};
 """
 
@@ -1435,12 +1685,96 @@ return {idx: c.cur_char_index, word: c.cur_word_index, ended: !!c.has_ended};
 """
 
 _phaser_cooldown = {"until": 0.0}
+_phaser_freeze = {"url": "", "count": 0, "clicked": False}
+
+
+def _premium_modal_action():
+    """Cek modal premium di semua frame edclub. Kalau tombol X ada ->
+    klik mouse ASLI dan return 'clicked' (edclub lalu lanjut ke lesson
+    berikutnya sendiri; terbukti live di 2968 & 3094). Kalau modal ada
+    tanpa X -> return dict pm ({zombie:true} dll). Kalau tidak ada
+    modal -> None. PENTING: modal X cuma muncul ~3 detik di awal level,
+    lalu menghilang sendiri dan game jadi beku - jadi ini harus
+    dipanggil SERING di awal level (watch window)."""
+    for fr in all_frames():
+        if not _frame_edclub(fr):
+            continue
+        pm = run_js(PREMIUM_MODAL_JS, fr)
+        if pm and pm.get("x") is not None:
+            try:
+                PAGE.mouse.click(pm["x"], pm["y"])
+                print("[Premium] tombol X modal diklik - "
+                      "lanjut lesson berikutnya")
+                return "clicked"
+            except Exception:
+                pass
+        if pm:
+            return pm
+    return None
+
+
+def _phaser_try_advance():
+    """Game beku berulang kali -> lewati level game via tombol
+    lanjut (klik mouse asli). Game premium/bermasalah tidak boleh
+    mengunci progres selamanya (user: 'satu klik langsung ke lesson
+    berikutnya')."""
+    try:
+        loc = PAGE.locator(".navbar-continue, a.navbar-continue, "
+                           "[data-testid='lesson-next-btn'], .a-btn.next, "
+                           ".btn-continue, .continue-button, .next-button") \
+            .first
+        if loc.count() and loc.is_visible():
+            loc.click(timeout=2000)
+            print("[Minigame/Phaser] game beku - level dilewati via tombol lanjut")
+            _phaser_freeze["count"] = 0
+            _phaser_freeze["clicked"] = False
+            return True
+    except Exception:
+        pass
+    # Fallback: tombol berteks lanjut (di LUAR kontainer premium/iframe,
+    # titik klik terverifikasi elementFromPoint) -> klik mouse ASLI.
+    for fr in all_frames():
+        if not _frame_edclub(fr):
+            continue
+        pt = run_js(r"""
+const NX = ['next','continue','lanjut','mulai','selesai','skip','got it','ok'];
+for (const el of document.querySelectorAll('button, a, [role="button"]')) {
+    if (!(el.offsetWidth || el.offsetHeight)) continue;
+    const txt = (el.innerText || '').trim().toLowerCase();
+    if (!txt || txt.length > 14 || !NX.includes(txt)) continue;
+    try { if (el.closest('[class*="premium" i],[class*="upsell" i],[class*="paywall" i],[class*="checkout" i],[class*="stripe" i]')) continue; } catch (e) {}
+    const r = el.getBoundingClientRect();
+    if (r.width < 25 || r.height < 12) continue;
+    const cx = r.left + r.width/2, cy = r.top + r.height/2;
+    const top = document.elementFromPoint(cx, cy);
+    if (!top || (top !== el && !el.contains(top) && !top.contains(el))) continue;
+    if (el.querySelector('iframe') || el.closest('iframe')) continue;
+    return {x: cx, y: cy};
+}
+return null;
+""", fr)
+        if pt:
+            try:
+                PAGE.mouse.click(pt["x"], pt["y"])
+                print("[Minigame/Phaser] game beku - level dilewati "
+                      "via tombol berteks lanjut")
+                _phaser_freeze["count"] = 0
+                _phaser_freeze["clicked"] = False
+                return True
+            except Exception:
+                pass
+    return False
 
 
 def handle_phaser_minigame():
     global last_action_time
     if time.time() < _phaser_cooldown["until"]:
         return False
+    # Level premium: modal menutupi canvas, game mengabaikan ketikan
+    # (cur_char.valid=false). Modal+X muncul singkat di awal - klik X.
+    if _premium_modal_action() == "clicked":
+        last_action_time = time.time()
+        return True
     for fr in all_frames():
         res = run_js(PHASER_FEED_JS, fr)
         if res is None or not res.get("fed"):
@@ -1458,9 +1792,16 @@ def handle_phaser_minigame():
             idx = res.get("idx")
             if idx == last_idx:
                 stalled += 1
+                # modal premium bisa muncul kapan saja & mematikan game -
+                # cek X di tiap stall (modal X hanya hidup ~3 dtk)
+                if stalled >= 2 and _premium_modal_action() == "clicked":
+                    last_action_time = time.time()
+                    return True
                 if stalled >= 4 and not probed:
                     # cur_char tidak diterima -> game multi-kata (pilih bebas).
-                    # Coba kandidat huruf pertama dari tiap kata yang belum selesai.
+                    # Coba kandidat huruf pertama dari tiap kata yang belum
+                    # selesai. GUARD: core.words bisa BUKAN array di sebagian
+                    # game (2968) - kandidat jadi sampah, jangan percaya.
                     probed = True
                     try:
                         info = fr.evaluate(
@@ -1468,7 +1809,13 @@ def handle_phaser_minigame():
                     except Exception:
                         info = None
                     cands = (info or {}).get("cands") or []
-                    print(f"[Minigame/Phaser] kandidat multi-kata: {cands!r}")
+                    words_ok = bool((info or {}).get("words_ok"))
+                    if not words_ok:
+                        print("[Minigame/Phaser] struktur words tidak dikenal "
+                              "(bukan array char_list) - probe dilewati")
+                        cands = []
+                    else:
+                        print(f"[Minigame/Phaser] kandidat multi-kata: {cands!r}")
                     for cand in cands:
                         try:
                             fr.evaluate(
@@ -1484,8 +1831,45 @@ def handle_phaser_minigame():
                             last_idx = newidx
                             break
                 if stalled >= 8:
-                    print("[Minigame/Phaser] indeks tidak maju, jeda 20 detik")
-                    _phaser_cooldown["until"] = time.time() + 20
+                    # beku. Dua kemungkinan: (a) game menunggu interaksi
+                    # start (klik canvas) - coba SEKALI per URL; (b) game
+                    # benar-benar bermasalah - setelah 3x beku, lewati level.
+                    url_now = PAGE.url
+                    if _phaser_freeze["url"] != url_now:
+                        _phaser_freeze["url"] = url_now
+                        _phaser_freeze["count"] = 0
+                        _phaser_freeze["clicked"] = False
+                    _phaser_freeze["count"] += 1
+                    if not _phaser_freeze["clicked"]:
+                        _phaser_freeze["clicked"] = True
+                        try:
+                            cv = fr.locator("canvas").first
+                            if cv.count():
+                                cv.click(timeout=1500)
+                                print("[Minigame/Phaser] coba klik canvas "
+                                      "(start game)")
+                                time.sleep(1.5)
+                                chk = run_js(PHASER_CHECK_JS, fr)
+                                if (chk or {}).get("idx") != last_idx:
+                                    stalled = 0
+                                    continue
+                        except Exception:
+                            pass
+                    if _phaser_freeze["count"] >= 2:
+                        # modal premium bisa menutup canvas - cek X
+                        if _premium_modal_action() == "clicked":
+                            last_action_time = time.time()
+                            return True
+                    if _phaser_freeze["count"] >= 3:
+                        if _phaser_try_advance():
+                            last_action_time = time.time()
+                            return True
+                        if _skip_to_next_lesson("minigame beku"):
+                            last_action_time = time.time()
+                            return True
+                    print("[Minigame/Phaser] indeks tidak maju, jeda 6 detik "
+                          f"(beku #{_phaser_freeze['count']})")
+                    _phaser_cooldown["until"] = time.time() + 6
                     break
             else:
                 stalled = 0
@@ -1708,6 +2092,7 @@ return false;
 
 _intro_sig = None
 _intro_attempts = 0
+_intro_flow = False   # True = alur intro berjalan (f->j->d->k di level yang sama)
 
 
 SKIP_CLICK_JS = r"""
@@ -1820,7 +2205,7 @@ def _click_labeled_key(key):
 
 
 def handle_intro_steps():
-    global _intro_sig, _intro_attempts, last_action_time
+    global _intro_sig, _intro_attempts, last_action_time, _intro_flow
     if _intro_attempts >= 8:
         return False
     for fr in all_frames():
@@ -1839,12 +2224,16 @@ def handle_intro_steps():
             _intro_sig = sig
             _intro_attempts = 0
         _intro_attempts += 1
-        # POLA TUTORIAL (terbukti): tunggu layar STABIL dulu - instruksi
-        # sama 2x baca berturut-turut (jendela mati transisi ada di awal
-        # layar; menekan sebelum stabil = keystroke hilang).
+        # POLA TUTORIAL (terbukti): tunggu layar STABIL dulu sebelum menekan
+        # (jendela mati transisi; menekan terlalu dini = keystroke hilang).
+        # Layar PERTAMA di sebuah level: jendela matinya panjang (habis load
+        # level) -> 2x baca @0.25s. Layar BERIKUTNYA dalam alur intro yang
+        # sama (f->j->d->k): engine sudah hidup -> 2x baca @0.10s, tekanan
+        # berikutnya praktis instan (pola user "fj" cepat).
+        wait = 0.10 if _intro_flow else 0.25
         stable = 0
         for _ in range(10):
-            time.sleep(0.25)
+            time.sleep(wait)
             now = run_js(INTRO_JS, fr)
             same = bool(now) and (now.get("key"), now.get("type")) == (res.get("key"), res.get("type"))
             if same:
@@ -1876,11 +2265,13 @@ def handle_intro_steps():
             now = run_js(INTRO_JS, fr)
             if not now or (now.get("key"), now.get("type")) != (res.get("key"), res.get("type")):
                 stats["intro"] += 1
+                _intro_flow = True   # alur intro hidup: layar berikutnya cepat
                 last_action_time = time.time()
                 return True
         stats["intro"] += 1
         last_action_time = time.time()
         return True
+    _intro_flow = False   # tidak ada instruksi intro -> alur intro selesai
     return False
 
 
@@ -1984,6 +2375,8 @@ def dump_debug_info():
 
 LIST_URL = "https://www.edclub.com/sportal/program-3.game"
 _last_recovery = 0.0
+# Berapa kali lesson URL ini sudah di-recovery (guard anti loop level rusak)
+_recovery_counts = {}
 
 
 def _switch_to_playable_tab():
@@ -1999,7 +2392,7 @@ def _switch_to_playable_tab():
     best, best_score = None, 0
     for pg in pages:
         try:
-            url = pg.url
+            url = _real_url(pg)
             if not _is_edclub_url(url):
                 continue
             if ".play" not in url:
@@ -2044,6 +2437,20 @@ def recover_and_restart_lesson():
 
     target = last_url if (last_url and ".play" in last_url) else None
     if target:
+        n = _recovery_counts.get(target, 0)
+        _recovery_counts[target] = n + 1
+        if n >= 2:
+            # Lesson ini sudah 2x dimuat ulang tetap mati = level rusak
+            # (contoh: layar gelap premium macam level 106). Pilih lesson
+            # berikutnya SESUAI URUTAN DAFTAR - nomor URL edclub TIDAK
+            # berurutan (setelah 189 langsung 2959), jangan hitung N+1.
+            try:
+                newpg.close()
+            except Exception:
+                pass
+            if _skip_to_next_lesson("recovery berulang, level rusak"):
+                return True
+            return False
         try:
             newpg.goto(target, timeout=25000)
             print(f"[RECOVERY] muat ulang lesson yang sama: {target.split('/')[-1]}")
@@ -2093,6 +2500,13 @@ def recover_and_restart_lesson():
             return False
         print(f"[RECOVERY] membuka pelajaran: {clicked}")
 
+    _finish_recovery(newpg)
+    return True
+
+
+def _finish_recovery(newpg):
+    """ tunggu tab recovery siap, jadikan tab utama, tutup tab lama """
+    global PAGE, last_typed_text, last_url, last_action_time
     for _ in range(15):
         try:
             newpg.wait_for_timeout(1000)
@@ -2113,6 +2527,120 @@ def recover_and_restart_lesson():
     return True
 
 
+_hijack_counts = {}
+_broken_lessons = set()
+
+
+def _lesson_id(url):
+    m = re.search(r"/program-(\d+)/(\d+)\.play", url or "")
+    return int(m.group(2)) if m else None
+
+
+def _wait_play_url(newpg):
+    for _ in range(16):
+        time.sleep(0.5)
+        try:
+            u = newpg.evaluate("() => location.href")
+        except Exception:
+            u = None
+        if u and ".play" in u and _is_edclub_url(u):
+            return u
+    return None
+
+
+def _goto_next_lesson_in_list(newpg, current_url):
+    """Buka daftar pelajaran dan klik pelajaran berikutnya SESUAI URUTAN
+    KURSUS. NOMOR URL EDCLUB TIDAK BERURUTAN (terbukti: setelah 189.play
+    situs sendiri lanjut ke 2959.play) - JANGAN hitung N+1. Klik baris
+    pertama yang belum dikerjakan; kalau itu malah lesson yang baru
+    ditinggalkan (level rusak) atau lesson yang sudah ditandai rusak,
+    klik baris TEPAT SETELAH baris itu. Return URL .play, None jika gagal."""
+    cur = _lesson_id(current_url)
+    row = 0
+    for _ in range(6):
+        try:
+            newpg.goto(LIST_URL, timeout=25000)
+            newpg.wait_for_selector("div.box-container div.lsn_name",
+                                    timeout=15000)
+        except Exception:
+            continue
+        idx = newpg.evaluate("""(arg) => {
+            const rows = [...document.querySelectorAll('div.box-container')];
+            for (let i = arg; i < rows.length; i++) {
+                const cls = rows[i].className || '';
+                if (!cls.includes('is_unlocked') || cls.includes('has_progress')) continue;
+                const nm = rows[i].querySelector('div.lsn_name');
+                if (nm) { nm.click(); return i; }
+            }
+            return -1;
+        }""", row)
+        if idx is None or idx < 0:
+            continue
+        row = idx + 1
+        url = _wait_play_url(newpg)
+        if not url:
+            continue
+        lid = _lesson_id(url)
+        if lid != cur and lid not in _broken_lessons:
+            return url
+        # baris ini = level rusak itu sendiri / sudah ditandai rusak
+        # -> ulangi dari baris setelahnya.
+    return None
+
+
+def _skip_to_next_lesson(alasan):
+    """Level rusak/premium-beku: buka tab BARU ke pelajaran berikutnya
+    menurut URUTAN DAFTAR (bukan N+1 URL), tutup tab lama."""
+    global PAGE, last_url, last_action_time, _last_recovery
+    base = last_url if (last_url and ".play" in last_url) else ""
+    if not base:
+        try:
+            base = _real_url(PAGE)
+        except Exception:
+            base = ""
+    if ".play" not in base:
+        return False
+    lid = _lesson_id(base)
+    if lid:
+        _broken_lessons.add(lid)
+    # Coba di TAB YANG SAMA dulu (tanpa buka tab baru - user terganggu
+    # dengan tab baru terus-menerus). Tab baru hanya kalau tab sekarang
+    # mati (evaluate/goto gagal).
+    url = None
+    newpg = PAGE
+    try:
+        url = _goto_next_lesson_in_list(newpg, base)
+    except Exception:
+        url = None
+    if url is None:
+        try:
+            newpg = PAGE.context.new_page()
+            url = _goto_next_lesson_in_list(newpg, base)
+        except Exception:
+            url = None
+        if url is None:
+            try:
+                newpg.close()
+            except Exception:
+                pass
+            return False
+        old = PAGE
+        PAGE = newpg
+        try:
+            if old is not newpg:
+                old.close()
+        except Exception:
+            pass
+    _recovery_counts.pop(base, None)
+    _hijack_counts.pop(base, None)
+    last_url = PAGE.url
+    last_action_time = time.time()
+    _last_recovery = time.time()
+    print(f"[SKIP] {alasan} - lanjut ke {url.split('/')[-1]} "
+          f"(urutan daftar pelajaran)")
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Loop utama
 # ---------------------------------------------------------------------------
@@ -2121,15 +2649,43 @@ last_typed_text = ""
 last_action_time = time.time()
 last_debug_dump = 0.0
 last_url = ""
+_premlock_since = 0.0
 _login_notice = 0.0
+_stripe_sweep_last = 0.0
 _nav_try = 0.0
 stats = {"std": 0, "mini": 0, "ocr": 0, "popup": 0, "hold": 0, "uikey": 0, "tut": 0,
          "phaser": 0, "video": 0, "intro": 0}
 
 
+def _sweep_stripe_tabs(force=False):
+    """Tutup TAB Stripe liar kapan pun mereka muncul. Dulu pembersihan
+    hanya jalan saat TAB UTAMA kabur ke Stripe - padahal modal premium
+    (iframe checkout) juga bisa membuka/men-navigasi tab LAIN diam-diam,
+    sehingga sesi berikutnya selalu dibuka dengan sisa 'Stripe'."""
+    global _stripe_sweep_last
+    now = time.time()
+    if not force and now - _stripe_sweep_last < 5.0:
+        return
+    _stripe_sweep_last = now
+    try:
+        for c in browser.contexts:
+            for pg in list(c.pages):
+                if pg is PAGE:
+                    continue
+                try:
+                    h = (urlparse(_real_url(pg)).hostname or "").lower()
+                except Exception:
+                    continue
+                if "stripe" in h:
+                    pg.close()
+                    print("[TAB] tab Stripe liar ditutup")
+    except Exception:
+        pass
+
+
 def main_loop():
     global PAGE, last_url, last_debug_dump, last_action_time, _last_recovery
-    global STATUS_URL, _login_notice, _nav_try
+    global STATUS_URL, _login_notice, _nav_try, _intro_flow, _premlock_since
     if PAGE is None:
         try:
             connect()
@@ -2146,15 +2702,44 @@ def main_loop():
 
             # anti-pause ringan tiap iterasi (banner "Start Typing dll.")
             keep_alive_frames()
+            _sweep_stripe_tabs()
 
             url = PAGE.url
+            # page.url Playwright bisa STALE: tab berisi Stripe checkout
+            # masih melaporkan URL edclub (terbukti live). Percayai
+            # location.href; kalau host = stripe/checkout = tab dibajak.
+            try:
+                real = _real_url(PAGE)
+            except Exception:
+                real = url
+            if _is_edclub_url(real):
+                url = real
+            else:
+                try:
+                    rh = (urlparse(real).hostname or "").lower()
+                except Exception:
+                    rh = ""
+                if "stripe" in rh or "checkout" in rh:
+                    url = real
             STATUS_URL = url
             if not _is_edclub_url(url):
+                # tab bisa ter-bawa navigasi ke Stripe checkout (dibuktikan
+                # live: klik di area iframe premium = top-level navigation).
+                # Tutup tab stripe yang menganggur, lalu cari/buat tab edclub.
+                try:
+                    for pg in list(browser.contexts[0].pages):
+                        h = (urlparse(_real_url(pg)).hostname or "").lower()
+                        if "stripe" in h and pg is not PAGE:
+                            pg.close()
+                            print("[TAB] tab Stripe sisa ditutup")
+                except Exception:
+                    pass
                 # coba cari ulang tab edclub (prioritas yang di halaman .play)
                 found = None
                 for pg in browser.contexts[0].pages:
-                    if _is_edclub_url(pg.url):
-                        if ".play" in pg.url:
+                    pu = _real_url(pg)
+                    if _is_edclub_url(pu):
+                        if ".play" in pu:
                             found = pg
                             break
                         if found is None:
@@ -2162,15 +2747,41 @@ def main_loop():
                 if found:
                     PAGE = found
                 else:
-                    # tidak ada tab edclub sama sekali: buka otomatis
-                    # (dulu bot diam saja menunggu selamanya)
-                    if time.time() - _nav_try > 45:
+                    # Tidak ada tab edclub sama sekali. Buka TAB BARU (bukan
+                    # goto dari konteks Stripe - pernah diblokir Brave), lalu
+                    # tutup tab lama. Lesson yang sama dibajak 2x = level
+                    # premium rusak -> langsung lompat ke berikutnya.
+                    if time.time() - _nav_try > 10:
                         _nav_try = time.time()
+                        key = last_url if (last_url and ".play" in last_url) else url
+                        n = _hijack_counts.get(key, 0) + 1
+                        _hijack_counts[key] = n
+                        if n >= 2 and _skip_to_next_lesson(
+                                "tab berulang kali dibawa ke Stripe"):
+                            _hijack_counts.pop(key, None)
+                            continue
+                        target = key if ".play" in key else LIST_URL
+                        newpg = None
                         try:
-                            PAGE.goto(LIST_URL, timeout=25000)
-                            print("[NAV] tab edclub tidak ada - dibuka otomatis")
+                            newpg = PAGE.context.new_page()
+                            newpg.goto(target, timeout=25000)
+                            old = PAGE
+                            PAGE = newpg
+                            try:
+                                if old is not newpg:
+                                    old.close()
+                            except Exception:
+                                pass
+                            last_url = PAGE.url
+                            last_action_time = time.time()
+                            print(f"[NAV] tab dibajak Stripe - tab baru ke "
+                                  f"{target.split('/')[-1]}")
                         except Exception:
-                            pass
+                            if newpg is not None:
+                                try:
+                                    newpg.close()
+                                except Exception:
+                                    pass
                     time.sleep(1)
                     continue
 
@@ -2188,12 +2799,30 @@ def main_loop():
                 # level baru: cooldown Phaser dari game sebelumnya tidak
                 # berlaku lagi (dulu bikin minigame berikutnya tunda 20 dtk)
                 _phaser_cooldown["until"] = 0.0
+                _phaser_freeze["url"] = ""
+                _phaser_freeze["count"] = 0
+                _phaser_freeze["clicked"] = False
+                _intro_flow = False   # layar intro pertama level ini = settle penuh
+                _premlock_since = 0.0
                 if last_url:
                     print(f"[PROGRES] {last_url.split('/')[-1]} -> {url.split('/')[-1]}  "
                           f"(std={stats['std']} tut={stats['tut']} mini={stats['mini']} "
                           f"phaser={stats['phaser']} ocr={stats['ocr']} hold={stats['hold']} "
                           f"video={stats['video']} popup={stats['popup']})")
                 last_url = url
+
+            # Watch window: klik X modal premium SEBELUM penutup pop-up
+            # dan handler mana pun. TERBUKTI LIVE: modal premium edclub
+            # hanya SEKALI per page-load; ESC/klik salah dari penutup
+            # pop-up pernah MENGKONSUMSI modal itu (log 08:02: 'kirim ESC
+            # (premium)') -> level premium berikutnya tak pernah dapat
+            # modal -> game beku. X diklik = edclub lanjut sendiri.
+            # (berlaku sepanjang waktu, bukan hanya awal level: upsell
+            # premium juga muncul di akhir lesson, macam di 2967)
+            if _premium_modal_action() == "clicked":
+                last_action_time = time.time()
+                time.sleep(0.8)
+                continue
 
             if close_overlays_all_frames():
                 stats["popup"] += 1
@@ -2213,8 +2842,27 @@ def main_loop():
                     last_action_time = time.time()
                 time.sleep(0.6)
             else:
+                # Modal premium: setelah watch window, modal zombie
+                # (fullscreen checkout tanpa X) -> tunggu 12 dtk lalu
+                # lewati sesuai urutan daftar.
+                pm = _premium_modal_action()
+                if pm == "clicked":
+                    last_action_time = time.time()
+                    time.sleep(0.6)
+                    continue
+                if pm and pm.get("zombie"):
+                    if _premlock_since == 0.0:
+                        _premlock_since = time.time()
+                        print("[Premium] modal fullscreen tanpa X "
+                              "(checkout Stripe) - menunggu...")
+                    elif time.time() - _premlock_since > 12.0:
+                        if _skip_to_next_lesson("modal premium tak tertutup"):
+                            _premlock_since = 0.0
+                            continue
+                else:
+                    _premlock_since = 0.0
                 if handle_intro_steps():
-                    time.sleep(0.3)
+                    time.sleep(0.05)
                     continue
                 if handle_phaser_minigame():
                     time.sleep(0.3)
@@ -2232,16 +2880,49 @@ def main_loop():
                     stalled = time.time() - last_action_time
                     # HEARTBEAT: bot tidak boleh pernah diam tanpa kabar.
                     # (dulu: state unknown = sunyi total, kelihatan mati)
-                    if stalled > 20 and time.time() - last_debug_dump > 20:
+                    if stalled > 10 and time.time() - last_debug_dump > 10:
                         last_debug_dump = time.time()
                         print(f"[TUNDA] tidak ada aktivitas {stalled:.0f}s di "
                               f"{url.split('/')[-1]} - dumping state...")
                         dump_debug_info()
+                    # Level premium yang modal-nya sudah tertutup tapi layar
+                    # masih gelap & tak ada kerjaan (edclub bug, level 106):
+                    # SATU klik tombol lanjut langsung ke lesson berikutnya
+                    # (perilaku terverifikasi user). Coba sebelum recovery.
+                    if stalled > 6:
+                        prem = False
+                        for fr2 in all_frames():
+                            h = run_js(MODAL_HINT_JS, fr2)
+                            if h and h.get("premium"):
+                                prem = True
+                                break
+                        if prem:
+                            # TANPA Enter (form checkout bisa menangkap Enter)
+                            # - langsung klik mouse asli di tombol lanjut.
+                            clicked_prem = False
+                            try:
+                                loc = PAGE.locator(
+                                    ".navbar-continue, a.navbar-continue").first
+                                if loc.count() and loc.is_visible():
+                                    loc.click(timeout=2000)
+                                    clicked_prem = True
+                                    print("[Premium] layar gelap premium - "
+                                          "lanjut ke lesson berikutnya")
+                                    last_action_time = time.time()
+                                    continue
+                            except Exception:
+                                pass
+                            # Tidak ada tombol lanjut -> level memang rusak:
+                            # lompat langsung, jangan tunggu recovery.
+                            if not clicked_prem and _skip_to_next_lesson(
+                                    "layar gelap premium tanpa tombol lanjut"):
+                                last_action_time = time.time()
+                                continue
                     # Tab edclub lain mungkin punya pekerjaan (bot bisa
                     # nyangkut di tab yang salah setelah navigasi manual).
-                    if stalled > 12 and _switch_to_playable_tab():
+                    if stalled > 6 and _switch_to_playable_tab():
                         continue
-                    if stalled > 25 and time.time() - _last_recovery > 45:
+                    if stalled > 12 and time.time() - _last_recovery > 25:
                         # halaman kemungkinan mati/kosong -> pulihkan otomatis
                         if not recover_and_restart_lesson():
                             _last_recovery = time.time()
@@ -2254,6 +2935,7 @@ def main_loop():
         except Exception:
             time.sleep(0.5)
 
+    _sweep_stripe_tabs(force=True)
     print(f"Selesai. Total: lesson={stats['std']} tutorial={stats['tut']} "
           f"minigame={stats['mini']} phaser={stats['phaser']} ocr={stats['ocr']} "
           f"hold={stats['hold']} video={stats['video']} popup={stats['popup']}")

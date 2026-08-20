@@ -15,3 +15,7 @@ dist/
 
 # Log output yang di-paste
 paste_*.txt
+
+# Log sesi bot & dump debug
+bot.log
+_*.txt
