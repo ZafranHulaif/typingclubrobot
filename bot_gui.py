@@ -869,7 +869,9 @@ def dialog_pilih_browser(induk, detected, dipilih="Otomatis", profil="bot"):
                           "Kalau tidak yakin, pilih Otomatis.",
              font=("Segoe UI", 8), fg=FAINT, bg=PANEL,
              wraplength=470, justify="left").pack(anchor="w", pady=(10, 0))
-    d.tombol("Batal", None, primer=False)
+    # Batal HARUS None eksplisit: tombol() tanpa nilai mengembalikan TEKS
+    # tombol ("Batal", truthy) - dulu pemanggil menganggapnya pilihan sah.
+    d.tombol("Batal", None, primer=False, cmd=lambda: d.selesai(None))
     d.tombol("Pilih", None, cmd=lambda: d.selesai((d.pilihan, d.profil)))
     return d.tampilkan()
 
@@ -907,7 +909,12 @@ def dialog_pilih_profil(induk, nama_browser, daftar, dipilih_dir=""):
     PALET = ("#4f8cff", "#3ecf6e", "#e8b339", "#e05555", "#a78bfa",
              "#2dd4bf", "#fb923c", "#f472b6")
 
-    for ix, p in enumerate(daftar):
+    def buat_baris(p, ix):
+        # scope PER BARIS (fungsi terpisah): semua closure (klik/render/
+        # hover) harus melihat p yang benar - dulu loop langsung di badan
+        # dialog -> semua baris memanggil pilih_baris(profil TERAKHIR),
+        # jadi pilihan selalu loncat ke satu profil yang sama (keluhan
+        # user: 'dipaksa zafran').
         wrap = tk.Frame(d.body, bg=CARD, highlightthickness=1,
                         highlightbackground=EDGE, cursor="hand2")
         wrap.pack(fill="x", pady=3)
@@ -962,9 +969,14 @@ def dialog_pilih_profil(induk, nama_browser, daftar, dipilih_dir=""):
             wdgt.bind("<Leave>", leave)
         baris_profil.append((st, render))
         render()
+
+    for ix, p in enumerate(daftar):
+        buat_baris(p, ix)
     pilih_baris(d.hasil_profil)
 
-    d.tombol("Batal", None, primer=False)
+    # Batal = None eksplisit (bukan teks tombol yang truthy - lihat
+    # dialog_pilih_browser); None = batal -> pemanggil pakai profil khusus.
+    d.tombol("Batal", None, primer=False, cmd=lambda: d.selesai(None))
     d.tombol("Pilih Profil", None,
              cmd=lambda: d.selesai(dict(d.hasil_profil)))
     return d.tampilkan()
@@ -1180,7 +1192,10 @@ def dialog_aktivasi(induk):
                              "Periksa lagi, atau minta kunci baru.")
         return False
 
-    d.tombol("Nanti Saja", None, primer=False)
+    # 'Nanti Saja' harus False eksplisit: tombol() tanpa nilai
+    # mengembalikan teks tombol (truthy) - dulu menekan 'Nanti Saja'
+    # malah DIANGGAP AKTIVASI BERHASIL oleh pemanggil (bug lisensi!).
+    d.tombol("Nanti Saja", None, primer=False, cmd=lambda: d.selesai(False))
     d.tombol("Aktivasi", True, cmd=coba)
     ent.bind("<Return>", lambda e: coba())
     return d.tampilkan()
@@ -2380,7 +2395,7 @@ class App:
         """Klik chip browser: buka popup kartu logo untuk mengganti."""
         hasil = dialog_pilih_browser(self.root, self._detected,
                                      self.browser_var.get(), self._profile)
-        if hasil is None:
+        if not (isinstance(hasil, tuple) and len(hasil) == 2):
             return
         nama, profil = hasil
         self.browser_var.set(nama)
@@ -2425,7 +2440,7 @@ class App:
         if self._first_run:
             hasil = dialog_pilih_browser(self.root, self._detected,
                                          self.browser_var.get(), self._profile)
-            if hasil is None:
+            if not (isinstance(hasil, tuple) and len(hasil) == 2):
                 return
             self.browser_var.set(hasil[0])
             self._profile = hasil[1]
