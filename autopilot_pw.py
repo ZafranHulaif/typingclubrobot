@@ -29,6 +29,7 @@ import random
 import re
 import subprocess
 import sys
+import threading
 import time
 from urllib.parse import urlparse
 
@@ -94,10 +95,23 @@ class _TeeWriter:
         except Exception:
             pass
 
+    def fileno(self):
+        # beberapa modul (faulthandler, subprocess) butuh fd sungguhan
+        return self._stream.fileno()
+
+    def isatty(self):
+        try:
+            return self._stream.isatty()
+        except Exception:
+            return False
+
 
 try:
-    _LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             "bot.log")
+    # saat di-bundle jadi .exe, __file__ menunjuk folder temp PyInstaller
+    # yang dihapus saat program keluar -> pakai lokasi .exe sendiri.
+    _BASE = (os.path.dirname(sys.executable) if getattr(sys, "frozen", False)
+             else os.path.dirname(os.path.abspath(__file__)))
+    _LOG_PATH = os.path.join(_BASE, "bot.log")
     sys.stdout = _TeeWriter(sys.stdout, _LOG_PATH)
     sys.stderr = _TeeWriter(sys.stderr, _LOG_PATH)
     print(f"== sesi {time.strftime('%Y-%m-%d %H:%M:%S')} ==")
@@ -110,6 +124,20 @@ except Exception:
 
 PAUSED = False
 STOP = False
+PERLU_LOGIN = False      # True = sesi edclub mati; GUI memunculkan popup login
+MINTA_LOGIN_NAV = False   # GUI meminta bot membuka halaman login edclub
+MINTA_LOGIN_URL = ""      # URL login pilihan GUI (individu / sekolah)
+LOGIN_DICEK = False       # True setelah patroli login berjalan minimal 1x
+TUNGGU_RENTANG = False    # True = GUI sedang menanya rentang; bot menunggu
+LOGIN_URL_INDIVIDU = "https://www.edclub.com/signin"   # Individual Edition
+LOGIN_URL_SEKOLAH = "https://sportal.edclub.com/"      # akun sekolah (Google)
+MINTA_BANGUN_PETA = False # GUI meminta bot membangun peta level lengkap
+RENTANG_SELESAI = False   # True = mencapai level akhir rentang pilihan user
+LEVEL_START = 1           # rentang level pilihan user (GUI)
+LEVEL_END = 0             # 0 = tanpa batas akhir
+RENTANG_SIAP = False      # True setelah user menjawab dialog rentang di Start
+MENUNGGU_SETUP = False    # True = menunggu user menyelesaikan set-up first-run browser
+HOTKEY_AKTIF = True       # False = F9/F10/F11 diabaikan (toggle GUI)
 SPEEDS = [(140, "NORMAL (140 wpm)"), (200, "CEPAT (200 wpm)"), (85, "SANTAI (85 wpm)")]
 SPEED_IDX = 0
 
@@ -132,17 +160,58 @@ def _stop_bot():
     print(">>> STOP diminta, menutup bot... <<<", flush=True)
 
 
+# Wrapper cek HOTKEY_AKTIF: hook keyboard TIDAK dilepas-lepas saat toggle
+# (re-hook bisa gagal diam-diam) - cukup diabaikan saat nonaktif. User bisa
+# memakai F9/F10/F11 untuk aplikasi lain tanpa takut menggerakkan bot.
+def _hk_pause():
+    if HOTKEY_AKTIF:
+        _toggle_pause()
+
+
+def _hk_speed():
+    if HOTKEY_AKTIF:
+        _cycle_speed()
+
+
+def _hk_stop():
+    if HOTKEY_AKTIF:
+        _stop_bot()
+
+
 if HAVE_HOTKEY:
     try:
-        _kb.add_hotkey("f9", _toggle_pause)
-        _kb.add_hotkey("f10", _cycle_speed)
-        _kb.add_hotkey("f11", _stop_bot)
+        _kb.add_hotkey("f9", _hk_pause)
+        _kb.add_hotkey("f10", _hk_speed)
+        _kb.add_hotkey("f11", _hk_stop)
     except Exception:
         HAVE_HOTKEY = False
 
-BRAVE_BINARY = r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
+# Browser bawaan Chromium apa pun bisa. Urutan preferensi: Brave (yang
+# dipakai selama pengembangan) -> Chrome -> Edge (bawaan Windows, jadi
+# teman yang tidak install apa pun tetap bisa pakai).
+# Override manual: set env TYPINGBOT_BROWSER=path\ke\browser.exe
+BROWSER_CANDIDATES = [
+    {"name": "Brave", "proc": "brave.exe", "paths": [
+        r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+        r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+    ]},
+    {"name": "Chrome", "proc": "chrome.exe", "paths": [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+    ]},
+    {"name": "Edge", "proc": "msedge.exe", "paths": [
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    ]},
+]
+BROWSER = None   # kandidat terpilih: {"name":..,"exe":..,"proc":..}
+FORCE_BROWSER = ""   # path exe pilihan user (GUI); kosong = otomatis
+LAST_BROWSER = ""    # path exe browser terakhir yang benar2 dipakai (preferensi Otomatis)
+BRAVE_BINARY = BROWSER_CANDIDATES[0]["paths"][0]   # (kompatibilitas lama)
+DEDICATED_PROFILE = os.path.expandvars(r"%LOCALAPPDATA%\TypingBot\profile")
 DEBUG_ADDRESS = "127.0.0.1:9222"
-STALL_WARN_SECONDS = 90      # tidak ada aksi selama ini -> dump debug
 OCR_MIN_INTERVAL = 3.0       # jeda minimal antar percobaan OCR
 
 try:
@@ -234,10 +303,75 @@ def set_confirmer(fn):
     _confirmer = fn
 
 
-def _tanya_tutup(nama, pid):
+def _exe_info_pid(pid):
+    """(path_exe, pid_induk) dari sebuah PID. PowerShell CIM dulu (wmic
+    sudah dihapus di Windows 11 baru), fallback wmic. Return ('', 0) kalau
+    tidak terbaca."""
+    try:
+        out = _run_hidden(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}')."
+             "ExecutablePath"],
+            capture_output=True, text=True, timeout=12).stdout.strip()
+        if out and "\n" not in out:
+            exe = out
+        else:
+            exe = ""
+    except Exception:
+        exe = ""
+    induk = 0
+    try:
+        out2 = _run_hidden(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}')."
+             "ParentProcessId"],
+            capture_output=True, text=True, timeout=12).stdout.strip()
+        if out2.isdigit():
+            induk = int(out2)
+    except Exception:
+        induk = 0
+    if not exe:
+        try:
+            out3 = _run_hidden(
+                ["wmic", "process", "where", f"processid={pid}",
+                 "get", "ExecutablePath", "/value"],
+                capture_output=True, text=True, timeout=12).stdout
+            for ln in out3.splitlines():
+                if ln.lower().startswith("executablepath="):
+                    exe = ln.split("=", 1)[1].strip()
+                    break
+        except Exception:
+            pass
+    return exe, induk
+
+
+def _identitas_pemegang(pid, nama):
+    """Identitas APLIKASI sebenarnya di balik proses pemegang port.
+    Kasus live (keluhan user): port dipegang msedgewebview2.exe = WebView2
+    yang DITANAM aplikasi lain (mis. Adobe Acrobat) - dulu dideteksi sebagai
+    'Edge' lalu ditutup paksa TANPA bertanya. Return dict:
+    nama (untuk dialog), exe (untuk ikon), proses (nama proses asli)."""
+    exe, induk = _exe_info_pid(pid)
+    base = os.path.basename(exe) if exe else nama
+    tampil = os.path.splitext(base)[0]
+    webview = "webview" in nama.lower() or "webview" in base.lower()
+    if webview and induk:
+        # cari nama aplikasi INDUKNYA (pemilik WebView) - ditampilkan apa
+        # adanya tanpa embel2 teknis: user cukup tahu 'Acrobat' jalan.
+        pexe, _pinduk = _exe_info_pid(induk)
+        if pexe:
+            pbase = os.path.basename(pexe)
+            tampil = os.path.splitext(pbase)[0]
+            exe = pexe
+        else:
+            tampil = tampil + "  (WebView)"
+    return {"nama": tampil, "pid": pid, "exe": exe, "proses": nama}
+
+
+def _tanya_tutup(nama, pid, exe=""):
     if _confirmer is not None:
         try:
-            return bool(_confirmer(nama, pid))
+            return bool(_confirmer(nama, pid, exe))
         except Exception:
             return False
     try:
@@ -247,28 +381,37 @@ def _tanya_tutup(nama, pid):
         return False
 
 
-def _bebaskan_port():
-    """Port 9222 dipakai proses non-Brave -> identifikasi PEMEGANG ASLINYA
-    (bisa bukan browser sama sekali, mis. Adobe), minta izin user sebelum
-    taskkill. Edge/msedge tetap ditutup langsung (aman)."""
+def _run_hidden(cmd, **kw):
+    """subprocess.run TANPA jendela console. WAJIB untuk semua panggilan
+    netstat/tasklist/taskkill dari app berjendela (PyInstaller --windowed):
+    tanpa flag ini Windows membuka jendela console hitam sesaat untuk tiap
+    panggilan (user melihat 'aplikasi flash' beberapa kali saat connect)."""
+    kw.setdefault("creationflags", 0x08000000)   # CREATE_NO_WINDOW
+    return subprocess.run(cmd, **kw)
+
+
+def _bebaskan_port(tanya_semua=True):
+    """Port 9222 dipakai proses lain -> identifikasi PEMEGANG ASLINYA
+    (bisa bukan browser sama sekali; WebView2 milik Adobe dsb. dinaiki
+    ke aplikasi induknya), lalu SELALU minta izin user sebelum taskkill.
+    Dulu: proses bernama 'edge' ditutup paksa TANPA bertanya - pernah
+    menutup WebView-nya aplikasi lain secara diam-diam (keluhan user).
+    Parameter tanya_semua dipertahankan untuk kompatibilitas pemanggil;
+    sekarang semua pemegang selalu ditanyakan."""
     pemegang = _siapa_pegang_port()
     if not pemegang:
         return False
     for pid, nama in pemegang:
-        nl = nama.lower()
-        if "brave" in nl:
+        info = _identitas_pemegang(pid, nama)
+        print(f"  -> port 9222 dipakai {info['nama']} "
+              f"({nama}, PID {pid})")
+        if not _tanya_tutup(info["nama"], pid, info["exe"]):
+            print(f"     tidak jadi ditutup - port tetap dipakai {info['nama']}.")
             continue
-        if "edg" in nl:
-            print(f"  -> {nama} (PID {pid}) memegang port 9222, menutup paksa...")
-        else:
-            print(f"  -> port 9222 dipakai {nama} (PID {pid})")
-            if not _tanya_tutup(nama, pid):
-                print(f"     tidak jadi ditutup - port tetap dipakai {nama}.")
-                continue
-            print("     menutup paksa atas izin user...")
+        print("     menutup paksa atas izin user...")
         try:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
-                           capture_output=True, timeout=8)
+            _run_hidden(["taskkill", "/F", "/T", "/PID", str(pid)],
+                        capture_output=True, timeout=8)
         except Exception:
             pass
     time.sleep(2)
@@ -278,8 +421,8 @@ def _bebaskan_port():
 def _siapa_pegang_port():
     pids = []
     try:
-        out = subprocess.run(["netstat", "-ano", "-p", "TCP"],
-                             capture_output=True, text=True, timeout=8).stdout
+        out = _run_hidden(["netstat", "-ano", "-p", "TCP"],
+                          capture_output=True, text=True, timeout=8).stdout
         for line in out.splitlines():
             parts = line.split()
             if len(parts) >= 5 and parts[1].endswith(":9222") and parts[4].isdigit():
@@ -289,8 +432,8 @@ def _siapa_pegang_port():
     hasil = []
     for pid in set(pids):
         try:
-            t = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"],
-                               capture_output=True, text=True, timeout=5).stdout
+            t = _run_hidden(["tasklist", "/FI", f"PID eq {pid}"],
+                            capture_output=True, text=True, timeout=5).stdout
             for ln in t.splitlines():
                 if ".exe" in ln.lower() and str(pid) in ln:
                     hasil.append((pid, ln.split()[0]))
@@ -300,33 +443,198 @@ def _siapa_pegang_port():
     return hasil
 
 
-def _find_brave():
-    kandidat = [
-        BRAVE_BINARY,
-        r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
-        os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"),
-    ]
-    for p in kandidat:
-        if p and os.path.isfile(p):
-            return p
+def _find_browser():
+    """Cari browser Chromium terpasang. Return dict kandidat + 'exe',
+    atau None. Prioritas: pilihan user (FORCE_BROWSER) -> env
+    TYPINGBOT_BROWSER -> deteksi otomatis (Brave -> Chrome -> Edge)."""
+    for pick in (FORCE_BROWSER, os.environ.get("TYPINGBOT_BROWSER", "")):
+        pick = (pick or "").strip()
+        if pick:
+            base = os.path.basename(pick).lower()
+            cocok = next((c for c in BROWSER_CANDIDATES
+                          if base.startswith(c["proc"].replace(".exe", ""))), None)
+            if cocok:
+                # nama kanonik ("Brave") - pemanggil membandingkan dengan
+                # nama itu untuk memutuskan profil default vs khusus
+                return {"name": cocok["name"], "exe": pick,
+                        "proc": cocok["proc"]}
+            if os.path.isfile(pick):
+                return {"name": os.path.basename(pick), "exe": pick,
+                        "proc": "brave.exe"}
+            print(f"Browser pilihan ({pick}) tidak ditemukan, pakai deteksi otomatis.")
+    # Preferensi Otomatis: browser yang TERAKHIR dipakai (live tersimpan
+    # GUI) - jadi Otomatis = 'browser edclub kemarin', bukan selalu Brave.
+    last = (LAST_BROWSER or "").strip()
+    if last:
+        base = os.path.basename(last).lower()
+        cocok = next((c for c in BROWSER_CANDIDATES
+                      if base.startswith(c["proc"].replace(".exe", ""))), None)
+        if cocok:
+            return {"name": cocok["name"], "exe": last, "proc": cocok["proc"]}
+    for c in BROWSER_CANDIDATES:
+        for p in c["paths"]:
+            if p and os.path.isfile(p):
+                return {"name": c["name"], "exe": p, "proc": c["proc"]}
     return None
 
 
-def _brave_sudah_jalan():
+def _browser_sudah_jalan():
+    proc = (BROWSER or {}).get("proc", "brave.exe")
     try:
-        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq brave.exe"],
-                             capture_output=True, text=True, timeout=5).stdout
-        return "brave.exe" in out.lower()
+        out = _run_hidden(["tasklist", "/FI", f"IMAGENAME eq {proc}"],
+            capture_output=True, text=True, timeout=5).stdout
+        return proc.lower() in out.lower()
     except Exception:
         return False
 
 
+def _port_dipakai_browser_lain():
+    """Port 9222 hidup tetapi dipegang browser BERBEDA dari pilihan user?
+    (mis. jendela debug Brave lama masih nyala padahal user pilih Chrome).
+    Return list pemegang [(pid, nama)]; [] bila cocok / tidak ada."""
+    pilihan = _find_browser() or {}
+    proc_pilihan = pilihan.get("proc", "")
+    pemegang = _siapa_pegang_port()
+    if not (proc_pilihan and pemegang):
+        return []
+    nama_pemegang = " ".join(n.lower() for _, n in pemegang)
+    if proc_pilihan in nama_pemegang:
+        return []
+    return pemegang
+
+
+def _restart_browser_debug():
+    """Pemulihan terakhir: browser debug hidup di HTTP tetapi websocket
+    DevTools-nya menggantung (terbukti live: Brave lama yang lama tidak
+    dipakai - Windows menidurkannya; 3x retry connect pun tetap timeout).
+    Restart saja: tutup pemegang 9222, jalankan ulang dengan mode debug.
+    Tab browser dipulihkan otomatis oleh sesi restore."""
+    pemegang = _siapa_pegang_port()
+    if not pemegang:
+        return False
+    print(f"[PEMULIHAN] Browser debug tidak merespons - memulai ulang "
+          f"({', '.join(n for _, n in pemegang)})...")
+    for pid, _nama in pemegang:
+        try:
+            _run_hidden(["taskkill", "/F", "/T", "/PID", str(pid)],
+                        capture_output=True, timeout=8)
+        except Exception:
+            pass
+    for _ in range(16):
+        time.sleep(0.5)
+        if not _cek_debug_port():
+            break
+    pilihan = _find_browser() or (BROWSER or {}) or {}
+    exe = pilihan.get("exe") or ""
+    if not exe or not os.path.isfile(exe):
+        print("[PEMULIHAN] Browser tidak ditemukan - tidak bisa restart.")
+        return False
+    args = [exe, "--remote-debugging-port=9222", "--restore-last-session"]
+    if pilihan.get("name") != "Brave":
+        args.append(f"--user-data-dir={DEDICATED_PROFILE}")
+    # JANGAN mencuri fokus: jendela browser muncul diminimized tanpa
+    # mengaktifkan dirinya (user bisa sedang mengetik di aplikasi lain).
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 7   # SW_SHOWMINNOACTIVE
+    subprocess.Popen(args, close_fds=True, startupinfo=si)
+    for _ in range(40):
+        time.sleep(0.5)
+        if STOP:
+            sys.exit(0)
+        if _cek_debug_port().startswith("Chrome"):
+            print("[PEMULIHAN] Browser debug hidup kembali.")
+            return True
+    return False
+
+
+def _cari_tab_setup(br, pg_utama):
+    """Tab SET-UP first-run (Edge/Chrome/Brave baru pertama kali dibuka di
+    profil khusus bot): welcome / pilih default browser / izin cookie /
+    sign-in sync. Return tab set-up pertama yang terlihat, None kalau
+    tidak ada. (Dulu bot langsung jalan menimpa set-up - keluhan user:
+    sebaiknya tunggu sampai tab set-up ditutup.)"""
+    for ctx2 in br.contexts:
+        try:
+            for pg2 in ctx2.pages:
+                if pg2 == pg_utama:
+                    continue
+                u = (pg2.url or "").lower()
+                if any(k in u for k in
+                       ("first-run", "first_run", "firstrun", "welcome",
+                        "onboarding", "getting-started", "chrome-signin")):
+                    return pg2
+        except Exception:
+            continue
+    return None
+
+
+def _tutup_tab_kosong(br, pg_utama):
+    """Tutup tab kosong sisa start-up browser (newtab/welcome/blank).
+    Hanya kalau masih ada tab lain di context - jangan sampai jendela
+    ikut tertutup."""
+    for ctx in br.contexts:
+        try:
+            halaman = list(ctx.pages)
+            if len(halaman) < 2:
+                continue
+            for pg in halaman:
+                if pg == pg_utama:
+                    continue
+                try:
+                    u = (pg.url or "").lower()
+                except Exception:
+                    continue
+                if (u.startswith(("chrome://new", "edge://new", "brave://new",
+                                  "chrome://newtab", "edge://newtab"))
+                        or u in ("about:blank", "chrome://welcome",
+                                 "edge://welcome", "brave://welcome")):
+                    try:
+                        pg.close()
+                        print("Tab kosong sisa start-up browser ditutup.")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+
+def _browser_dari_pemegang_port():
+    """Browser TERPASANG yang saat ini memegang port 9222 (untuk mode
+    Otomatis: tempeli saja yang sudah jalan). None kalau port kosong atau
+    dipegang proses non-browser (WebView/Adobe dsb. - itu tetap lewat
+    dialog izin)."""
+    if not _cek_debug_port():
+        return None
+    holder = _siapa_pegang_port()
+    nama = " ".join(n.lower() for _, n in holder)
+    for c in BROWSER_CANDIDATES:
+        if c["proc"] in nama:
+            for p in c["paths"]:
+                if p and os.path.isfile(p):
+                    return {"name": c["name"], "exe": p, "proc": c["proc"]}
+    return None
+
+
 def siapkan_browser():
-    """Pastikan ada Brave debug di port 9222. Port yang dipakai aplikasi
-    lain (Adobe/WebView) ditangani dengan izin user, bukan asal ditutup."""
+    """Pastikan ada browser Chromium (Brave/Chrome/Edge) debug di port
+    9222. Port yang dipakai aplikasi lain (Adobe/WebView) ditangani
+    dengan izin user, bukan asal ditutup."""
+    global BROWSER
+    if STOP:
+        sys.exit(0)
     browser_on_port = _cek_debug_port()
 
-    if "Edg" in browser_on_port:
+    # OTOMATIS pintar: port sudah dipegang browser terpasang -> pakai browser
+    # ITU langsung (dulu Otomatis selalu Brave -> 'port dipegang browser lain'
+    # -> minta izin menutup Chrome/Edge padahal tinggal ditempeli).
+    otomatis = not ((FORCE_BROWSER or os.environ.get("TYPINGBOT_BROWSER", "")).strip())
+    reuse = _browser_dari_pemegang_port() if otomatis else None
+    if reuse is not None:
+        BROWSER = reuse
+        print(f"[OTOMATIS] {reuse['name']} sudah jalan dengan port debug - "
+              "dipakai langsung tanpa menutup apa pun.")
+
+    if "Edg" in browser_on_port and reuse is None:
         # Bisa Edge betulan, BISA JUGA WebView2 milik aplikasi lain (mis.
         # Adobe) yang membalas /json/version dengan string "Edg/...".
         print("Port 9222 dipegang proses berbasis Edge/WebView, "
@@ -339,29 +647,122 @@ def siapkan_browser():
             sys.exit(1)
         print("Port 9222 berhasil dibebaskan.")
 
+    if browser_on_port and reuse is None:
+        # Port hidup, tapi dipegang browser LAIN dari pilihan user? (mis.
+        # user pilih Chrome sementara jendela debug Brave lama masih nyala
+        # atau menggantung) -> tutup pemegangnya (dengan izin) supaya
+        # browser pilihan bisa memakai port.
+        lain = _port_dipakai_browser_lain()
+        if lain:
+            print(f"Port 9222 dipegang browser lain "
+                  f"({', '.join(n for _, n in lain)}), padahal pilihan: "
+                  f"{(_find_browser() or {}).get('name', '?')}. "
+                  "Menutup pemegang port...")
+            _bebaskan_port(tanya_semua=True)
+            browser_on_port = _cek_debug_port()
+            if browser_on_port:
+                print("Pemegang port tidak ditutup - bot tidak bisa lanjut. "
+                      "Tutup jendela browser lama, lalu klik Start lagi.")
+                sys.exit(1)
+
     if not browser_on_port:
         if _siapa_pegang_port():
             print("Port 9222 dipakai proses lain (bukan browser debug)...")
             _bebaskan_port()
             browser_on_port = _cek_debug_port()
         if not browser_on_port:
-            if _brave_sudah_jalan():
-                print("Brave jalan TANPA mode debug. Tutup semua Brave, jalankan ulang program.")
+            BROWSER = _find_browser()
+            if BROWSER is None:
+                print("Tidak ada browser Chromium (Brave/Chrome/Edge). "
+                      "Install salah satunya dulu.")
                 sys.exit(1)
-            exe = _find_brave()
-            if not exe:
-                print("Brave tidak ditemukan. Install Brave dulu.")
-                sys.exit(1)
-            print("Port 9222 kosong: membuka Brave otomatis dengan mode debug...")
-            subprocess.Popen([exe, "--remote-debugging-port=9222"], close_fds=True)
-            for _ in range(30):
-                time.sleep(0.5)
-                if _cek_debug_port().startswith("Chrome"):
-                    break
+            nm = BROWSER["name"]
+            # Chrome/Edge modern MENOLAK flag debug di profil default
+            # (Chromium 136+). Jangan coba-coba (buka jendela tanpa debug
+            # lalu tunggu 15 dtk sia-sia): langsung profil khusus bot.
+            # Hal yang sama kalau browser sama sudah jalan tanpa debug -
+            # profil khusus bisa berjalan berdampingan dengan jendela itu.
+            langsung_profil = (nm != "Brave") or _browser_sudah_jalan()
+            if not langsung_profil:
+                print(f"Port 9222 kosong: membuka {nm} otomatis "
+                      "dengan mode debug...")
+                subprocess.Popen([BROWSER["exe"], "--remote-debugging-port=9222"],
+                                 close_fds=True)
+                for _ in range(30):
+                    time.sleep(0.5)
+                    if STOP:
+                        sys.exit(0)
+                    if _cek_debug_port().startswith("Chrome"):
+                        break
+                if not _cek_debug_port().startswith("Chrome"):
+                    langsung_profil = True
+            if langsung_profil:
+                # Profil khusus bot: login edclub sekali, tersimpan selamanya.
+                alasan = ("sudah jalan tanpa debug" if _browser_sudah_jalan()
+                          else "profil default menolak mode debug")
+                print(f"Membuka {nm} dengan profil khusus bot ({alasan})...")
+                subprocess.Popen([BROWSER["exe"],
+                                  "--remote-debugging-port=9222",
+                                  f"--user-data-dir={DEDICATED_PROFILE}"],
+                                 close_fds=True)
+                for _ in range(30):
+                    time.sleep(0.5)
+                    if STOP:
+                        sys.exit(0)
+                    if _cek_debug_port().startswith("Chrome"):
+                        break
+    if BROWSER is None:
+        BROWSER = _find_browser() or {"name": "browser", "exe": "", "proc": ""}
 
-    print("Menyambungkan Playwright ke Brave...")
-    pw = sync_playwright().start()
-    browser = pw.chromium.connect_over_cdp(f"http://{DEBUG_ADDRESS}")
+    print(f"Menyambungkan Playwright ke browser ({BROWSER['name']})...")
+    # Retry WAJIB (terbukti live): sambungan websocket sesi SEBELUMNYA yang
+    # terputus paksa (taskkill/app ditutup) menyisakan koneksi setengah
+    # terbuka di sisi browser - sambungan PERTAMA setelah itu timeout,
+    # tetapi justru menendang koneksi mati itu lepas dan percobaan ke-2
+    # langsung berhasil. Tanpa retry = "gagal connect" padahal browser baik.
+    def _tangga_connect():
+        """Return SELALU 3-tuple (pw, browser, pesan_gagal).
+        Pernah bug: slot ke-2 diisi string pesan -> 'browser is None'
+        tidak pernah benar -> pemulihan restart tidak pernah jalan dan
+        crash 'str' object has no attribute 'contexts'."""
+        br = None
+        p = None
+        pesan = ""
+        for percobaan in range(3):
+            if STOP:
+                sys.exit(0)
+            try:
+                p = sync_playwright().start()
+                br = p.chromium.connect_over_cdp(
+                    f"http://{DEBUG_ADDRESS}",
+                    timeout=20000 if percobaan == 0 else 12000)
+                return p, br, ""
+            except Exception as e:
+                pesan = str(e)[:120]
+                if p is not None:
+                    try:
+                        p.stop()
+                    except Exception:
+                        pass
+                p = None
+                br = None
+                if percobaan == 0:
+                    print("Sambungan pertama gagal (sisa koneksi lama di "
+                          "browser) - mencoba lagi...")
+                time.sleep(1.5)
+        return None, None, pesan
+
+    pw, browser, pesan = _tangga_connect()
+    if browser is None and _cek_debug_port():
+        # Port hidup di HTTP tetapi websocket menolak = DevTools browser
+        # menggantung (idle lama). Restart browser debug lalu coba lagi.
+        # TERBUKTI LIVE: kill + relaunch debug browser -> connect langsung ok.
+        if _restart_browser_debug():
+            pw, browser, pesan = _tangga_connect()
+    if browser is None:
+        print(f"Gagal menyambung ke browser: {pesan or 'tidak diketahui'}")
+        print("Tutup semua jendela browser, lalu klik Start lagi.")
+        sys.exit(1)
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
 
     page = None
@@ -486,6 +887,34 @@ def siapkan_browser():
                       timeout=25000)
         except Exception:
             print("Gagal membuka edclub - buka manual di Brave, bot menunggu.")
+    # Tutup tab sisa START-UP browser (SELALU, dua kali: sekarang + setelah
+    # set-up): browser baru dibuka dengan 1 tab kosong (newtab), lalu bot
+    # membuat/menemukan tab edclub sendiri -> tab kosong menganggung.
+    # Live: Edge membuat tab newtab-nya BELAKANGAN (setelah welcome-nya
+    # ditutup), jaitu pembersihan sekali di sini kurang - jalankan lagi
+    # setelah gerbang set-up. Hanya tab newtab/welcome/blank, hanya kalau
+    # masih ada tab lain (jangan sampai jendela ikut tertutup).
+    _tutup_tab_kosong(browser, page)
+    # Tab SET-UP first-run (Edge/Chrome/Brave baru pertama kali dibuka di
+    # profil khusus bot): welcome / pilih default browser / izin cookie /
+    # sign-in sync. Dulu bot langsung jalan menimpa set-up (keluhan user:
+    # sebaiknya tunggu). Sekarang: instruksi + tunggu sampai SEMUA tab
+    # set-up ditutup user, bot lanjut otomatis setelahnya.
+    global MENUNGGU_SETUP
+    if _cari_tab_setup(browser, page) is not None:
+        MENUNGGU_SETUP = True
+        print("[SETUP] Browser baru sedang set-up (welcome / pilih default "
+              "browser / cookie). Selesaikan dulu set-upnya di jendela "
+              "browser, lalu TUTUP tab set-upnya - bot mulai bekerja "
+              "otomatis begitu tab set-up ditutup.")
+        while not STOP:
+            time.sleep(1.0)
+            if _cari_tab_setup(browser, page) is None:
+                break
+        MENUNGGU_SETUP = False
+        if not STOP:
+            print("[SETUP] Set-up browser selesai - bot mulai bekerja.")
+            _tutup_tab_kosong(browser, page)
     return pw, browser, page
 
 
@@ -503,6 +932,13 @@ pw = None
 browser = None
 PAGE = None
 STATUS_URL = ""   # dibaca GUI (string biasa, aman lintas thread)
+STATUS_LABEL = ""  # label level ASLI dari halaman (mis. 'L87')
+_label_retry = 0.0
+_rentang_nav = 0.0
+_rentang_jump_done = False
+_rentang_max_seen = 0    # level tertinggi yang terlihat sesi ini (anti lompat-balik)
+_unlock_set = None    # level TERBUKA di akun (diisi saat perlu)
+_last_loop_err = 0.0
 
 
 def connect():
@@ -516,10 +952,11 @@ def connect():
     except SystemExit:
         raise
     except Exception as e:
-        print(f"Gagal menyambung ke Brave: {str(e)[:100]}")
-        print("Coba jalankan ulang program.")
+        print(f"Gagal menyambung ke browser: {str(e)[:120]}")
+        print("Tutup semua jendela browser, lalu klik Start lagi.")
         sys.exit(1)
     print(f"Terhubung! Tab aktif: {PAGE.url}")
+    _pasang_login_sentinel()
     if not OCR_AVAILABLE:
         print("Catatan: 'winocr' tidak ada -> fallback OCR nonaktif (pip install winocr).")
     return True
@@ -531,6 +968,17 @@ def disconnect():
     memakai objek Playwright milik thread lama yang sudah mati ->
     error "cannot switch to a different thread"."""
     global pw, browser, PAGE
+    global PERLU_LOGIN, LOGIN_DICEK, RENTANG_SIAP
+    # Reset status login DULU (sebelum guard): disconnect yang dipanggil
+    # tanpa koneksi pun harus membersihkan state sesi sebelumnya.
+    PERLU_LOGIN = False
+    LOGIN_DICEK = False
+    RENTANG_SIAP = False
+    _login_sentinel["ok"] = True
+    _login_sentinel["alasan"] = ""
+    _login_sentinel["pernah_in"] = False
+    _login_sentinel["unknown_mulai"] = 0.0
+    _login_ck["terakhir"] = 0.0
     if pw is None and PAGE is None:
         return
     try:
@@ -553,6 +1001,11 @@ def all_frames():
             return [PAGE.main_frame]
         except Exception:
             return []
+
+
+def _edclub_frames():
+    """Semua frame milik edclub (frame Stripe/checkout dikecualikan)."""
+    return [fr for fr in all_frames() if _frame_edclub(fr)]
 
 
 def run_js(js, frame=None):
@@ -590,10 +1043,22 @@ if (stdEls.length > 0) {
         if (!txt) continue;
         if (txt.includes('↵') || txt.includes('\n')) result.push('\n');
         else if (txt.includes('↹') || txt.includes('\t')) result.push('\t');
-        else if (txt === '\u00A0' || txt === ' ') result.push(' ');
         else {
-            const clean = txt.replace(/\r?\n|\r/g, '');
-            if (clean.length > 0) result.push(clean[0]);
+            // Run whitespace (>=2 nbsp/spasi berurutan) = SATU unit
+            // indentasi: tekan TAB SEKALI (terbukti live di lesson Tab:
+            // 1 Tab = 1 token run, err=0; spasi per-char = salah).
+            // Run 1 = spasi biasa. (Dulu: ambil karakter pertama saja ->
+            // nbsp mentah terkirim, engine diam = bot nyangkut di level 87.)
+            let run = 0;
+            for (const ch of txt) {
+                if (ch === '\u00A0' || ch === ' ') { run++; continue; }
+                if (run === 1) result.push(' ');
+                else if (run >= 2) result.push('\t');
+                run = 0;
+                result.push(ch);
+            }
+            if (run === 1) result.push(' ');
+            else if (run >= 2) result.push('\t');
         }
     }
     const t = result.join('');
@@ -875,14 +1340,35 @@ return null;
 _repeat_click = {"label": "", "count": 0, "until": 0.0}
 
 
+BADGE_STREAK_JS = r"""
+// Popup badge streak / pencapaian (live 23:33, level 662): '.badgebg'
+// overlay 320x320 tanpa tombol tutup, teksnya ('5 Day Streak ...') ada di
+// ELEMEN SAUDARA (.badge_text) bukan di dalamnya - jadi selector modal
+// lama ([class*=modal/popup/dialog]) tidak pernah cocok. Penutup yang
+// TERBUKTI live: tekan ESC sungguhan (CDP keyboard). Return true kalau
+// badge terlihat.
+const bg = document.querySelector('.badgebg');
+if (bg && (bg.offsetWidth > 50 || bg.offsetHeight > 50)) return true;
+return false;
+"""
+
+
 def close_overlays_all_frames():
     """Jalankan penutup pop-up di semua frame. Return jumlah aksi."""
     if time.time() < _repeat_click["until"]:
         return 0
     total = 0
-    for fr in all_frames():
-        if not _frame_edclub(fr):
-            continue
+    # Badge streak: tidak punya tombol tutup - ESC keyboard ASLI (CDP,
+    # isTrusted) menutupnya (live terverifikasi; KeyboardEvent sintetis
+    # berisiko tidak dipercaya seperti JS .click()).
+    try:
+        if run_js(BADGE_STREAK_JS, PAGE.main_frame):
+            PAGE.keyboard.press("Escape")
+            print("[Pop-up] badge streak/pencapaian ditutup (ESC)")
+            total += 1
+    except Exception:
+        pass
+    for fr in _edclub_frames():
         taken = run_js(OVERLAY_JS, fr)
         if taken:
             print(f"[Pop-up] {frame_label(fr)}: {'; '.join(taken[:3])}")
@@ -924,6 +1410,7 @@ window.__CLICKPT = cands.length ? cands[0] : null;
                     pt = run_js("return window.__CLICKPT;", fr)
                     if pt:
                         try:
+                            _tandai_klik_bot()
                             PAGE.mouse.click(pt["x"], pt["y"])
                         except Exception:
                             pass
@@ -934,9 +1421,7 @@ window.__CLICKPT = cands.length ? cands[0] : null;
                 _repeat_click["count"] = 1
             break
     if total == 0:
-        for fr in all_frames():
-            if not _frame_edclub(fr):
-                continue
+        for fr in _edclub_frames():
             hint = run_js(MODAL_HINT_JS, fr)
             if hint and hint.get("achievement"):
                 if run_js(ESC_FALLBACK_JS, fr):
@@ -992,7 +1477,13 @@ def _char_delay(slow=False):
 
 
 def type_chars(text, max_chars=None, slow=False):
-    """Ketik via CDP. slow=True untuk tutorial boxed (animasi scroll-garis)."""
+    """Ketik via CDP. slow=True untuk tutorial boxed (animasi scroll-garis).
+    TIDAK ada jeda untuk 'aktivitas user': input CDP isTrusted=true sehingga
+    deteksi keydown mempan false-positive, dan klik mouse di tengah
+    halaman TIDAK mengganggu engine (terbukti live). Gangguan user yang
+    betulan (klik tombol halaman / tekan tombol) terdeteksi OTOMATIS oleh
+    loop verifikasi handle_standard (karakter tak terkonsumsi -> koreksi
+    backspace / re-fokus), bukan oleh jeda di sini."""
     for char in (text if max_chars is None else text[:max_chars]):
         while PAUSED and not STOP:
             time.sleep(0.15)
@@ -1016,6 +1507,99 @@ def type_chars(text, max_chars=None, slow=False):
         except Exception:
             return False
     return True
+
+
+# ---------------------------------------------------------------------------
+# Deteksi intervensi USER ASLI.
+#
+# Event input CDP milik bot punya isTrusted=false; tangan user menghasilkan
+# isTrusted=true (tidak bisa dipalsukan dari JS/CDP). Listener di tiap
+# frame edclub mencatat timestamp event trusted terakhir -> bot tahu
+# persis kapan user sedang memegang halaman, dan mundur sampai user diam.
+# (Kasus live: user klik tombol pengaturan saat bot mengetik -> engine
+# kehilangan fokus, ketikan berhenti dikonsumsi, dan bot salah mengira
+# 'selesai tanpa layar skor' lalu menekan tombol lanjut.)
+# ---------------------------------------------------------------------------
+
+USER_WATCH_JS = r"""
+if (!window.__tb_watch) {
+  window.__tb_watch = 1;
+  window.__tb_user = 0;      // timestamp aktivitas user terakhir
+  window.__tb_ignore = 0;    // abaikan event sampai waktu ini (klik bot)
+  var rec = function(e){
+    if (!e || !e.isTrusted) return;
+    var now = Date.now();
+    if (window.__tb_ignore && now < window.__tb_ignore) return;
+    window.__tb_user = now;
+  };
+  // MOUSE/SCROLL SAJA: input CDP bot punya isTrusted=true (diinjeksi di
+  // level browser, tidak bisa dibedakan dari user) - keydown TIDAK boleh
+  // dipantau karena bot sendiri mengetik. Klik mouse bot ditutupi
+  // lewat __tb_ignore yang dipasang sebelum bot mengklik.
+  ['mousedown','mouseup','wheel','touchstart','contextmenu'].forEach(
+    function(n){ window.addEventListener(n, rec, true); });
+  window.addEventListener('blur', function(){ window.__tb_user = Date.now(); });
+}
+return (Date.now() - (window.__tb_user || 0)) / 1000;
+"""
+
+_user_watch_cache = {"t": 0.0, "elapsed": 1e9}
+_user_note = {"tunda": False}
+
+
+def _tandai_klik_bot(frame=None, ms=900):
+    """Panggil SEBELUM bot mengklik dengan mouse CDP: event mousedown-
+    nya jangan dihitung sebagai 'aktivitas user' (echo klik sendiri)."""
+    run_js(f"window.__tb_ignore = Date.now() + {int(ms)}; return 1;",
+           frame if frame is not None else PAGE.main_frame)
+
+
+def _user_aktif(batas=2.0):
+    """True kalau user asli aktif dalam `batas` detik terakhir di halaman
+    edclub (klik/ketik/scroll/ambil fokus). Cache 0.5 dtk supaya murah
+    dipanggil per karakter. Kegagalan baca = dianggap tidak aktif."""
+    now = time.time()
+    if now - _user_watch_cache["t"] < 0.5:
+        return _user_watch_cache["elapsed"] < batas
+    _user_watch_cache["t"] = now
+    terbaik = 1e9
+    try:
+        for fr in _edclub_frames():
+            v = run_js(USER_WATCH_JS, fr)
+            if isinstance(v, (int, float)) and v < terbaik:
+                terbaik = v
+    except Exception:
+        pass
+    _user_watch_cache["elapsed"] = terbaik
+    return terbaik < batas
+
+
+_tunggu_user_since = {"url": "", "t": 0.0}
+MINTA_TANYA_LANJUT = False   # GUI: popup 'masih menunggu?' setelah 2 menit
+
+
+def _tunggu_user(url):
+    """User sedang menjelajah (bukan di lesson) - catat & tunggu; kalau
+    lebih dari 2 menit, minta GUI menanyakan lanjut/stop."""
+    global MINTA_TANYA_LANJUT
+    st = _tunggu_user_since
+    if st["url"] != url:
+        st["url"] = url
+        st["t"] = time.time()
+        print("[USER] kamu sedang memakai browser bot - bot menunggu "
+              "(lanjut otomatis begitu kamu diam / buka lesson)")
+    elif time.time() - st["t"] > 120 and not MINTA_TANYA_LANJUT:
+        MINTA_TANYA_LANJUT = True
+    time.sleep(0.5)
+
+
+def _user_diam_lagi(url):
+    """Reset status menunggu (dipanggil saat bot bisa bekerja lagi)."""
+    global MINTA_TANYA_LANJUT
+    if _tunggu_user_since["url"]:
+        _tunggu_user_since.update(url="", t=0.0)
+        MINTA_TANYA_LANJUT = False
+        print("[USER] halaman tenang - bot lanjut bekerja.")
 
 
 _enter_times = []
@@ -1054,6 +1638,7 @@ def advance_score_screen():
             loc = PAGE.locator(sel)
             if loc.count() == 0:
                 continue
+            _tandai_klik_bot()
             loc.first.click(timeout=1500)
             print(f"[Skor] klik lanjut via mouse: {sel}")
             return True
@@ -1092,9 +1677,7 @@ return true;
 def keep_alive_frames():
     """Jalankan anti-pause di semua frame. Return True jika banner diklik."""
     clicked = False
-    for fr in all_frames():
-        if not _frame_edclub(fr):
-            continue
+    for fr in _edclub_frames():
         res = run_js(ANTI_PAUSE_JS, fr)
         if res == "banner":
             clicked = True
@@ -1152,8 +1735,18 @@ for (const e of els) {
     if (!txt) continue;
     if (txt.includes('↵') || txt.includes('\n')) out.push('\n');
     else if (txt.includes('↹') || txt.includes('\t')) out.push('\t');
-    else if (txt === '\u00A0' || txt === ' ') out.push(' ');
-    else { const c = txt.replace(/\r?\n|\r/g, ''); if (c) out.push(c[0]); }
+    else {
+        let run = 0;
+        for (const ch of txt) {
+            if (ch === '\u00A0' || ch === ' ') { run++; continue; }
+            if (run === 1) out.push(' ');
+            else if (run >= 2) out.push('\t');
+            run = 0;
+            out.push(ch);
+        }
+        if (run === 1) out.push(' ');
+        else if (run >= 2) out.push('\t');
+    }
 }
 return out.join('');
 """
@@ -1183,8 +1776,18 @@ for (const e of document.querySelectorAll('span.token_unit._clr')) {
     if (!txt) continue;
     if (txt.includes('\u21b5') || txt.includes('\n')) out.push('\n');
     else if (txt.includes('\u21b9') || txt.includes('\t')) out.push('\t');
-    else if (txt === '\u00a0' || txt === ' ') out.push(' ');
-    else { const c = txt.replace(/\r?\n|\r/g, ''); if (c) out.push(c[0]); }
+    else {
+        let run = 0;
+        for (const ch of txt) {
+            if (ch === '\u00a0' || ch === ' ') { run++; continue; }
+            if (run === 1) out.push(' ');
+            else if (run >= 2) out.push('\t');
+            run = 0;
+            out.push(ch);
+        }
+        if (run === 1) out.push(' ');
+        else if (run >= 2) out.push('\t');
+    }
 }
 const err = document.querySelectorAll('span.token_unit._err').length;
 return [out.join(''), err];
@@ -1215,10 +1818,11 @@ return null;
 
 _std_last_rem = None
 _std_attempts = 0
+_stall_user_note = False
 
 
 def handle_standard(frame, text):
-    global last_typed_text, last_action_time, _std_last_rem, _std_attempts
+    global last_typed_text, last_action_time, _std_last_rem, _std_attempts, _stall_user_note
     # Level terkunci premium: modal premium menutupi lesson, input mati.
     # Dulu bot mencoba mengetik 3x (gagal, buang waktu) bahkan sempat
     # mengklik tombol CTA premium yang membawa ke Stripe Checkout.
@@ -1228,6 +1832,7 @@ def handle_standard(frame, text):
         if hint and hint.get("premium"):
             print("[Premium] level terkunci premium - lewati via tombol lanjut")
             try:
+                _tandai_klik_bot()
                 PAGE.locator(".navbar-continue, a.navbar-continue") \
                     .first.click(timeout=2500)
             except Exception:
@@ -1363,10 +1968,33 @@ def handle_standard(frame, text):
                     continue
                 break  # benar-benar tidak ada token = lesson selesai
             if rem2 == rem:
-                # karakter TIDAK terkonsumsi: jangan kirim apapun lagi dulu.
-                # Kasus umum: DOM butuh sesaat untuk memproses keystroke.
+                # Karakter TIDAK terkonsumsi. Penyebab umum: klik user (di
+                # halaman / di luar window -> blur -> engine pause sesaat,
+                # caret pindah). PULIHKAN SEKARANG, BUKAN tangga jeda:
+                # dulu stall 1-7 menumpuk sleep 0.05+0.15 (~0.5-3 dtk
+                # tersendat per klik) dan spam-klik mencapai stall>=8 ->
+                # tombol lanjut diklik -> TYPING BERHENTI total (keluhan
+                # live 2x). Sekarang: fokus + banner dipulihkan tiap
+                # iterasi (murah, tanpa klik mouse), poll cepat; eskalasi
+                # tombol lanjut HANYA kalau user tidak sedang memegang
+                # halaman (klik user = mouse-only watcher, aman dari
+                # ketikan bot sendiri).
                 stall += 1
-                time.sleep(0.05)
+                user_kehadian = _user_aktif(3.0)
+                if user_kehadian:
+                    stall = min(stall, 3)
+                    if not _stall_user_note:
+                        _stall_user_note = True
+                        print("[Standard] user memegang halaman - fokus "
+                              "dipulihkan terus, mengetik tidak berhenti")
+                else:
+                    _stall_user_note = False
+                run_js(QUIET_ALIVE_JS, frame)
+                focus_frame(frame)
+                if run_js(START_BANNER_JS, frame):
+                    print("[Standard] banner pause muncul, diklik")
+                    time.sleep(0.15)
+                time.sleep(0.04)
                 r_retry, _ = read_state(frame)
                 if r_retry is not None and r_retry != rem:
                     rem = r_retry
@@ -1377,16 +2005,18 @@ def handle_standard(frame, text):
                     if verified % 25 == 0:
                         esc_modals_only(frame)
                     continue
-                if stall == 2:
-                    rem = read_remaining(frame) or rem
-                    if run_js(START_BANNER_JS, frame):
-                        print("[Standard] banner pause muncul, diklik")
-                        time.sleep(0.4)
-                        rem = read_remaining(frame) or rem
-                elif stall >= 5:
-                    print("[Standard] ketikan tidak masuk, lanjut transisi")
+                if stall >= 8 and not user_kehadian:
+                    # benar-benar macet TANPA user: kemungkinan lesson
+                    # selesai tapi layar skor tidak muncul (bug situs,
+                    # terbukti L87/192) - satu klik tombol lanjut langsung
+                    # ke lesson berikutnya.
+                    print("[Standard] ketikan tidak masuk - mungkin selesai "
+                          "tanpa layar skor, coba tombol lanjut")
+                    if _phaser_try_advance():
+                        last_action_time = time.time()
+                        time.sleep(0.6)
+                        return True
                     break
-                time.sleep(0.15)
                 err_prev = err_after
                 continue
             # terkonsumsi / DOM berubah -> selalu percaya DOM terbaru
@@ -1424,7 +2054,11 @@ def handle_standard(frame, text):
     # berganti (level baru) - intro/skor->level baru tidak pernah
     # menghasilkan state std/mini/tut, dulu loop ini burn deadline penuh
     # (10+8 dtk) padahal level berikutnya sudah siap dikerjakan.
+    # Kasus nyata (L113): lesson selesai tapi LAYAR SKOR tidak pernah
+    # muncul (bug situs) - tombol lanjut ada, klik mouse ASLI langsung.
     entry_url = PAGE.url
+    no_score_clicked = False
+    entry_wait_start = time.time()
     deadline = time.time() + 10
     while time.time() < deadline:
         if close_overlays_all_frames():
@@ -1438,6 +2072,20 @@ def handle_standard(frame, text):
             break
         if PAGE.url != entry_url:
             break   # level sudah pindah - jangan tunggu sisa deadline
+        if not no_score_clicked and time.time() > entry_wait_start + 3.0:
+            # 3 dtk tanpa skor/URL: kemungkinan layar skor tidak muncul
+            # -> satu klik lanjut (mouse asli) menyelesaikannya.
+            try:
+                loc = PAGE.locator(".navbar-continue, a.navbar-continue").first
+                if loc.count() and loc.is_visible():
+                    loc.click(timeout=2000)
+                    no_score_clicked = True
+                    print("[Standard] layar skor belum muncul - klik "
+                          "tombol lanjut")
+                    time.sleep(0.8)
+                    continue
+            except Exception:
+                pass
         time.sleep(0.25)
 
     deadline = time.time() + 8
@@ -1696,12 +2344,11 @@ def _premium_modal_action():
     modal -> None. PENTING: modal X cuma muncul ~3 detik di awal level,
     lalu menghilang sendiri dan game jadi beku - jadi ini harus
     dipanggil SERING di awal level (watch window)."""
-    for fr in all_frames():
-        if not _frame_edclub(fr):
-            continue
+    for fr in _edclub_frames():
         pm = run_js(PREMIUM_MODAL_JS, fr)
         if pm and pm.get("x") is not None:
             try:
+                _tandai_klik_bot()
                 PAGE.mouse.click(pm["x"], pm["y"])
                 print("[Premium] tombol X modal diklik - "
                       "lanjut lesson berikutnya")
@@ -1733,9 +2380,7 @@ def _phaser_try_advance():
         pass
     # Fallback: tombol berteks lanjut (di LUAR kontainer premium/iframe,
     # titik klik terverifikasi elementFromPoint) -> klik mouse ASLI.
-    for fr in all_frames():
-        if not _frame_edclub(fr):
-            continue
+    for fr in _edclub_frames():
         pt = run_js(r"""
 const NX = ['next','continue','lanjut','mulai','selesai','skip','got it','ok'];
 for (const el of document.querySelectorAll('button, a, [role="button"]')) {
@@ -1755,6 +2400,7 @@ return null;
 """, fr)
         if pt:
             try:
+                _tandai_klik_bot()
                 PAGE.mouse.click(pt["x"], pt["y"])
                 print("[Minigame/Phaser] game beku - level dilewati "
                       "via tombol berteks lanjut")
@@ -2044,6 +2690,7 @@ def handle_video_level():
         if info.get("paused"):
             try:
                 btn = fr.locator(".vjs-big-play-button").first
+                _tandai_klik_bot(fr)
                 btn.click(timeout=2000)
                 time.sleep(0.8)
             except Exception:
@@ -2075,112 +2722,9 @@ return null;
 INTRO_KEY_MAP = {"space": " ", "space bar": " ", "spacebar": " ", "spasi": " ",
                  "bar": " ", "enter": "Enter"}
 
-INTRO_READY_JS = r"""
-// Sinyal layar siap menerima ketikan: tombol keyboard layar untuk karakter
-// yang diminta sedang di-highlight (menyala oranye) oleh engine. Sebelum
-// highlight itu muncul, keystroke TIDAK didengar (tekanan terlalu dini =
-// hilang; itulah 'coba 1-5' di log + tombol tetap oranye menunggu).
-const sels = ['[class*="key"][class*="highlight"]', '[class*="key"][class*="active"]',
-              '.key.highlight', '.keyboard .next'];
-for (const sel of sels) {
-    for (const el of document.querySelectorAll(sel)) {
-        if (el.offsetWidth || el.offsetHeight) return true;
-    }
-}
-return false;
-"""
-
 _intro_sig = None
 _intro_attempts = 0
 _intro_flow = False   # True = alur intro berjalan (f->j->d->k di level yang sama)
-
-
-SKIP_CLICK_JS = r"""
-// Cari tombol skip berdasarkan TEKS (bukan class - class edclub berubah-ubah).
-for (const el of document.querySelectorAll('button, a, [role="button"], span[onclick], div[onclick]')) {
-    const t = (el.innerText || el.textContent || '').trim().toLowerCase();
-    if (!t || t.length > 14) continue;
-    if (!(t === 'skip' || t === 'lewati' || t.startsWith('skip') || t.startsWith('lewati'))) continue;
-    if (!(el.offsetWidth || el.offsetHeight)) continue;
-    try { el.click(); return t; } catch (e) {}
-}
-return null;
-"""
-
-
-def _click_active_screen_key():
-    """Klik mouse SUNGGUHAN (CDP) tombol keyboard layar yang sedang
-    di-highlight, di SEMUA frame. Klik JS tidak dipercaya engine; ketikan
-    juga kadang tidak masuk di layar intro. Hanya klik elemen BERLABEL
-    singkat - elemen 'aktif' tanpa teks bukan tombol keyboard (pernah
-    menavigasi bot ke halaman daftar level!)."""
-    for fr in all_frames():
-        for sel in ('[class*="key"][class*="highlight"]',
-                    '[class*="key"][class*="active"]'):
-            try:
-                locs = fr.locator(sel)
-                for i in range(min(locs.count(), 6)):
-                    el = locs.nth(i)
-                    txt = (el.inner_text(timeout=500) or "").strip()
-                    if txt and len(txt) <= 2:
-                        el.click(timeout=1500)
-                        print(f"[Intro] klik tombol keyboard layar {txt!r}")
-                        return True
-            except Exception:
-                continue
-    return False
-
-
-def _click_intro_skip():
-    """Layar intro punya tombol skip - pakai kalau ketikan tidak mau masuk.
-    Cari berdasarkan teks di semua frame; klik JS dulu, lalu klik mouse
-    sungguhan sebagai cadangan."""
-    for fr in all_frames():
-        res = run_js(SKIP_CLICK_JS, fr)
-        if res:
-            print(f"[Intro] langkah di-skip via tombol {res!r}")
-            return True
-    for fr in all_frames():
-        try:
-            for el in (fr.get_by_text("Skip", exact=True).all() or [])[:4]:
-                try:
-                    el.click(timeout=1500)
-                    print("[Intro] langkah di-skip via klik mouse 'Skip'")
-                    return True
-                except Exception:
-                    continue
-        except Exception:
-            continue
-    return False
-
-
-def _synth_key(fr, ch):
-    """Fallback saluran ketik: dispatch KeyboardEvent sintetis (keydown +
-    keypress + keyup) langsung di dokumen frame. CDP kadang tidak masuk
-    di layar intro; beberapa engine edclub menerima event sintetis."""
-    try:
-        fr.evaluate("""(ch) => {
-            let code, kc;
-            if (ch === 'Enter') { code = 'Enter'; kc = 13; }
-            else if (ch === ' ') { code = 'Space'; kc = 32; }
-            else { code = 'Key' + ch.toUpperCase(); kc = ch.toUpperCase().charCodeAt(0); }
-            const mk = (type) => new KeyboardEvent(type, {
-                key: ch, code: code, keyCode: kc, which: kc,
-                bubbles: true, cancelable: true});
-            const kp = new KeyboardEvent('keypress', {
-                key: ch, code: code, keyCode: kc, which: kc, charCode: kc,
-                bubbles: true, cancelable: true});
-            for (const t of [window, document, document.body]) {
-                if (!t) continue;
-                try { t.dispatchEvent(mk('keydown')); } catch (e) {}
-                try { t.dispatchEvent(kp); } catch (e) {}
-                try { t.dispatchEvent(mk('keyup')); } catch (e) {}
-            }
-            return true;
-        }""", ch)
-        return True
-    except Exception:
-        return False
 
 
 def _click_labeled_key(key):
@@ -2421,36 +2965,46 @@ def _switch_to_playable_tab():
 
 
 def recover_and_restart_lesson():
-    """Buka ulang PELAJARAN YANG SAMA di tab baru, tutup tab mati.
-    Versi lama selalu ke daftar pelajaran lalu klik baris pertama yang
-    belum dikerjakan - itu membuat bot melompat ke unit lain dan
-    kelihatan seperti 'main level acak'. Fall back ke daftar hanya jika
-    URL lesson tidak diketahui."""
+    """Pulihkan halaman macet/kosong. UTAMA: RELOAD TAB YANG SAMA -
+    tab baru hanya kalau reload gagal (tab benar2 mati) atau URL lesson
+    tidak diketahui. (Dulu selalu tab baru: mengganggu user dan pernah
+    bertabrakan dengan refresh manual user.)"""
     global PAGE, last_typed_text, last_url, _last_recovery, last_action_time
+    global _std_last_rem, _std_attempts
     _last_recovery = time.time()
-    print("[RECOVERY] Halaman macet/kosong, membuka ulang pelajaran...")
+    target = last_url if (last_url and ".play" in last_url) else None
+
+    if target:
+        n = _recovery_counts.get(target, 0) + 1
+        _recovery_counts[target] = n
+        if n >= 3:
+            # Lesson ini sudah berkali-kali recovery tetap mati = level
+            # rusak -> pelajaran berikutnya sesuai URUTAN DAFTAR (nomor
+            # URL edclub TIDAK berurutan, jangan hitung N+1).
+            if _skip_to_next_lesson("recovery berulang, level rusak"):
+                return True
+            return False
+        try:
+            PAGE.reload(timeout=25000)
+            print(f"[RECOVERY] reload tab yang sama: "
+                  f"{target.split('/')[-1]}")
+            last_typed_text = ""
+            _std_last_rem = None    # biar handle_standard mau ketik ulang
+            _std_attempts = 0
+            last_url = PAGE.url
+            last_action_time = time.time()
+            return True
+        except Exception as e:
+            print(f"[RECOVERY] reload gagal ({str(e)[:60]}) - coba tab baru")
+
+    print("[RECOVERY] Halaman macet/kosong, membuka tab baru...")
     try:
         newpg = PAGE.context.new_page()
     except Exception as e:
         print(f"[RECOVERY] gagal bikin tab: {str(e)[:80]}")
         return False
 
-    target = last_url if (last_url and ".play" in last_url) else None
     if target:
-        n = _recovery_counts.get(target, 0)
-        _recovery_counts[target] = n + 1
-        if n >= 2:
-            # Lesson ini sudah 2x dimuat ulang tetap mati = level rusak
-            # (contoh: layar gelap premium macam level 106). Pilih lesson
-            # berikutnya SESUAI URUTAN DAFTAR - nomor URL edclub TIDAK
-            # berurutan (setelah 189 langsung 2959), jangan hitung N+1.
-            try:
-                newpg.close()
-            except Exception:
-                pass
-            if _skip_to_next_lesson("recovery berulang, level rusak"):
-                return True
-            return False
         try:
             newpg.goto(target, timeout=25000)
             print(f"[RECOVERY] muat ulang lesson yang sama: {target.split('/')[-1]}")
@@ -2536,9 +3090,322 @@ def _lesson_id(url):
     return int(m.group(2)) if m else None
 
 
+_level_label_cache = {}
+
+
+# Peta nomor level ASLI -> URL edclub. Id URL adalah id KONTEN kursus
+# (sama untuk semua akun), tapi tidak linier (652 -> 8830, 685 -> 52748)
+# sehingga tidak bisa dihitung rumus. Peta bawaan 685 level tertanam di
+# level_data.py (bawaan exe); level_map.json milik user menimpa nilai
+# bawaan bila ada (mis. kursus/program berbeda).
+import level_data as _level_data
+_LEVEL_MAP_FILE = os.path.join(_BASE, "level_map.json")
+_level_map = {str(n): f"https://www.edclub.com/sportal/program-3/{i}.play"
+             for n, i in _level_data.PETA.items()}
+
+
+def _level_map_muat():
+    try:
+        with open(_LEVEL_MAP_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            _level_map.update({str(k): v for k, v in data.items()})
+    except Exception:
+        pass
+
+
+def _level_map_catat(nomor, url):
+    """Simpan asosiasi level -> URL (mis. '87' -> '...192.play')."""
+    if not nomor or not url or ".play" not in url:
+        return
+    k = str(nomor)
+    if _level_map.get(k) == url:
+        return
+    _level_map[k] = url
+    try:
+        with open(_LEVEL_MAP_FILE, "w", encoding="utf-8") as f:
+            json.dump(_level_map, f, indent=1, sort_keys=True)
+    except Exception:
+        pass
+
+
+_level_map_muat()
+
+# Balik peta: id URL -> nomor level (untuk indikator GUI instan).
+_url_ke_level = {}
+for _n, _u in _level_map.items():
+    try:
+        _url_ke_level[int(_u.rsplit("/", 1)[1].split(".")[0])] = int(_n)
+    except Exception:
+        pass
+
+
+def url_ke_level(url):
+    """Nomor level dari URL .play via peta terbalik (pasti & instan,
+    tidak menunggu teks halaman termuat)."""
+    try:
+        m = re.search(r"/program-\d+/(\d+)\.play", url or "")
+        if m:
+            return _url_ke_level.get(int(m.group(1)))
+    except Exception:
+        pass
+    return None
+
+
+def _baca_unlock_set():
+    """Set nomor level yang TERKUNCI/TERBUKA: kumpulkan nomor lesson yang
+    punya class 'is_unlocked' di daftar lesson. Akun baru/logout = hanya
+    level 1 (terverifikasi live). None = daftar tidak terbaca."""
+    if browser is None:
+        return None
+    pg = None
+    try:
+        pg = browser.contexts[0].new_page()
+        pg.goto(LIST_URL, timeout=30000)
+        pg.wait_for_selector("div.box-container", timeout=15000)
+        time.sleep(1.0)
+        data = pg.evaluate(r"""() => {
+            const rows = [...document.querySelectorAll('div.box-container')];
+            const out = [];
+            for (const r of rows) {
+                if (!(r.className || '').includes('is_unlocked')) continue;
+                const m = (r.getAttribute('aria-label') || '')
+                    .match(/Lesson (\d+)/);
+                if (m) out.push(parseInt(m[1], 10));
+            }
+            return out;
+        }""")
+        return set(data or [])
+    except Exception:
+        return None
+    finally:
+        try:
+            if pg is not None:
+                pg.close()
+        except Exception:
+            pass
+
+
+# Dialog 'level terkunci' bot<->GUI: bot menunggu jawaban user.
+LEVEL_TANYA = {"aktif": False, "start": 0, "fallback": 0, "jawab": "", "event": None}
+_rentang_validasi_done = False
+
+
+def _rentang_validasi_step():
+    """Validasi NON-BLOKIR: LEVEL_START harus level TERBUKA di akun
+    (terkunci = halaman kosong, bot akan thrash). Dipanggil tiap iterasi
+    loop utama SETELAH gerbang login (live 00:04: validasi lama jalan
+    SEBELUM patroli login pertama -> daftar logout hanya L1 terbuka ->
+    '662 terkunci' padahal user bahkan belum login, dan wait 300 dtk
+    membekukan seluruh loop: popup login & tanya rentang tak pernah
+    muncul). Return False = user memilih stop."""
+    global LEVEL_START, _unlock_set, _rentang_validasi_done
+    if _rentang_validasi_done or LEVEL_START <= 1:
+        _rentang_validasi_done = True
+        return True
+    # Tunda selama status login belum pasti / belum login: daftar level
+    # versi logout selalu 'hanya level 1' - memvalidasi sekarang hanya
+    # menghasilkan popup terkunci palsu. Setelah login, _rentang_cek
+    # mengantar ke level awal; level benar2 terkunci tetap ditangani
+    # runtime (deteksi halaman kosong).
+    if PERLU_LOGIN or not LOGIN_DICEK:
+        return True
+    try:
+        if _profil_login() == "out":
+            _rentang_validasi_done = True
+            return True
+    except Exception:
+        pass
+    # user sudah membuka lesson sendiri = kerjakan itu, tanpa validasi/
+    # lompatan (level terkunci yang DIBUKA SENDIRI oleh user adalah urusan
+    # user - edclub yang mengizinkan/menolaknya, bukan bot)
+    try:
+        if ".play" in (_real_url(PAGE) or ""):
+            _rentang_validasi_done = True
+            return True
+    except Exception:
+        pass
+    if _unlock_set is None:
+        _unlock_set = _baca_unlock_set()
+    if _unlock_set is None or LEVEL_START in _unlock_set:
+        _rentang_validasi_done = True
+        return True   # tidak bisa dibaca / memang terbuka: lanjut saja
+    fallback = max(_unlock_set) if _unlock_set else 1
+    print(f"[RENTANG] level {LEVEL_START} masih TERKUNCI di akun ini - "
+          f"terbuka sampai level {fallback}.")
+    ev = threading.Event()
+    LEVEL_TANYA.update(aktif=True, start=LEVEL_START, fallback=fallback,
+                       jawab="", event=ev)
+    # tunggu bertahap: jawaban GUI, STOP, atau 300 dtk (timeout = mulai)
+    batas = time.time() + 300
+    while not ev.is_set() and not STOP and time.time() < batas:
+        ev.wait(timeout=1.0)
+    LEVEL_TANYA["aktif"] = False
+    jawab = LEVEL_TANYA["jawab"] or "mulai"   # timeout = lanjut dari fallback
+    _rentang_validasi_done = True
+    if jawab == "stop":
+        print("[RENTANG] dibatalkan user - bot tidak jalan.")
+        return False
+    LEVEL_START = fallback
+    print(f"[RENTANG] mulai dari level {LEVEL_START} "
+          "(posisi terdepan akun).")
+    return True
+
+
+def _goto_level_url(nomor):
+    """Buka lesson nomor N langsung dari peta (level_map.json)."""
+    url = _level_map.get(str(nomor))
+    if not url:
+        return False
+    try:
+        PAGE.goto(url, timeout=25000)
+        return True
+    except Exception:
+        return False
+
+
+def bangun_peta_level():
+    """Bangun peta level -> URL lengkap (1..685) dengan membuka daftar
+    lesson lalu menklik tiap baris dan merekam URL .play-nya (~1.3 dtk/
+    level, sekali per akun). Baris daftar terverifikasi: aria-label
+    'Lesson N' sesuai urutan. Jalan di tab terpisah supaya PAGE aktif
+    tidak terganggu."""
+    if browser is None:
+        print("[PETA] belum terhubung ke browser.")
+        return 0
+    pg = None
+    baru = 0
+    try:
+        pg = browser.contexts[0].new_page()
+        pg.goto(LIST_URL, timeout=30000)
+        pg.wait_for_selector("div.box-container", timeout=15000)
+        total = pg.evaluate(
+            "() => document.querySelectorAll('div.box-container').length") or 0
+        if not total:
+            print("[PETA] daftar lesson tidak terbaca.")
+            return 0
+        print(f"[PETA] membangun peta {total} level "
+              f"(estimasi {total * 1.4 / 60:.0f} menit, jangan tutup bot)...")
+        for i in range(total):
+            while PAUSED and not STOP:
+                time.sleep(0.3)
+            if STOP:
+                print(f"[PETA] dihentikan di level {i + 1} "
+                      f"(bisa dilanjutkan lain waktu).")
+                break
+            try:
+                try:  # modal premium di tab peta -> tutup dulu
+                    x = pg.locator(".edmodal-x")
+                    if x.count():
+                        x.first.click(timeout=800)
+                        time.sleep(0.3)
+                except Exception:
+                    pass
+                lbl = pg.evaluate(
+                    "(i)=>{const r=[...document.querySelectorAll"
+                    "('div.box-container')][i];"
+                    "return r ? (r.getAttribute('aria-label')||'') : '';}", i)
+                m = re.match(r"Lesson\s+(\d+)", lbl or "")
+                nomor = int(m.group(1)) if m else i + 1
+                if str(nomor) in _level_map:
+                    continue   # sudah terpetakan (resume cepat tanpa klik)
+                pg.evaluate(
+                    "(i)=>{const r=[...document.querySelectorAll"
+                    "('div.box-container')][i]; if(r) r.click();}", i)
+                url = None
+                for fase in range(40):
+                    time.sleep(0.1)
+                    u = pg.evaluate("() => location.href")
+                    if u and ".play" in u:
+                        url = u
+                        break
+                    if fase == 12:
+                        # lesson TERKUNCI: edclub menampilkan modal 'Are you
+                        # sure? ... jumping ahead' dengan tombol Continue -
+                        # klik lanjut supaya navigasi tetap terjadi (live).
+                        pg.evaluate("""() => {
+                            const t = [...document.querySelectorAll(
+                                'button, .btn, [role=button]')];
+                            const b = t.find(x =>
+                                /continue|lanjut/i.test(x.textContent || '')
+                                && x.offsetParent !== null);
+                            if (b) b.click();
+                        }""")
+                if url and _level_map.get(str(nomor)) != url:
+                    _level_map_catat(nomor, url)
+                    baru += 1
+                # go_back HANYA kalau memang navigasi ke .play terjadi;
+                # baris yang tidak bisa diklik (mis. bagian khusus akhir
+                # daftar) tidak menavigasi -> go_back dari daftar justru
+                # membawa tab ke about:blank dan builder nyangkut (live).
+                if url:
+                    pg.go_back(timeout=15000)
+                    pg.wait_for_selector("div.box-container", timeout=15000)
+                if (i + 1) % 25 == 0:
+                    print(f"[PETA] {i + 1}/{total} level terpetakan...")
+            except Exception:
+                pulih = False
+                for _ in range(3):
+                    try:
+                        pg.goto(LIST_URL, timeout=30000)
+                        pg.wait_for_selector("div.box-container",
+                                            timeout=15000)
+                        pulih = True
+                        break
+                    except Exception:
+                        time.sleep(2)
+                        try:   # tab bisa mati -> tab baru
+                            pg.close()
+                        except Exception:
+                            pass
+                        pg = browser.contexts[0].new_page()
+                if not pulih:
+                    print("[PETA] daftar tidak bisa dibuka lagi - berhenti "
+                          "(lanjutkan lain waktu, sudah terpetakan "
+                          f"{len(_level_map)}).")
+                    break
+        print(f"[PETA] selesai: +{baru} baru, total {len(_level_map)} "
+              f"level terpetakan (level_map.json).")
+    finally:
+        try:
+            if pg is not None:
+                pg.close()
+        except Exception:
+            pass
+    return baru
+
+
+def _level_label():
+    """Nomor level ASLI (mis. 'L87') dari teks halaman. Nomor URL edclub
+    adalah id konten (bukan linear - setelah 651 langsung 8830), jadi
+    indikator tidak boleh memakai rumus URL. Halaman menampilkan
+    'Lesson 87: ...'."""
+    try:
+        url = PAGE.url
+    except Exception:
+        return ""
+    if url in _level_label_cache:
+        return _level_label_cache[url]
+    nomor = run_js(r"""
+const t = document.body ? document.body.innerText.slice(0, 400) : '';
+const m = t.match(/Lesson\s+(\d+)/);
+return m ? m[1] : null;
+""", PAGE.main_frame)
+    lab = f"L{nomor}" if nomor else ""
+    # Cache HANYA yang berhasil: halaman yang belum selesai memuat masih
+    # kosong; kalau dikosongkan pun, cache "" akan menutup label selamanya
+    # untuk URL itu (pernah membuat indikator level GUI selalu salah).
+    if nomor:
+        _level_label_cache[url] = lab
+        _level_map_catat(nomor, url)
+    return lab
+
+
 def _wait_play_url(newpg):
     for _ in range(16):
         time.sleep(0.5)
+        if STOP:
+            return None
         try:
             u = newpg.evaluate("() => location.href")
         except Exception:
@@ -2558,6 +3425,8 @@ def _goto_next_lesson_in_list(newpg, current_url):
     cur = _lesson_id(current_url)
     row = 0
     for _ in range(6):
+        if STOP:
+            return None
         try:
             newpg.goto(LIST_URL, timeout=25000)
             newpg.wait_for_selector("div.box-container div.lsn_name",
@@ -2651,6 +3520,298 @@ last_debug_dump = 0.0
 last_url = ""
 _premlock_since = 0.0
 _login_notice = 0.0
+
+
+# ---------------------------------------------------------------------------
+# Deteksi sesi login edclub
+#
+# Tiga lapis (tanpa menebak selector DOM yang tidak terverifikasi):
+# 1. URL login/signin (perilaku lama, tetap).
+# 2. Sentinel 401/403: pasang listener respons jaringan sekali di connect().
+#    edclub sendiri yang "mengetahui" sesi mati lewat API-nya (ini satu-
+#    satunya cara menangkap kasus "logout diam-diam saat tab lama dibiarkan
+#    terbuka" - cookie masih ada tapi server sudah menolaknya).
+# 3. Cookie sesi via CDP: profil yang belum pernah login tidak punya cookie
+#    edclub selain milik Cloudflare (__cf_bm/_cfuvid) -> jelas belum login.
+# ---------------------------------------------------------------------------
+_login_sentinel = {"ok": True, "alasan": "", "gagal403": 0.0,
+                   "terakhir401": 0.0, "path401": {}, "log401": 0.0,
+                   "pernah_in": False, "unknown_mulai": 0.0}
+_login_ck = {"terakhir": 0.0}
+
+# Path API yang 401-nya PASTI berarti sesi mati (penyimpanan progress,
+# data murid, sesi). Endpoint lain (mis. premium/entitlement) balas 401
+# untuk akun gratis yang SEDANG login - terbukti live: satu 401 seperti
+# itu pernah memunculkan popup 'belum login' padahal user login.
+SESI_PATH_RE = re.compile(r"(session|login|logout|/me\b|/me/|progress|student)",
+                          re.I)
+
+
+def _pasang_login_sentinel():
+    """Pasang listener response XHR/fetch edclub -> tangkap 401/403.
+    Dipasang ke semua context (tab baru ikut terpasang lewat event page)."""
+    if browser is None:
+        return
+
+    def on_response(resp):
+        try:
+            if resp.status not in (401, 403):
+                return
+            req = resp.request
+            if req.resource_type not in ("xhr", "fetch"):
+                return
+            host = (urlparse(resp.url).hostname or "").lower()
+            if not (host.endswith("edclub.com") or host.endswith("typingclub.com")):
+                return
+            if resp.status == 401:
+                now = time.time()
+                path = urlparse(resp.url).path or "/"
+                _login_sentinel["terakhir401"] = now
+                _login_sentinel["path401"][path] = now
+                for p in list(_login_sentinel["path401"]):
+                    if now - _login_sentinel["path401"][p] > 120:
+                        del _login_sentinel["path401"][p]
+                if now - _login_sentinel["log401"] > 30:
+                    _login_sentinel["log401"] = now
+                    print(f"[LOGIN] catatan: API balas 401 ({path[:60]})")
+                # 401 tunggal dari endpoint acak BUKAN tanda sesi mati
+                # (akun gratis: endpoint premium memang 401). Percayai
+                # hanya endpoint sesi, ATAU beberapa endpoint berbeda.
+                if (SESI_PATH_RE.search(path)
+                        or len(_login_sentinel["path401"]) >= 3):
+                    _login_sentinel["ok"] = False
+                    _login_sentinel["alasan"] = f"API edclub 401 ({path[:40]})"
+            else:
+                # 403 sesekali bisa hal lain (konten premium) -> butuh 2x
+                # dalam 60 detik baru dianggap sesi mati
+                now = time.time()
+                if now - _login_sentinel["gagal403"] < 60:
+                    _login_sentinel["ok"] = False
+                    _login_sentinel["alasan"] = "API edclub berulang 403"
+                _login_sentinel["gagal403"] = now
+        except Exception:
+            pass
+
+    def on_page(pg):
+        try:
+            pg.on("response", on_response)
+        except Exception:
+            pass
+
+    for ctx in browser.contexts:
+        try:
+            ctx.on("page", on_page)
+            for pg in ctx.pages:
+                on_page(pg)
+        except Exception:
+            pass
+
+
+PROFILE_CHECK_JS = r"""
+// Status login dari DOM. Sinyal live terverifikasi (akun Individual &
+// portal sportal - sesi edclub TIDAK disimpan di cookie, auth memakai
+// header 'Authorization: Token' dari storage internal browser):
+// 1. .profile-name berisi nama user -> LOGIN (pasti).
+// 2. li.dropdown > a.dropdown-toggle BERNAMA ORANG di navbar -> LOGIN.
+//    (live: dashboard sportal & daftar .game menampilkan 'Zafran Hulaif'
+//    sebagai toggle; toggle UI lain = Courses/English/Save Progress/
+//    Typing Jungle - dikecualikan lewat daftar hitam + label bahasa).
+// 3. Tautan 'Log in / Sign up' di header -> LOGOUT (terverifikasi di
+//    halaman daftar .game logout).
+const el = document.querySelector('.profile-name');
+if (el) {
+    const t = (el.textContent || '').trim();
+    if (t && !/sign|log\s*in/i.test(t)) return 'in';
+    return 'out';
+}
+const UI_TOGGLE = /^(courses?|english|save progress|more|help|settings?|language|lessons?|programs?|typing jungle|espa\S*|\d+)$/i;
+const tog = document.querySelectorAll('li.dropdown > a.dropdown-toggle');
+for (const a of tog) {
+    if (a.querySelector('.selected-language-label')) continue;
+    const t = (a.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!t || t.length > 40) continue;
+    if (/log ?(in|out)|sign ?(in|up|out)/i.test(t)) continue;
+    if (UI_TOGGLE.test(t)) continue;
+    return 'in';
+}
+const adaLogin = [...document.querySelectorAll('a, button')].some(e =>
+    /^(log in|login|sign in|sign up|signup|masuk|daftar)$/i
+    .test((e.textContent || '').trim()));
+if (adaLogin) return 'out';
+return null;
+"""
+
+
+def _profil_login():
+    """'in'/'out'/None dari elemen .profile-name halaman aktif. INI sinyal
+ utama edclub Individual: sesi TIDAK disimpan di cookie sama sekali
+ (live: user login betulan, cookie cuma tracker/cloudflare) - deteksi
+ cookie mustahil. Elemen profil tampil begitu sesi hidup -> pemulihan
+ popup instan setelah user login."""
+    try:
+        return run_js(PROFILE_CHECK_JS, PAGE.main_frame)
+    except Exception:
+        return None
+
+
+def _fetch_login():
+    """Deprecated: fetch /api/v1.1/student/me/ TIDAK bisa dipakai - live
+    terbukti halaman edclub sendiri mengirimnya TANPA token (401 selalu,
+    bahkan saat login; API user sebenarnya memakai header Authorization:
+    Token dari storage internal). Diganti _probe_tab_login()."""
+    return None
+
+
+_probe_tab_ck = {"terakhir": 0.0}
+
+
+def _probe_tab_login(timeout_s=15.0):
+    """Buka tab CADANGAN ke dashboard edclub, baca penanda login di sana,
+    lalu tutup. Status sesi berlaku untuk AKUN secara keseluruhan (token
+    disimpan browser, bukan per-halaman) - jadi penanda di dashboard
+    menjawab status untuk halaman apapun yang sedang aktif (mis. lesson
+    .play yang navbarnya tidak pernah tampil).
+
+    HYDRATION RACE (bug live 08:33): dashboard yang baru dimuat merender
+    navbar versi LOGOUT dulu ('Login' link), lalu setelah cek sesi (~1-3
+    dtk) diganti nama user. Dulu poll pertama langsung percaya 'out' ->
+    popup 'belum login' padahal user sudah login. Sekarang 'out' harus
+    STABIL 2 poll berurutan; 'in' (nama user muncul) selalu pasti ->
+    langsung. Redirect URL ke /signin = keputusan server, pasti logout.
+
+    Timeout 15 dtk: browser dingin + Cloudflare + iklan bisa >10 dtk
+    (dulu None -> patroli menunggu throttle 30-60 dtk berikutnya = cek
+    login pertama terasa lama). Return 'in'/'out'/None."""
+    try:
+        tab = PAGE.context.new_page()
+    except Exception:
+        return None
+    hasil = None
+    out_hitung = 0
+    try:
+        try:
+            tab.goto("https://www.edclub.com/sportal/", timeout=20000)
+        except Exception:
+            pass
+        batas = time.time() + timeout_s
+        while time.time() < batas and hasil is None:
+            try:
+                r = tab.evaluate("() => {" + PROFILE_CHECK_JS + "}")
+            except Exception:
+                r = None
+            if r == "in":
+                hasil = "in"
+                break
+            if r == "out":
+                out_hitung += 1
+                if out_hitung >= 2:
+                    hasil = "out"
+                    break
+                time.sleep(1.5)
+                continue
+            out_hitung = 0
+            try:
+                lowtab = (tab.url or "").lower()
+            except Exception:
+                lowtab = ""
+            if any(k in lowtab for k in ("signin", "login", "signup")):
+                hasil = "out"
+                break
+            time.sleep(0.7)
+    finally:
+        try:
+            tab.close()
+        except Exception:
+            pass
+    return hasil
+
+
+def _patroli_login(url):
+    """Cek berkala dari main loop: set/bersihkan PERLU_LOGIN. Interval 8 dtk
+    biasa, 3 dtk saat sedang menunggu user login (popup harus tertutup
+    cepat begitu user selesai login, bukan 8 dtk kemudian)."""
+    global PERLU_LOGIN, MINTA_LOGIN_NAV, LOGIN_DICEK
+    now = time.time()
+    jeda = 3.0 if PERLU_LOGIN else 8.0
+    if now - _login_ck["terakhir"] < jeda:
+        return
+    _login_ck["terakhir"] = now
+    profil = _profil_login()
+    low = (url or "").lower()
+    di_login = any(k in low for k in ("login", "signin", "sign-in", "signup"))
+    # DOM halaman aktif tidak punya penanda (lesson .play, SPA kosong,
+    # navbar belum selesai render, Cloudflare) -> cek lewat tab cadangan
+    # ke dashboard (status sesi berlaku akun-wide). Throttle 30 dtk;
+    # hanya saat jawaban benar-benar dibutuhkan (gerbang belum terbuka
+    # atau sedang menunggu login).
+    if (profil is None and not di_login
+            and ("edclub" in low or "typingclub" in low)
+            and (PERLU_LOGIN or not LOGIN_DICEK)
+            and now - _probe_tab_ck["terakhir"]
+                > (60.0 if PERLU_LOGIN else 30.0)):
+        _probe_tab_ck["terakhir"] = now
+        print("[LOGIN] Halaman ini tanpa penanda login - cek sesi lewat "
+              "tab cadangan...")
+        profil = _probe_tab_login()
+    # pemulihan INSTAN: profil bernama = pasti login (menimpa sentinel)
+    if profil == "in":
+        _login_sentinel["pernah_in"] = True
+        if not _login_sentinel["ok"] or PERLU_LOGIN:
+            _login_sentinel["ok"] = True
+            _login_sentinel["alasan"] = ""
+            _login_sentinel["path401"].clear()
+    mati = (di_login or not _login_sentinel["ok"]
+            or profil == "out") and profil != "in"
+    if profil is not None:
+        _login_sentinel["unknown_mulai"] = 0.0
+    elif not mati and not PERLU_LOGIN and not _login_sentinel["pernah_in"]:
+        # profil MASIH None walau DOM + tab cadangan gagal (halaman mati /
+        # Cloudflare menggantung / renderer sibuk). Kumpulkan durasi;
+        # >40 dtk di halaman edclub -> perlakukan seperti logout.
+        if (("edclub" in low or "typingclub" in low) and not di_login):
+            if not _login_sentinel["unknown_mulai"]:
+                _login_sentinel["unknown_mulai"] = now
+                print("[LOGIN] Status login belum terbaca (halaman masih "
+                      "memuat/diverifikasi) - menunggu...")
+            elif now - _login_sentinel["unknown_mulai"] > 40.0:
+                _login_sentinel["ok"] = False
+                _login_sentinel["alasan"] = "login tidak terdeteksi >40 dtk"
+                mati = True
+        else:
+            _login_sentinel["unknown_mulai"] = 0.0
+    # GUI hanya boleh menanya rentang kalau status login PASTI (in/out/mati)
+    if mati or profil in ("in", "out"):
+        LOGIN_DICEK = True
+    if mati and not PERLU_LOGIN:
+        PERLU_LOGIN = True
+        print("[LOGIN] Sesi edclub tidak aktif"
+              + (f" ({_login_sentinel['alasan']})" if _login_sentinel["alasan"] else "")
+              + ". Login di jendela browser bot - bot menunggu di sini.")
+    elif PERLU_LOGIN and profil == "in":
+        # Pulih HANYA dengan bukti positif login (profil 'in'). Dulu: profil
+        # None (halaman tanpa penanda + tab cadangan tertahan throttle)
+        # dianggap 'pulih' -> PERLU_LOGIN=False -> popup login tertutup &
+        # bot jalan mengetik padahal user logout (keluhan live 2x).
+        PERLU_LOGIN = False
+        _login_sentinel["ok"] = True
+        _login_sentinel["alasan"] = ""
+        print("[LOGIN] Sesi edclub aktif kembali - lanjut.")
+    if PERLU_LOGIN and MINTA_LOGIN_NAV:
+        MINTA_LOGIN_NAV = False
+        # URL login yang BENAR (live: /login = 404). Individu = /signin
+        # ("Login Individual Edition"); akun sekolah = portal sportal.
+        tujuan = MINTA_LOGIN_URL or LOGIN_URL_INDIVIDU
+        try:
+            PAGE.goto(tujuan, timeout=25000)
+            # fokus ke jendela browser: user BARU memilih 'buka halaman
+            # login' - jangan biarkan popup bot yang tetap memegang fokus
+            try:
+                PAGE.bring_to_front()
+            except Exception:
+                pass
+            print(f"[LOGIN] Halaman login dibuka: {tujuan}")
+        except Exception as e:
+            print(f"[LOGIN] Gagal membuka halaman login: {str(e)[:60]}")
 _stripe_sweep_last = 0.0
 _nav_try = 0.0
 stats = {"std": 0, "mini": 0, "ocr": 0, "popup": 0, "hold": 0, "uikey": 0, "tut": 0,
@@ -2683,14 +3844,154 @@ def _sweep_stripe_tabs(force=False):
         pass
 
 
+def _page_hidup(pg, timeout_ms=3000):
+    """Renderer halaman masih merespons? evaluate() di renderer yang
+    di-suspend Windows (browser idle di latar) MENGHANG TANPA TIMEOUT -
+    pernah membuat main loop mati diam total (live). wait_for_load_state
+    MENERIMA timeout -> panggilan pembuka yang aman sebelum menyentuh
+    halaman. True = hidup."""
+    try:
+        pg.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+        return True
+    except Exception:
+        return False
+
+
+def _pulihkan_renderer():
+    """Renderer tab aktif mati/suspend. Obat satu-satunya yang terbukti:
+    restart browser debug (taskkill + relaunch, tanpa curi fokus), lalu
+    sambung ulang. Dipanggil dari main loop (thread pemilik Playwright).
+    Return True = tersambung ulang & boleh lanjut."""
+    global PAGE
+    print("[PEMULIHAN] Halaman tidak merespons (renderer menggantung) - "
+          "memulai ulang browser debug...")
+    PAGE = None
+    try:
+        disconnect()
+    except Exception:
+        pass
+    if not _restart_browser_debug():
+        print("[PEMULIHAN] Browser tidak bisa direstart.")
+        return False
+    try:
+        connect()
+        return PAGE is not None
+    except SystemExit:
+        return False
+
+
+def _rentang_cek(url):
+    """Terapkan rentang level pilihan user. Return True = main loop harus
+    `continue` (navigasi/berhenti ditangani di sini). Kasus penting (live):
+    setelah login bot mendarat di DAFTAR lesson (.game) - dulu lompatan
+    hanya berlaku di halaman .play, sehingga recovery malah membuka level
+    TERDEPAN akun (L106) mengabaikan rentang; sekarang dari daftar pun
+    langsung menuju LEVEL_START.
+    RENTANG_SIAP: rentang baru boleh DITERAPKAN setelah user menjawab
+    dialog rentang saat Start (live 00:2x: patroli login membersihkan
+    PERLU_LOGIN, dan SEBELUM dialog rentang sempat terbuka (poll GUI
+    150ms belumlah jalan) case-3 di bawah langsung melompat ke LEVEL_START
+    lama yang tersimpan (662) - browser pindah ke level sendiri padahal
+    user belum menjawab apapun)."""
+    global RENTANG_SELESAI, STOP, _rentang_nav, _rentang_jump_done, _rentang_max_seen
+    if not RENTANG_SIAP:
+        return False
+    if RENTANG_SELESAI or (LEVEL_START <= 1 and not LEVEL_END):
+        return False
+    on_play = ".play" in (url or "")
+    nomor = 0
+    if on_play:
+        if STATUS_LABEL.startswith("L"):
+            try:
+                nomor = int(STATUS_LABEL[1:])
+            except ValueError:
+                pass
+        if not nomor:
+            nomor = url_ke_level(url) or 0
+        if nomor > _rentang_max_seen:
+            _rentang_max_seen = nomor
+    # 1) melewati akhir rentang -> selesai
+    if nomor and LEVEL_END and nomor > LEVEL_END:
+        RENTANG_SELESAI = True
+        STOP = True
+        print(f"[RENTANG] level {nomor} melewati akhir rentang "
+              f"({LEVEL_END}) - bot selesai.")
+        return True
+    # 1b) SELESAI saat MENINGGALKAN level akhir: level TERAKHIR kursus
+    # (live: L685 = video) tidak pernah punya lesson berikutnya - begitu
+    # selesai, situs mendarat ke DAFTAR lesson dan cek 'nomor > LEVEL_END'
+    # di atas tidak pernah terpicu. Dulu bot malah LOMPAT BALIK ke level
+    # awal rentang dan mengerjakan ulang 668..685 terus-menerus.
+    if (LEVEL_END and _rentang_max_seen >= LEVEL_END and not on_play
+            and not PERLU_LOGIN):
+        RENTANG_SELESAI = True
+        STOP = True
+        print(f"[RENTANG] level akhir {_rentang_max_seen} selesai (keluar dari "
+              f"lesson) - bot selesai.")
+        return True
+    if LEVEL_START <= 1 or _rentang_jump_done:
+        return False
+    # Jangan lompat balik ke awal rentang kalau level dalam rentang SUDAH
+    # pernah dikerjakan sesi ini (mendarat di daftar = istirahat/recovery,
+    # bukan permulaan) - biarkan recovery membuka level terdepan.
+    if _rentang_max_seen >= LEVEL_START and _rentang_max_seen > 1:
+        return False
+    # 2) di lesson yang di bawah awal rentang -> lompat
+    if on_play:
+        if nomor and nomor < LEVEL_START and time.time() - _rentang_nav > 10:
+            _rentang_nav = time.time()
+            print(f"[RENTANG] level {nomor} di bawah awal ({LEVEL_START}) "
+                  f"- lompat ke level {LEVEL_START}")
+            if _goto_level_url(LEVEL_START):
+                _rentang_jump_done = True
+            else:
+                print("[RENTANG] URL level awal belum ada di peta - "
+                      "bangun peta dulu (tombol Rentang).")
+            return True
+        return False
+    # 3) TIDAK di lesson (daftar/home edclub) dan sudah login -> langsung
+    #    menuju level awal (kecuali user sedang aktif memakai browser)
+    if not PERLU_LOGIN and not _user_aktif(25.0) \
+            and time.time() - _rentang_nav > 10:
+        _rentang_nav = time.time()
+        if _goto_level_url(LEVEL_START):
+            _rentang_jump_done = True
+            print(f"[RENTANG] menuju level awal {LEVEL_START}...")
+            return True
+        print("[RENTANG] URL level awal belum ada di peta - lanjut otomatis.")
+    return False
+
+
 def main_loop():
     global PAGE, last_url, last_debug_dump, last_action_time, _last_recovery
-    global STATUS_URL, _login_notice, _nav_try, _intro_flow, _premlock_since
+    global STATUS_URL, STATUS_LABEL, _login_notice, _nav_try, _intro_flow, _premlock_since, _label_retry
+    global MINTA_BANGUN_PETA, RENTANG_SELESAI, _rentang_nav, STOP, _last_loop_err, _rentang_jump_done
+    global _rentang_max_seen
     if PAGE is None:
         try:
             connect()
         except SystemExit:
             return
+    # Validasi level start terkunci kini NON-BLOKIR di dalam loop
+    # (_rentang_validasi_step) SETELAH gerbang login - lihat catatan di
+    # fungsinya (bug live 00:04: blokir pra-loop membekukan semuanya).
+    global _unlock_set, _rentang_validasi_done
+    _rentang_validasi_done = False
+    _rentang_max_seen = 0    # level tertinggi yang DILIHAT sesi ini (anti lompat balik)
+    renderer_gagal = 0
+    pulih_selesai = 0
+    _nav_time = 0.0           # waktu tiba di URL saat ini (grace pemulihan)
+    _tunggu_rentang_baru = False
+    _rentang_jump_done = False   # lompat ke LEVEL_START hanya sekali, dan
+    # HANYA kalau saat mulai TIDAK sedang berada di lesson (user yang membuka
+    # level sendiri = kerjakan saja level itu, jangan paksa lompat)
+    try:
+        _rentang_jump_done = ".play" in (_real_url(PAGE) or "")
+        if _rentang_jump_done and LEVEL_START > 1:
+            print(f"[RENTANG] sudah ada lesson terbuka - kerjakan ini dulu "
+                  f"(lompatan ke level {LEVEL_START} dilewati).")
+    except Exception:
+        pass
     while True:
         try:
             if STOP:
@@ -2699,6 +4000,28 @@ def main_loop():
             if PAUSED:
                 time.sleep(0.2)
                 continue
+
+            # Gerbang kesehatan renderer SEBELUM evaluasi apa pun: evaluate
+            # di renderer suspend menghang tanpa timeout (bug live: log mati
+            # total tepat setelah 'Terhubung!'). 2x gagal -> restart browser.
+            if not _page_hidup(PAGE):
+                renderer_gagal += 1
+                if renderer_gagal == 1:
+                    print("[PEMULIHAN] Tab tidak merespons, memberi 5 detik...")
+                    time.sleep(5)
+                    continue
+                if time.time() - pulih_selesai < 60:
+                    print("[PEMULIHAN] Baru saja restart tapi masih mati - "
+                          "stop (cek jendela browser secara manual).")
+                    STOP = True
+                    break
+                if _pulihkan_renderer():
+                    pulih_selesai = time.time()
+                    renderer_gagal = 0
+                    continue
+                STOP = True
+                break
+            renderer_gagal = 0
 
             # anti-pause ringan tiap iterasi (banner "Start Typing dll.")
             keep_alive_frames()
@@ -2722,18 +4045,19 @@ def main_loop():
                 if "stripe" in rh or "checkout" in rh:
                     url = real
             STATUS_URL = url
+            # label level bisa kosong saat pertama datang (halaman belum
+            # selesai memuat) -> coba lagi berkala sampai dapat
+            if not STATUS_LABEL and time.time() - _label_retry > 2:
+                _label_retry = time.time()
+                try:
+                    STATUS_LABEL = _level_label()
+                except Exception:
+                    pass
             if not _is_edclub_url(url):
                 # tab bisa ter-bawa navigasi ke Stripe checkout (dibuktikan
                 # live: klik di area iframe premium = top-level navigation).
                 # Tutup tab stripe yang menganggur, lalu cari/buat tab edclub.
-                try:
-                    for pg in list(browser.contexts[0].pages):
-                        h = (urlparse(_real_url(pg)).hostname or "").lower()
-                        if "stripe" in h and pg is not PAGE:
-                            pg.close()
-                            print("[TAB] tab Stripe sisa ditutup")
-                except Exception:
-                    pass
+                _sweep_stripe_tabs(force=True)
                 # coba cari ulang tab edclub (prioritas yang di halaman .play)
                 found = None
                 for pg in browser.contexts[0].pages:
@@ -2786,14 +4110,51 @@ def main_loop():
                     continue
 
             low = url.lower()
+            _patroli_login(url)
+            if PERLU_LOGIN:
+                # Jangan buang level untuk sesi mati: berhenti mengetik,
+                # GUI memunculkan popup; lanjut sendiri setelah login.
+                if time.time() - _login_notice > 30:
+                    _login_notice = time.time()
+                    print("[LOGIN] Menunggu login edclub di jendela browser bot...")
+                time.sleep(1)
+                continue
+            if not LOGIN_DICEK:
+                # GERBANG KERAS: status login belum PASTI (belum terbaca
+                # in/out). Dilarang mengetik / recovery / klik apapun.
+                # Bug live 2x: saat status belum terbaca, (1) popup rentang
+                # dimunculkan padahal belum login, (2) recovery macetnya
+                # daftar pelajaran malah membuka pelajaran gratis 116 dan
+                # bot MENGETIK tanpa login & tanpa rentang.
+                if time.time() - _login_notice > 15:
+                    _login_notice = time.time()
+                    print("[LOGIN] Menunggu status login terbaca "
+                          "(jangan melakukan apapun dulu)...")
+                time.sleep(1)
+                continue
             if "login" in low or "signin" in low or "sign-in" in low or "signup" in low:
                 # belum login: jangan spam recovery, tunggu user login manual
                 if time.time() - _login_notice > 30:
                     _login_notice = time.time()
                     print("[LOGIN] Halaman login terdeteksi. Login dulu di "
-                          "Brave, bot menunggu di sini...")
+                          "browser bot, bot menunggu di sini...")
                 time.sleep(2)
                 continue
+
+            # validasi level start terkunci (non-blokir, hanya setelah
+            # status login pasti; selama menunggu jawaban GUI, loop berhenti
+            # di sini dan TIDAK menyentuh halaman)
+            if not _rentang_validasi_step():
+                STOP = True
+                return
+
+            # USER asli sedang memakai browser bot di luar lesson (daftar
+            # level, pengaturan, profil) - jangan ambil alih; tunggu sampai
+            # user diam atau masuk lesson sendiri. >2 menit -> GUI bertanya.
+            if ".play" not in url and _user_aktif(25.0):
+                _tunggu_user(url)
+                continue
+            _user_diam_lagi(url)
 
             if url != last_url:
                 # level baru: cooldown Phaser dari game sebelumnya tidak
@@ -2804,12 +4165,49 @@ def main_loop():
                 _phaser_freeze["clicked"] = False
                 _intro_flow = False   # layar intro pertama level ini = settle penuh
                 _premlock_since = 0.0
+                STATUS_LABEL = ""
                 if last_url:
-                    print(f"[PROGRES] {last_url.split('/')[-1]} -> {url.split('/')[-1]}  "
+                    print(f"[PROGRES] {_level_label() or '?'} "
+                          f"({last_url.split('/')[-1]} -> {url.split('/')[-1]})  "
                           f"(std={stats['std']} tut={stats['tut']} mini={stats['mini']} "
                           f"phaser={stats['phaser']} ocr={stats['ocr']} hold={stats['hold']} "
                           f"video={stats['video']} popup={stats['popup']})")
+                # label level asli untuk indikator GUI (bukan rumus URL:
+                # nomor URL acak per akun dan PERNAH salah terus)
+                try:
+                    STATUS_LABEL = _level_label()
+                except Exception:
+                    STATUS_LABEL = ""
                 last_url = url
+                # Navigasi = aktivitas: budget stall baru untuk halaman
+                # yang baru dibuka. Dulu timer stall TIDAK direset saat
+                # pindah halaman -> waktu menunggu dialog rentang/login
+                # terakumulasi -> tepat setelah lompatan rentang, recovery
+                # menembak '[TUNDA] 107s' padahal halaman baru dimuat
+                # (keluhan user: 'tiap pilih rentang kok kira-kira mati').
+                last_action_time = time.time()
+                _nav_time = time.time()
+
+            # permintaan bangun peta level dari GUI
+            if MINTA_BANGUN_PETA:
+                MINTA_BANGUN_PETA = False
+                bangun_peta_level()
+                continue
+            # rentang sedang ditanyakan GUI -> BERHENTI BERGERAK (dulu:
+            # recovery menembak & membuka level terdepan L106 saat popup
+            # rentang masih terbuka)
+            if TUNGGU_RENTANG:
+                _tunggu_rentang_baru = True
+                time.sleep(0.3)
+                continue
+            if _tunggu_rentang_baru:
+                _tunggu_rentang_baru = False
+                # dialog rentang selesai dijawab: budget stall baru (waktu
+                # user berpikir di depan popup bukan 'halaman mati')
+                last_action_time = time.time()
+            # rentang level pilihan user (lompat awal / berhenti di akhir)
+            if _rentang_cek(url):
+                continue
 
             # Watch window: klik X modal premium SEBELUM penutup pop-up
             # dan handler mana pun. TERBUKTI LIVE: modal premium edclub
@@ -2878,6 +4276,11 @@ def main_loop():
                     continue
                 if not try_ocr_minigame(data or {}):
                     stalled = time.time() - last_action_time
+                    # USER asli aktif (memegang halaman)? Semua aksi ambil-
+                    # alih (klik lanjut, ganti tab, recovery) ditunda -
+                    # dulu intervensi user salah dibaca 'level selesai/
+                    # mati' dan bot menekan tombol sendiri.
+                    user_sibuk = _user_aktif(25.0)
                     # HEARTBEAT: bot tidak boleh pernah diam tanpa kabar.
                     # (dulu: state unknown = sunyi total, kelihatan mati)
                     if stalled > 10 and time.time() - last_debug_dump > 10:
@@ -2889,7 +4292,7 @@ def main_loop():
                     # masih gelap & tak ada kerjaan (edclub bug, level 106):
                     # SATU klik tombol lanjut langsung ke lesson berikutnya
                     # (perilaku terverifikasi user). Coba sebelum recovery.
-                    if stalled > 6:
+                    if stalled > 6 and not user_sibuk:
                         prem = False
                         for fr2 in all_frames():
                             h = run_js(MODAL_HINT_JS, fr2)
@@ -2920,10 +4323,30 @@ def main_loop():
                                 continue
                     # Tab edclub lain mungkin punya pekerjaan (bot bisa
                     # nyangkut di tab yang salah setelah navigasi manual).
-                    if stalled > 6 and _switch_to_playable_tab():
+                    if stalled > 6 and not user_sibuk and _switch_to_playable_tab():
                         continue
-                    if stalled > 12 and time.time() - _last_recovery > 25:
+                    # level TERKUNCI = halaman .play kosong (live: L100
+                    # logout memuat body kosong) - reload tidak akan
+                    # menolong; lompat ke urutan daftar.
+                    if stalled > 10:
+                        nomor = 0
+                        if STATUS_LABEL.startswith("L"):
+                            try:
+                                nomor = int(STATUS_LABEL[1:])
+                            except ValueError:
+                                pass
+                        if nomor and _unlock_set is None:
+                            _unlock_set = _baca_unlock_set()
+                        if nomor and _unlock_set and nomor not in _unlock_set:
+                            if _skip_to_next_lesson("level terkunci untuk akun"):
+                                last_action_time = time.time()
+                                continue
+                    if stalled > 12 and not user_sibuk and time.time() - _last_recovery > 25 \
+                            and time.time() - _nav_time > 25:
                         # halaman kemungkinan mati/kosong -> pulihkan otomatis
+                        # (grace 25 dtk sejak tiba: halaman yang BARU dinavigasi
+                        # (mis. lompatan rentang) boleh lambat memuat - jangan
+                        # langsung dikira mati dan di-reload)
                         if not recover_and_restart_lesson():
                             _last_recovery = time.time()
 
@@ -2932,7 +4355,12 @@ def main_loop():
         except KeyboardInterrupt:
             print("Dihentikan manual.")
             break
-        except Exception:
+        except Exception as ex:
+            # JANGAN menelan exception diam-diam (bug live: loop error 2x/dtk
+            # tanpa satu baris log pun - bot 'mati diam'). Throttled 30 dtk.
+            if time.time() - _last_loop_err > 30:
+                _last_loop_err = time.time()
+                print(f"[LOOP] error (diabaikan, lanjut): {ex!r}")
             time.sleep(0.5)
 
     _sweep_stripe_tabs(force=True)

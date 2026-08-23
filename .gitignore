@@ -19,3 +19,10 @@ paste_*.txt
 # Log sesi bot & dump debug
 bot.log
 _*.txt
+
+# Lisensi lokal (spesifik per mesin)
+license.dat
+
+# Data runtime per-user (dibuat ulang otomatis oleh program)
+level_map.json
+typingbot_settings.json
