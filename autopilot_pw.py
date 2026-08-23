@@ -211,6 +211,11 @@ FORCE_BROWSER = ""   # path exe pilihan user (GUI); kosong = otomatis
 LAST_BROWSER = ""    # path exe browser terakhir yang benar2 dipakai (preferensi Otomatis)
 BRAVE_BINARY = BROWSER_CANDIDATES[0]["paths"][0]   # (kompatibilitas lama)
 DEDICATED_PROFILE = os.path.expandvars(r"%LOCALAPPDATA%\TypingBot\profile")
+# Mode profil: "bot" = profil khusus terpisah (default, aman untuk semua
+# browser) | "saya" = pakai profil ASLI browser user (login/bookmark ikut
+# terpakai). Chrome/Edge 136+ menolak mode debug di profil utama (kebijakan
+# keamanan Chromium) -> mode 'saya' hanya efektif di Brave.
+PROFILE_MODE = "bot"
 DEBUG_ADDRESS = "127.0.0.1:9222"
 OCR_MIN_INTERVAL = 3.0       # jeda minimal antar percobaan OCR
 
@@ -441,6 +446,51 @@ def _siapa_pegang_port():
         except Exception:
             pass
     return hasil
+
+
+def _proses_berdasar_nama(proc):
+    """PID semua proses dengan nama image tertentu (brave.exe dsb.),
+    hasil tasklist diurut seperti biasa (kolom ke-2 = PID)."""
+    pids = []
+    try:
+        out = _run_hidden(["tasklist", "/FI", f"IMAGENAME eq {proc}"],
+                          capture_output=True, text=True, timeout=8).stdout
+        for ln in out.splitlines():
+            bagian = ln.split()
+            if (len(bagian) >= 2 and bagian[0].lower() == proc.lower()
+                    and bagian[1].isdigit()):
+                pids.append(int(bagian[1]))
+    except Exception:
+        pass
+    return pids
+
+
+def _tutup_browser_user(proc, nama):
+    """Mode 'profil saya': browser harus BETUL2 mati dulu agar bisa
+    diluncurkan ulang dengan profil user + mode debug (jika masih jalan,
+    proses baru hanya membuka jendela di proses lama TANPA debug).
+    Selalu minta izin user (dialog logo) sebelum menutup.
+    Return False bila user menolak -> pemanggil jatuh ke profil khusus."""
+    pids = _proses_berdasar_nama(proc)
+    if not pids:
+        return True
+    exe, _induk = _exe_info_pid(pids[0])
+    print(f"[PROFIL] {nama} sedang jalan - bot perlu menutupnya dulu "
+          "untuk memakai profil kamu.")
+    if not _tanya_tutup(nama, pids[0], exe):
+        print("[PROFIL] tidak ditutup - bot memakai profil khusus saja.")
+        return False
+    for pid in pids:
+        try:
+            _run_hidden(["taskkill", "/F", "/T", "/PID", str(pid)],
+                        capture_output=True, timeout=8)
+        except Exception:
+            pass
+    for _ in range(10):
+        time.sleep(0.5)
+        if not _proses_berdasar_nama(proc):
+            break
+    return True
 
 
 def _find_browser():
@@ -677,6 +727,14 @@ def siapkan_browser():
                       "Install salah satunya dulu.")
                 sys.exit(1)
             nm = BROWSER["name"]
+            # Mode 'profil saya': pakai profil ASLI browser (login user
+            # tersedia). Brave yang sedang jalan harus dimatikan dulu
+            # (dengan izin) - kalau tidak, jendela baru menempel ke proses
+            # lama tanpa mode debug.
+            if PROFILE_MODE == "saya" and nm == "Brave" \
+                    and _browser_sudah_jalan():
+                if _tutup_browser_user(BROWSER["proc"], nm):
+                    browser_on_port = _cek_debug_port()
             # Chrome/Edge modern MENOLAK flag debug di profil default
             # (Chromium 136+). Jangan coba-coba (buka jendela tanpa debug
             # lalu tunggu 15 dtk sia-sia): langsung profil khusus bot.
@@ -695,8 +753,16 @@ def siapkan_browser():
                     if _cek_debug_port().startswith("Chrome"):
                         break
                 if not _cek_debug_port().startswith("Chrome"):
+                    if PROFILE_MODE == "saya":
+                        print("[PROFIL] Brave versi ini menolak mode debug di "
+                              "profil utama - bot memakai profil khusus.")
                     langsung_profil = True
             if langsung_profil:
+                if PROFILE_MODE == "saya" and nm != "Brave":
+                    print("[PROFIL] Chrome/Edge versi baru tidak mengizinkan "
+                          "bot memakai profil utama (kebijakan keamanan "
+                          "browsernya) - bot memakai profil khusus. "
+                          "Login edclub cukup sekali.")
                 # Profil khusus bot: login edclub sekali, tersimpan selamanya.
                 alasan = ("sudah jalan tanpa debug" if _browser_sudah_jalan()
                           else "profil default menolak mode debug")
