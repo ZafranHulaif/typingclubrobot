@@ -211,11 +211,14 @@ FORCE_BROWSER = ""   # path exe pilihan user (GUI); kosong = otomatis
 LAST_BROWSER = ""    # path exe browser terakhir yang benar2 dipakai (preferensi Otomatis)
 BRAVE_BINARY = BROWSER_CANDIDATES[0]["paths"][0]   # (kompatibilitas lama)
 DEDICATED_PROFILE = os.path.expandvars(r"%LOCALAPPDATA%\TypingBot\profile")
-# Mode profil: "bot" = profil khusus terpisah (default, aman untuk semua
-# browser) | "saya" = pakai profil ASLI browser user (login/bookmark ikut
-# terpakai). Chrome/Edge 136+ menolak mode debug di profil utama (kebijakan
-# keamanan Chromium) -> mode 'saya' hanya efektif di Brave.
+# Mode profil: "bot" = profil khusus terpisah (default, aman) | "saya" =
+# pakai profil ASLI milik user pilihan sendiri (login/bookmark ikut terpakai).
+# Chrome/Edge 136+ menolak mode debug di folder data ASLINYA, tetapi masih
+# mengizinkan bila folder itu dibuka lewat JUNCTION (path lain -> data sama;
+# terverifikasi live di Chrome/Edge 151). Brave menerima folder asli langsung.
 PROFILE_MODE = "bot"
+PROFILE_DIR = ""       # 'Default' / 'Profile 1' / ... (mode 'saya')
+PROFILE_LABEL = ""     # nama tampilan profil utk pesan ramah (mis. 'Student')
 DEBUG_ADDRESS = "127.0.0.1:9222"
 OCR_MIN_INTERVAL = 3.0       # jeda minimal antar percobaan OCR
 
@@ -448,6 +451,77 @@ def _siapa_pegang_port():
     return hasil
 
 
+def _ud_browser_dir(nama):
+    """Folder data (User Data) ASLI milik browser terpasang. Return '' bila
+    browser tidak dikenal/foldernya tidak ada."""
+    base = os.path.expandvars("%LOCALAPPDATA%")
+    kandidat = {
+        "Brave": base + r"\BraveSoftware\Brave-Browser\User Data",
+        "Chrome": base + r"\Google\Chrome\User Data",
+        "Edge": base + r"\Microsoft\Edge\User Data",
+    }
+    ud = kandidat.get(nama, "")
+    return ud if ud and os.path.isdir(ud) else ""
+
+
+def _profil_daftar(nama):
+    """Daftar profil manusia di browser terpasang (dibaca dari 'Local
+    State', tanpa membuka browser). Return list {'dir','nama','email',
+    'utama'}; 'Default' selalu di urutan pertama."""
+    ud = _ud_browser_dir(nama)
+    if not ud:
+        return []
+    try:
+        with open(os.path.join(ud, "Local State"), encoding="utf-8") as f:
+            info = json.load(f)
+        cache = info.get("profile", {}).get("info_cache", {}) or {}
+    except Exception:
+        return []
+    hasil = []
+    for d, v in cache.items():
+        if not isinstance(v, dict):
+            continue
+        nm = (v.get("name") or d).strip() or d
+        hasil.append({"dir": d, "nama": nm,
+                      "email": (v.get("user_name") or "").strip(),
+                      "utama": d == "Default"})
+    hasil.sort(key=lambda p: (not p["utama"], p["nama"].lower()))
+    return hasil
+
+
+def _ud_profil_arg(nama):
+    """Argumen --user-data-dir untuk mode 'profil saya'. Brave: folder asli.
+    Chrome/Edge: JUNCTION ke folder asli (path beda, data sama - satu2nya
+    cara melewati larangan debug Chromium 136+ pada folder asli).
+    Return '' bila tidak bisa (folder tidak ada / profil tidak ada)."""
+    ud = _ud_browser_dir(nama)
+    if not ud:
+        return ""
+    if PROFILE_DIR and not os.path.isdir(os.path.join(ud, PROFILE_DIR)):
+        print(f"[PROFIL] profil '{PROFILE_DIR}' tidak ada di {nama} - "
+              "memakai profil khusus bot.")
+        return ""
+    if nama == "Brave":
+        return ud
+    link = os.path.join(os.path.dirname(DEDICATED_PROFILE),
+                        "ud_" + nama.lower())
+    try:
+        os.makedirs(os.path.dirname(link), exist_ok=True)
+        if os.path.exists(link):
+            os.rmdir(link)          # junction: hanya link yang terhapus
+        r = _run_hidden(["cmd", "/c", "mklink", "/J", link, ud],
+                        capture_output=True, text=True, timeout=15)
+        if "Junction created" in (r.stdout or "") or \
+                "created" in (r.stdout or "").lower():
+            return link
+        print(f"[PROFIL] gagal membuat pintasan folder ({(r.stderr or '')[:60]})"
+              " - memakai profil khusus bot.")
+    except Exception as ex:
+        print(f"[PROFIL] gagal menyiapkan folder profil ({ex}) "
+              "- memakai profil khusus bot.")
+    return ""
+
+
 def _proses_berdasar_nama(proc):
     """PID semua proses dengan nama image tertentu (brave.exe dsb.),
     hasil tasklist diurut seperti biasa (kolom ke-2 = PID)."""
@@ -580,7 +654,14 @@ def _restart_browser_debug():
         print("[PEMULIHAN] Browser tidak ditemukan - tidak bisa restart.")
         return False
     args = [exe, "--remote-debugging-port=9222", "--restore-last-session"]
-    if pilihan.get("name") != "Brave":
+    if PROFILE_MODE == "saya" and PROFILE_DIR:
+        ud_saya = _ud_profil_arg(pilihan.get("name", ""))
+        if ud_saya:
+            args += [f"--user-data-dir={ud_saya}",
+                     f"--profile-directory={PROFILE_DIR}"]
+        else:
+            args.append(f"--user-data-dir={DEDICATED_PROFILE}")
+    elif pilihan.get("name") != "Brave":
         args.append(f"--user-data-dir={DEDICATED_PROFILE}")
     # JANGAN mencuri fokus: jendela browser muncul diminimized tanpa
     # mengaktifkan dirinya (user bisa sedang mengetik di aplikasi lain).
@@ -727,56 +808,71 @@ def siapkan_browser():
                       "Install salah satunya dulu.")
                 sys.exit(1)
             nm = BROWSER["name"]
-            # Mode 'profil saya': pakai profil ASLI browser (login user
-            # tersedia). Brave yang sedang jalan harus dimatikan dulu
-            # (dengan izin) - kalau tidak, jendela baru menempel ke proses
-            # lama tanpa mode debug.
-            if PROFILE_MODE == "saya" and nm == "Brave" \
-                    and _browser_sudah_jalan():
-                if _tutup_browser_user(BROWSER["proc"], nm):
-                    browser_on_port = _cek_debug_port()
+            # Mode 'profil saya': luncurkan dengan profil ASLI user. Browser
+            # yang sedang jalan harus dimatikan dulu (dengan izin) - proses
+            # baru hanya membuka jendela di proses lama tanpa mode debug.
+            # Chrome/Edge dibuka lewat junction (lihat _ud_profil_arg).
+            if PROFILE_MODE == "saya" and PROFILE_DIR:
+                if _browser_sudah_jalan() and not _tutup_browser_user(
+                        BROWSER["proc"], nm):
+                    ud_saya = ""
+                else:
+                    ud_saya = _ud_profil_arg(nm)
+                if ud_saya:
+                    print(f"[PROFIL] membuka {nm} dengan profilmu "
+                          f"({PROFILE_LABEL or PROFILE_DIR})...")
+                    subprocess.Popen(
+                        [BROWSER["exe"], "--remote-debugging-port=9222",
+                         f"--user-data-dir={ud_saya}",
+                         f"--profile-directory={PROFILE_DIR}",
+                         "--no-first-run"],
+                        close_fds=True)
+                    for _ in range(30):
+                        time.sleep(0.5)
+                        if STOP:
+                            sys.exit(0)
+                        if _cek_debug_port().startswith("Chrome"):
+                            break
+                    if _cek_debug_port().startswith("Chrome"):
+                        browser_on_port = _cek_debug_port()
+                    else:
+                        print("[PROFIL] profil kamu gagal dibuka - bot "
+                              "memakai profil khusus bot.")
             # Chrome/Edge modern MENOLAK flag debug di profil default
             # (Chromium 136+). Jangan coba-coba (buka jendela tanpa debug
             # lalu tunggu 15 dtk sia-sia): langsung profil khusus bot.
             # Hal yang sama kalau browser sama sudah jalan tanpa debug -
             # profil khusus bisa berjalan berdampingan dengan jendela itu.
-            langsung_profil = (nm != "Brave") or _browser_sudah_jalan()
-            if not langsung_profil:
-                print(f"Port 9222 kosong: membuka {nm} otomatis "
-                      "dengan mode debug...")
-                subprocess.Popen([BROWSER["exe"], "--remote-debugging-port=9222"],
-                                 close_fds=True)
-                for _ in range(30):
-                    time.sleep(0.5)
-                    if STOP:
-                        sys.exit(0)
-                    if _cek_debug_port().startswith("Chrome"):
-                        break
-                if not _cek_debug_port().startswith("Chrome"):
-                    if PROFILE_MODE == "saya":
-                        print("[PROFIL] Brave versi ini menolak mode debug di "
-                              "profil utama - bot memakai profil khusus.")
-                    langsung_profil = True
-            if langsung_profil:
-                if PROFILE_MODE == "saya" and nm != "Brave":
-                    print("[PROFIL] Chrome/Edge versi baru tidak mengizinkan "
-                          "bot memakai profil utama (kebijakan keamanan "
-                          "browsernya) - bot memakai profil khusus. "
-                          "Login edclub cukup sekali.")
-                # Profil khusus bot: login edclub sekali, tersimpan selamanya.
-                alasan = ("sudah jalan tanpa debug" if _browser_sudah_jalan()
-                          else "profil default menolak mode debug")
-                print(f"Membuka {nm} dengan profil khusus bot ({alasan})...")
-                subprocess.Popen([BROWSER["exe"],
-                                  "--remote-debugging-port=9222",
-                                  f"--user-data-dir={DEDICATED_PROFILE}"],
-                                 close_fds=True)
-                for _ in range(30):
-                    time.sleep(0.5)
-                    if STOP:
-                        sys.exit(0)
-                    if _cek_debug_port().startswith("Chrome"):
-                        break
+            if not browser_on_port:
+                langsung_profil = (nm != "Brave") or _browser_sudah_jalan()
+                if not langsung_profil:
+                    print(f"Port 9222 kosong: membuka {nm} otomatis "
+                          "dengan mode debug...")
+                    subprocess.Popen([BROWSER["exe"], "--remote-debugging-port=9222"],
+                                     close_fds=True)
+                    for _ in range(30):
+                        time.sleep(0.5)
+                        if STOP:
+                            sys.exit(0)
+                        if _cek_debug_port().startswith("Chrome"):
+                            break
+                    if not _cek_debug_port().startswith("Chrome"):
+                        langsung_profil = True
+                if langsung_profil:
+                    # Profil khusus bot: login edclub sekali, tersimpan selamanya.
+                    alasan = ("sudah jalan tanpa debug" if _browser_sudah_jalan()
+                              else "profil default menolak mode debug")
+                    print(f"Membuka {nm} dengan profil khusus bot ({alasan})...")
+                    subprocess.Popen([BROWSER["exe"],
+                                      "--remote-debugging-port=9222",
+                                      f"--user-data-dir={DEDICATED_PROFILE}"],
+                                     close_fds=True)
+                    for _ in range(30):
+                        time.sleep(0.5)
+                        if STOP:
+                            sys.exit(0)
+                        if _cek_debug_port().startswith("Chrome"):
+                            break
     if BROWSER is None:
         BROWSER = _find_browser() or {"name": "browser", "exe": "", "proc": ""}
 

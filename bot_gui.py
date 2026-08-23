@@ -677,12 +677,14 @@ _AKTIV_MAP = [
      "Menutup %s dulu supaya bot bisa memakai profil kamu"),
     (re.compile(r"\[PROFIL\] tidak ditutup"),
      "Browser tidak ditutup - bot memakai profil khusus bot"),
-    (re.compile(r"\[PROFIL\] Chrome/Edge versi baru"),
-     "Chrome/Edge baru tidak mengizinkan bot di profil utama - "
-     "tetap memakai profil khusus bot"),
-    (re.compile(r"\[PROFIL\] Brave versi ini"),
-     "Brave ini tidak mengizinkan bot di profil utama - "
-     "bot memakai profil khusus"),
+    (re.compile(r"\[PROFIL\] membuka (\w+) dengan profilmu \(([^)]*)\)"),
+     "Membuka %s dengan profilmu (%s)..."),
+    (re.compile(r"\[PROFIL\] profil kamu gagal dibuka"),
+     "Profil kamu gagal dibuka - bot memakai profil khusus bot"),
+    (re.compile(r"\[PROFIL\] profil '.*' tidak ada"),
+     "Profil pilihanmu tidak ditemukan - bot memakai profil khusus bot"),
+    (re.compile(r"\[PROFIL\] gagal (membuat pintasan|menyiapkan)"),
+     "Folder profil gagal disiapkan - bot memakai profil khusus bot"),
     (re.compile(r"^Bot dihentikan"), "Bot berhenti."),
     (re.compile(r"Bot sedang berhenti"), "Berhenti..."),
     (re.compile(r"^Selesai\. Total"), "Selesai."),
@@ -792,9 +794,6 @@ def dialog_pilih_browser(induk, detected, dipilih="Otomatis", profil="bot"):
     pbaris.pack(fill="x")
     profil_state = []
 
-    def profil_bisa(nama_browser):
-        return nama_browser in ("Otomatis", "Brave")
-
     def pilih_profil(mode):
         d.profil = mode
         for st, render in profil_state:
@@ -848,26 +847,14 @@ def dialog_pilih_browser(induk, detected, dipilih="Otomatis", profil="bot"):
                      "Jendela terpisah khusus bot. Login edclub "
                      "cukup sekali, data kamu tidak tersentuh.")
     buat_chip_profil("saya", "Profil saya sendiri",
-                     "Bot memakai profil browser kamu (login & data "
-                     "ikut terpakai). Hanya untuk Brave.")
-    profil_hint = tk.Label(d.body, text="", font=("Segoe UI", 8),
-                           fg=FAINT, bg=PANEL, wraplength=460,
-                           justify="left")
-    profil_hint.pack(anchor="w", pady=(6, 0))
+                     "Bot memakai salah satu profil browser kamu "
+                     "(login & data ikut terpakai). Pilih profilmu "
+                     "setelah ini.")
 
     def sinkron_profil():
-        bisa = profil_bisa(d.pilihan)
-        for st, render in profil_state:
-            st["aktif"] = bisa if st["mode"] == "saya" else True
-            if not st["aktif"]:
-                st["on"] = False
-        pilih_profil(d.profil if bisa else "bot")
-        profil_hint.configure(
-            text="" if bisa else
-            "Chrome dan Edge versi baru tidak mengizinkan bot memakai "
-            "profil utama (aturan keamanan dari pembuatnya). Pilih Brave "
-            "untuk memakai profil sendiri, atau tetap gunakan profil "
-            "khusus bot.")
+        # semua browser didukung (Chrome/Edge via pintasan folder,
+        # Brave langsung) - tidak ada lagi yang perlu dikunci
+        pilih_profil(d.profil)
 
     _pilih_asli = pilih
 
@@ -887,7 +874,103 @@ def dialog_pilih_browser(induk, detected, dipilih="Otomatis", profil="bot"):
     return d.tampilkan()
 
 
-def dialog_buka_browser(induk, nama, path, profil="bot"):
+def dialog_pilih_profil(induk, nama_browser, daftar, dipilih_dir=""):
+    """Pilih profil manusia milik browser (dibaca dari 'Local State'-nya:
+    nama profil + email). Return dict {'dir','nama','email'} atau None.
+    daftar kosong -> tampil pesan dan return None."""
+    if not daftar:
+        d = _Dialog(induk, f"Profil {nama_browser} tidak terbaca",
+                    "Bot tidak menemukan daftar profilnya.", ikon="⚠",
+                    warna=YELLOW)
+        tk.Label(d.body, text=f"Pastikan {nama_browser} pernah dibuka "
+                              "minimal sekali di komputer ini, lalu coba "
+                              "lagi. Sementara bot memakai profil khusus "
+                              "bot.",
+                 font=("Segoe UI", 10), fg=FG, bg=PANEL, wraplength=420,
+                 justify="left").pack(anchor="w")
+        d.tombol("Oke")
+        d.tampilkan()
+        return None
+    d = _Dialog(induk, f"Pilih profilmu di {nama_browser}",
+                "Bot memakai profil ini - login edclub kamu di situ "
+                "langsung terpakai.", ikon="👤")
+    d.hasil_profil = next((p for p in daftar if p["dir"] == dipilih_dir),
+                          daftar[0])
+    baris_profil = []
+
+    def pilih_baris(p):
+        d.hasil_profil = p
+        for st, render in baris_profil:
+            st["on"] = st["p"] is p
+            render()
+
+    PALET = ("#4f8cff", "#3ecf6e", "#e8b339", "#e05555", "#a78bfa",
+             "#2dd4bf", "#fb923c", "#f472b6")
+
+    for ix, p in enumerate(daftar):
+        wrap = tk.Frame(d.body, bg=CARD, highlightthickness=1,
+                        highlightbackground=EDGE, cursor="hand2")
+        wrap.pack(fill="x", pady=3)
+        dalam = tk.Frame(wrap, bg=CARD)
+        dalam.pack(fill="x", padx=10, pady=8)
+        warna_avatar = PALET[ix % len(PALET)]
+        huruf = (p["nama"][:1] or "?").upper()
+        av = tk.Canvas(dalam, width=30, height=30, bg=CARD,
+                       highlightthickness=0)
+        av.pack(side="left")
+        av.create_oval(1, 1, 29, 29, fill=warna_avatar, width=0)
+        av.create_text(15, 16, text=huruf, font=("Segoe UI", 11, "bold"),
+                       fill="white")
+        tx = tk.Frame(dalam, bg=CARD)
+        tx.pack(side="left", padx=(10, 0))
+        judul = p["nama"] + ("   (profil utama)" if p.get("utama") else "")
+        nm = tk.Label(tx, text=judul, font=("Segoe UI", 10, "bold"),
+                      fg=FG, bg=CARD, anchor="w")
+        nm.pack(anchor="w")
+        if p.get("email"):
+            tk.Label(tx, text=p["email"], font=("Segoe UI", 8), fg=DIM,
+                     bg=CARD, anchor="w").pack(anchor="w")
+        semua = [wrap, dalam, tx, nm] + tx.winfo_children() + [av]
+        st = {"p": p, "on": False}
+
+        def render():
+            for wdgt in semua:
+                try:
+                    wdgt.configure(bg=CARD_HOVER if st["on"] else CARD)
+                except Exception:
+                    pass
+            nm.configure(fg=FG)
+            wrap.configure(highlightbackground=ACCENT if st["on"] else EDGE)
+
+        def klik(_e=None):
+            pilih_baris(p)
+
+        def hover(_e):
+            if not st["on"]:
+                for wdgt in semua:
+                    try:
+                        wdgt.configure(bg=CARD_HOVER)
+                    except Exception:
+                        pass
+
+        def leave(_e):
+            render()
+
+        for wdgt in semua:
+            wdgt.bind("<Button-1>", klik)
+            wdgt.bind("<Enter>", hover)
+            wdgt.bind("<Leave>", leave)
+        baris_profil.append((st, render))
+        render()
+    pilih_baris(d.hasil_profil)
+
+    d.tombol("Batal", None, primer=False)
+    d.tombol("Pilih Profil", None,
+             cmd=lambda: d.selesai(dict(d.hasil_profil)))
+    return d.tampilkan()
+
+
+def dialog_buka_browser(induk, nama, path, profil="bot", profil_label=""):
     """Konfirmasi visual sebelum bot membuka jendela browser sendiri."""
     d = _Dialog(induk, f"Buka {nama} untuk bot?",
                 "TypingBot akan membuka jendela browser khusus.", ikon="🚀")
@@ -897,10 +980,12 @@ def dialog_buka_browser(induk, nama, path, profil="bot"):
     tx = tk.Frame(atas, bg=PANEL)
     tx.pack(side="left", padx=(14, 0))
 
-    if profil == "saya" and nama == "Brave":
+    if profil == "saya":
         daftar_teks = (
-            "•  Bot memakai profil Brave kamu - semua login & data ikut terpakai",
-            "•  Kalau Brave sedang jalan, TypingBot akan minta izin menutupnya dulu",
+            f"•  Bot memakai profil '{profil_label or 'pilihanmu'}' - "
+            "login & data kamu ikut terpakai",
+            "•  Kalau browser ini sedang jalan, TypingBot minta izin "
+            "menutupnya dulu",
             "•  Bot mengendalikan jendela itu sendiri (klik & ketik otomatis)",
         )
     else:
@@ -1133,6 +1218,8 @@ class App:
         self._tanya_rentang = True   # tanya rentang level saat Start berikutnya
         self._login_grace = 0        # jeda re-popup login setelah tombol buka login
         self._profile = "bot"        # 'bot' khusus | 'saya' profil browser user
+        self._profile_dir = ""       # 'Default' / 'Profile 1' ... (mode saya)
+        self._profile_label = ""     # nama tampilan profil (mis. 'Student')
         self.lisensi_ok = _lisensi_valid()
 
         root.title("TypingBot")
@@ -1970,6 +2057,8 @@ class App:
                 self.root.after(0, self._perbarui_hotkey_lbl)
             if simpan.get("profile") in ("bot", "saya"):
                 self._profile = simpan["profile"]
+            self._profile_dir = simpan.get("profile_dir", "") or ""
+            self._profile_label = simpan.get("profile_label", "") or ""
         except Exception:
             pass
         try:
@@ -2100,7 +2189,7 @@ class App:
         nm = pilih if pilih in det else (
             (self.bot._find_browser() or {}).get("name", "browser") if self.bot
             else "browser")
-        ok = dialog_buka_browser(self.root, nm, det.get(nm))
+        ok = dialog_buka_browser(self.root, nm, det.get(nm), "bot")
         self._log(f"[Dev] uji buka browser ({nm}): dijawab "
                   f"{'Ya (buka)' if ok else 'Tidak'}")
 
@@ -2159,6 +2248,8 @@ class App:
         data["browser"] = self.browser_var.get()
         data["hotkey"] = bool(self._hotkey)
         data["profile"] = self._profile
+        data["profile_dir"] = self._profile_dir
+        data["profile_label"] = self._profile_label
         if self._last_browser_path:
             data["last_browser"] = self._last_browser_path
         try:
@@ -2199,11 +2290,10 @@ class App:
                 label, sub = "Otomatis", "belum ada riwayat"
         else:
             path = det.get(pilih, "")
-        # keterangan profil: hanya relevan untuk Brave (satu2nya browser
-        # yang bisa memakai profil user) - singkat supaya muat di kartu
-        if self._profile == "saya" and label in ("Otomatis", "Brave"):
-            sub = "pakai profilmu" if sub == "klik untuk ganti" \
-                else sub + " • profilmu"
+        # keterangan profil: singkat supaya muat di kartu
+        if self._profile == "saya":
+            sub = (f"profilmu: {self._profile_label}"
+                   if self._profile_label else "pakai profilmu")
         isi = tk.Frame(self.chip, bg=CARD)
         isi.pack(expand=True, fill="both")
         # ukuran ikon & wrap disesuaikan kartu 132x96 (teks TIDAK boleh
@@ -2257,6 +2347,35 @@ class App:
             except Exception:
                 pass
 
+    def _nama_browser_profil(self):
+        """Nama browser yang profilenya ditampilkan/dipakai mode 'saya'.
+        Otomatis -> ikuti preferensi engine (browser terakhir/deteksi)."""
+        pilih = self.browser_var.get()
+        if pilih != "Otomatis":
+            return pilih
+        if self._last_browser_path:
+            for n, p in self._detected:
+                if p == self._last_browser_path:
+                    return n
+        if self.bot:
+            try:
+                return (self.bot._find_browser() or {}).get("name", "Brave")
+            except Exception:
+                pass
+        return "Brave"
+
+    def _pilih_profil_untuk(self, nama_browser):
+        """Buka dialog pilih profil milik browser. Return dict profil atau
+        None (batal/tidak terbaca -> pemanggil memakai profil khusus)."""
+        daftar = []
+        if self.bot:
+            try:
+                daftar = self.bot._profil_daftar(nama_browser)
+            except Exception as ex:
+                self._log(f"[GUI] baca profil gagal: {ex}")
+        return dialog_pilih_profil(self.root, nama_browser, daftar,
+                                   self._profile_dir)
+
     def _ganti_browser(self):
         """Klik chip browser: buka popup kartu logo untuk mengganti."""
         hasil = dialog_pilih_browser(self.root, self._detected,
@@ -2266,6 +2385,18 @@ class App:
         nama, profil = hasil
         self.browser_var.set(nama)
         self._profile = profil
+        if profil == "saya":
+            p = self._pilih_profil_untuk(self._nama_browser_profil())
+            if p:
+                self._profile_dir = p["dir"]
+                self._profile_label = p["nama"]
+                self._log(f"Profil dipilih: {p['nama']} "
+                          f"({p.get('email') or 'tanpa email'}).")
+            else:
+                self._profile = "bot"
+                self._profile_dir = self._profile_label = ""
+        else:
+            self._profile_dir = self._profile_label = ""
         self._simpan_pengaturan()
         self._first_run = False
         self._perbarui_chip_browser()
@@ -2298,11 +2429,21 @@ class App:
                 return
             self.browser_var.set(hasil[0])
             self._profile = hasil[1]
+            if self._profile == "saya":
+                p = self._pilih_profil_untuk(self._nama_browser_profil())
+                if p:
+                    self._profile_dir = p["dir"]
+                    self._profile_label = p["nama"]
+                else:
+                    self._profile = "bot"
+                    self._profile_dir = self._profile_label = ""
             self._first_run = False
         pilih = self.browser_var.get()
         # mode profil: berlaku ke engine sebelum koneksi dibuat
         if hasattr(bot, "PROFILE_MODE"):
             bot.PROFILE_MODE = self._profile
+            bot.PROFILE_DIR = self._profile_dir
+            bot.PROFILE_LABEL = self._profile_label
         deteksi = bot._find_browser() or {}
         # Otomatis: beri tahu engine browser terakhir yang dipakai
         bot.LAST_BROWSER = self._last_browser_path if pilih == "Otomatis" else ""
@@ -2326,7 +2467,7 @@ class App:
             det = {n: p for n, p in self._detected}
             nm = pilih if pilih in det else deteksi.get("name", "browser")
             if not dialog_buka_browser(self.root, nm, det.get(nm),
-                                       self._profile):
+                                       self._profile, self._profile_label):
                 return
         bot.STOP = False
         bot.PAUSED = False
