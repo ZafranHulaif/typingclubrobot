@@ -87,7 +87,7 @@ def _data_mesin():
     """Sidik jari komputer: MAC + nama komputer + serial volume sistem."""
     bagian = []
     nic = uuid.getnode()
-    if nic and not (nic & 0x010000000000):      # bit multicast = MAC acak
+    if nic and not (nic & 0x010000000000):      # bit multicast = mac acak
         bagian.append(f"mac={nic:012x}")
     bagian.append("host=" + (os.environ.get("COMPUTERNAME")
                              or socket.gethostname()).upper())
@@ -303,8 +303,7 @@ def _ikon_png(path, ukuran=44, bg=(32, 35, 43)):
 
 def _gambar_vektor_ikon(c, nama, cx, cy, r, warna="white"):
     """Gambar ikon VEKTOR di dalam lingkaran (pusat presisi, bukan emoji
-    yang glyph-nya bisa saja miring dalam kotak em-nya - keluhan user
-    'petir & bola dunia off center')."""
+    glyph-nya suka miring dalam kotak em-nya)."""
     if nama == "petir":
         pts = [(0.05, -0.52), (-0.26, 0.10), (-0.04, 0.10),
                (-0.05, 0.52), (0.26, -0.10), (0.04, -0.10)]
@@ -320,7 +319,7 @@ def _gambar_vektor_ikon(c, nama, cx, cy, r, warna="white"):
                       outline=warna, width=tebal)
     elif nama == "warning":
         # segitiga + tanda seru, semua dipusatkan matematis (emoji ⚠
-        # glyph-nya duduk miring di kotak em - keluhan user)
+        # glyph-nya duduk miring di kotak em -)
         tebal = max(2, int(r * 0.11))
         c.create_polygon(cx, cy - r * 0.74,
                          cx - r * 0.82, cy + r * 0.60,
@@ -339,7 +338,7 @@ def _skala_tkimg(img, target):
     """Skala tk.PhotoImage agar PAS di dalam kotak `target`x`target` px
     (aspek dipertahankan, sisi TERPANJANG = target; zoom+subsample
     rasional). Dulu hanya lebar yang disamakan -> ikon persegi panjang
-    tampak miring/off-center (keluhan user)."""
+    tampak miring/off-center."""
     w, h = img.width(), img.height()
     sisi = max(w, h)
     if sisi <= 0 or abs(sisi - target) < 0.5:
@@ -385,7 +384,7 @@ def _ikon_widget(parent, path=None, nama="?", warna=ACCENT, ukuran=40, char=None
             img = None
     if img:
         # pusat presisi: anchor center + titik tengah eksak (dulu +1 px ->
-        # logo tampak geser; keluhan user 'off center')
+        # logo tampak geser;)
         c.create_image(ukuran / 2, ukuran / 2, image=img, anchor="center")
     else:
         c.create_oval(1, 1, ukuran - 1, ukuran - 1, fill=warna, width=0)
@@ -418,7 +417,7 @@ class Dropdown(tk.Frame):
         self._arrow = tk.Label(self, text="▾", font=("Segoe UI", 9), fg=DIM,
                                bg=CARD, cursor="hand2")
         self._arrow.pack(side="right", padx=(0, 10))
-        # sinkron label bila variabel di-set dari luar (bukan lewat _set)
+        # sinkron label kalau variabel di-set dari luar (bukan lewat _set)
         variable.trace_add("write", lambda *_: self._lbl.configure(
             text=self._var.get()))
         for w in (self, self._lbl, self._arrow):
@@ -445,9 +444,9 @@ class Dropdown(tk.Frame):
 
     def _buka(self, e=None):
         m = self._menu()
-        # posisikan menu DI TITIK KLIK (bukan sisi kiri kotak: kotak speed
+        # posisikan menu DI titik klik (bukan sisi kiri kotak: kotak speed
         # melebar satu baris penuh - dulu menu muncul jauh di kiri padahal
-        # user menekan kanan; keluhan user). Clamp supaya tidak keluar layar.
+        # user menekan kanan;). Clamp supaya tidak keluar layar.
         try:
             x = e.x_root if e is not None else self.winfo_rootx()
         except Exception:
@@ -492,7 +491,7 @@ class _Dialog(tk.Toplevel):
         box.pack(side="left")
         box.create_oval(2, 2, 44, 44, fill=warna, width=0)
         # ikon header: pusat lingkaran eksak (23,23); 🌐/⚠ digambar vektor
-        # (emoji glyph-nya tidak persis di tengah kotak em - keluhan user)
+        # (emoji glyph-nya tidak persis di tengah kotak em -)
         if ikon == "🌐":
             _gambar_vektor_ikon(box, "bola", 23, 23, 21)
         elif ikon == "⚠":
@@ -631,9 +630,9 @@ def _fokus_jendela_browser():
 
 # ------------------------------------------------- pesan ramah (kartu aktivitas)
 # Terjemahan baris log engine -> kalimat awam untuk kartu aktivitas.
-# Baris yang TIDAK cocok aturan mana pun tetap masuk bot.log tapi TIDAK
+# Baris yang tidak cocok aturan mana pun tetap masuk bot.log tapi tidak
 # ditampilkan: layar pengguna harus bebas istilah teknis (port, debug,
-# proses, dsb.); pemilik tetap bisa membuka bot.log lewat jendela Dev.
+# proses, dll.); pemilik tetap bisa membuka bot.log lewat jendela Dev.
 _AKTIV_MAP = [
     (re.compile(r"Menyambungkan .* ke browser \((\w+)\)"), "Menyambung ke %s..."),
     (re.compile(r"[Mm]embuka (\w+) otomatis"), "Membuka jendela %s..."),
@@ -742,8 +741,8 @@ def dialog_pilih_browser(induk, detected, dipilih="Otomatis", profil="bot"):
 
     def buat_kartu(nama, path):
         # scope per-kartu supaya closure render() tidak tertukar antar kartu.
-        # Dimensi KARTU SERAGAM (fixed + propagate off): dulu lebar mengikuti
-        # isi -> tiap kartu beda ukuran (keluhan user).
+        # Dimensi kartu seragam (fixed + propagate off): dulu lebar mengikuti
+        # isi -> tiap kartu beda ukuran .
         wrap = tk.Frame(baris, bg=CARD, highlightthickness=1,
                         highlightbackground=EDGE, cursor="hand2",
                         width=128, height=118)
@@ -876,7 +875,7 @@ def dialog_pilih_browser(induk, detected, dipilih="Otomatis", profil="bot"):
                           "Kalau tidak yakin, pilih Otomatis.",
              font=("Segoe UI", 8), fg=FAINT, bg=PANEL,
              wraplength=470, justify="left").pack(anchor="w", pady=(10, 0))
-    # Batal HARUS None eksplisit: tombol() tanpa nilai mengembalikan TEKS
+    # Batal harus None eksplisit: tombol() tanpa nilai mengembalikan teks
     # tombol ("Batal", truthy) - dulu pemanggil menganggapnya pilihan sah.
     d.tombol("Batal", None, primer=False, cmd=lambda: d.selesai(None))
     d.tombol("Pilih", None, cmd=lambda: d.selesai((d.pilihan, d.profil)))
@@ -917,9 +916,9 @@ def dialog_pilih_profil(induk, nama_browser, daftar, dipilih_dir=""):
              "#2dd4bf", "#fb923c", "#f472b6")
 
     def buat_baris(p, ix):
-        # scope PER BARIS (fungsi terpisah): semua closure (klik/render/
+        # scope per baris (fungsi terpisah): semua closure (klik/render/
         # hover) harus melihat p yang benar - dulu loop langsung di badan
-        # dialog -> semua baris memanggil pilih_baris(profil TERAKHIR),
+        # dialog -> semua baris memanggil pilih_baris(profil terakhir),
         # jadi pilihan selalu loncat ke satu profil yang sama (keluhan
         # user: 'dipaksa zafran').
         wrap = tk.Frame(d.body, bg=CARD, highlightthickness=1,
@@ -1114,7 +1113,7 @@ def dialog_rentang(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
                     wraplength=440, justify="left")
 
     def info_teks():
-        # peta 685 level sudah TERTANAM di dalam aplikasi - pengguna tidak
+        # peta 685 level sudah tertanam di dalam aplikasi - pengguna tidak
         # perlu membangun apa pun. Teks bangun peta hanya utk kasus khusus
         # (kursus berbeda -> peta belum lengkap).
         info.configure(text=
@@ -1210,7 +1209,7 @@ def dialog_aktivasi(induk):
 
     # 'Nanti Saja' harus False eksplisit: tombol() tanpa nilai
     # mengembalikan teks tombol (truthy) - dulu menekan 'Nanti Saja'
-    # malah DIANGGAP AKTIVASI BERHASIL oleh pemanggil (bug lisensi!).
+    # malah dianggap aktivasi berhasil oleh pemanggil (bug lisensi!).
     d.tombol("Nanti Saja", None, primer=False, cmd=lambda: d.selesai(False))
     d.tombol("Aktivasi", True, cmd=coba)
     ent.bind("<Return>", lambda e: coba())
@@ -1264,7 +1263,7 @@ class App:
             k = 1.0
         k = max(1.0, min(k, 2.0))
         root.geometry(f"{int(780 * k)}x{int(460 * k)}")
-        # tinggi minimum KECIL: pengguna boleh mengecilkan jendela sampai
+        # tinggi minimum kecil: pengguna boleh mengecilkan jendela sampai
         # kecil - footer hotkey tetap tampak, hanya log yang menyusut
         root.minsize(int(700 * k), int(330 * k))
         root.configure(bg=BG)
@@ -1276,9 +1275,9 @@ class App:
         except Exception:
             pass
         # ---------- zona atas: header status, baris tombol (+ kartu browser
-        # ---------- persegi DI SAMPING Stop), lalu baris kecepatan ----------
+        # ---------- persegi DI samping Stop), lalu baris kecepatan ----------
         self._last_browser_path = ""   # exe terakhir yang dipakai mode Otomatis
-        # browser_var WAJIB dibuat sebelum chip (chip membacanya saat render)
+        # browser_var wajib dibuat sebelum chip (chip membacanya saat render)
         self.browser_var = tk.StringVar(value="Otomatis")
         self.browser_dd = type(
             "_NoDD", (), {"set_values": lambda self, v: None,
@@ -1309,7 +1308,7 @@ class App:
         self.btn_stop["state"] = "disabled"
 
         # --- kartu browser persegi, di samping Stop (klik = ganti) ---
-        # ukuran dihitung dari ISI + jadi PERSEGI (auto, tahan DPI: ukuran
+        # ukuran dihitung dari isi + jadi persegi (auto, tahan DPI: ukuran
         # fix 132x96 px + font yang ikut scaling 125-150% = teks terpotong)
         self.chip = tk.Frame(ctrl, bg=CARD, highlightthickness=1,
                              highlightbackground=EDGE, cursor="hand2",
@@ -1323,7 +1322,7 @@ class App:
         self._btn(kanan, "❓", CARD, self.on_tips, kecil=True)
 
         # ---------- baris pengaturan: kecepatan ----------
-        # Dropdown Browser DIHAPUS (permintaan user): pilihan browser lewat
+        # Dropdown Browser dihapus (permintaan user): pilihan browser lewat
         # kartu persegi kanan / popup kartu logo.
         setbar = tk.Frame(root, bg=BG)
         setbar.pack(fill="x", padx=18, pady=(6, 8))
@@ -1345,11 +1344,11 @@ class App:
         self._rentang_btn = type("_NoBtn", (), {"configure": lambda self, **kw: None})()
 
         # ---------- footer: tombol cepat + saklar aktif/nonaktif ----------
-        # DIPASANG PALING AWAL dengan side="bottom": widget yang di-pack
+        # dipasang paling awal dengan side="bottom": widget yang di-pack
         # lebih awal mendapat jatah ukuran lebih dulu - saat jendela
         # dikecilkan vertikal, kartu aktivitas-lah yang menyusut, footer
         # selalu tampak (dulu footer di-pack terakhir -> teks terpotong
-        # duluan; keluhan user).
+        # duluan;).
         self._hotkey = True
         self.hotkey_lbl = tk.Label(root, text="", font=("Segoe UI", 9),
                                    fg=FAINT, bg=BG, cursor="hand2",
@@ -1360,7 +1359,7 @@ class App:
 
         # ---------- kartu aktivitas (mengisi sisa ruang tengah) ----------
         # Pengganti log lama (permintaan: user awam tidak perlu lihat log):
-        # SATU kalimat besar bahasa awam - apa yang bot kerjakan sekarang.
+        # satu kalimat besar bahasa awam - apa yang bot kerjakan sekarang.
         # Rincian teknis tetap tersimpan di bot.log untuk pemilik (Dev).
         self._aktiv_sub_teks = ""
         self._aktiv_nama = ""
@@ -1501,7 +1500,7 @@ class App:
         nama_level = ""
         if bot:
             url = getattr(bot, "STATUS_URL", "")
-            # Indikator level: label ASLI dari teks halaman ("Lesson 87:").
+            # Indikator level: label asli dari teks halaman ("Lesson 87:").
             # Rumus URL lama (URL-115) salah untuk banyak akun - hanya
             # dipakai sebagai cadangan kalau label belum terbaca.
             label = getattr(bot, "STATUS_LABEL", "")
@@ -1524,7 +1523,7 @@ class App:
             self._aktiv_nama = nama_level
 
             # popup 'login dulu': muncul saat sesi edclub mati, tertutup
-            # sendiri saat sesi kembali aktif. TIDAK muncul lagi selama
+            # sendiri saat sesi kembali aktif. tidak muncul lagi selama
             # user masih berada di halaman login (dia sedang mengerjakannya;
             # dulu popup muncul lagi di tengah user mengetik sandi).
             url_now = (getattr(bot, "STATUS_URL", "") or "").lower()
@@ -1586,7 +1585,7 @@ class App:
                             self._log("[RENTANG] mulai dari pelajaran yang "
                                       "kamu buka.")
 
-            # tanya rentang SETELAH tersambung + login dicek + tidak sedang
+            # tanya rentang setelah tersambung + login dicek + tidak sedang
             # butuh login. Kalau user sudah berada dalam lesson -> pakai level
             # itu sebagai awal otomatis (tanpa popup). Kalau tidak -> dialog.
             if (self._tanya_rentang and bot_thread_hidup
@@ -1618,7 +1617,7 @@ class App:
                         if r == "halaman":
                             # user memilih sendiri: bot tetap diam sampai
                             # pelajaran pilihan dibuka (lihat blok tunggu di
-                            # atas); TUNGGU_RENTANG TIDAK dilepas
+                            # atas); TUNGGU_RENTANG tidak dilepas
                             self._tunggu_pilih_halaman = True
                         elif r:
                             bot.LEVEL_START = self._rentang_mulai
@@ -1628,7 +1627,7 @@ class App:
                             bot.RENTANG_SIAP = True
                         else:
                             # dilewati = jalan dari posisi sekarang; rentang
-                            # lama TIDAK boleh dipakai (live: bot pernah
+                            # lama tidak boleh dipakai (live: bot pernah
                             # melompat ke level 662 persis setelah login,
                             # sebelum user menjawab apapun)
                             bot.LEVEL_START = 1
@@ -1680,7 +1679,7 @@ class App:
             elif getattr(bot, "RENTANG_SELESAI", False):
                 self._set_state("🏁 Selesai (rentang)", GREEN)
             elif not bot_thread_hidup:
-                # TIDAK ada sesi bot berjalan: jangan tampilkan 'Berjalan'
+                # tidak ada sesi bot berjalan: jangan tampilkan 'Berjalan'
                 # (dulu: aplikasi baru dibuka langsung bilang Berjalan).
                 if bot.STOP:
                     self._set_state("⏹ Berhenti", RED)
@@ -1737,9 +1736,9 @@ class App:
             elif not bot_thread_hidup:
                 self._set_aktivitas("Siap", "Klik Start untuk mulai.")
             elif ".play" not in url:
-                # pengguna membuka halaman lain (daftar level dsb.) saat bot
+                # pengguna membuka halaman lain (daftar level dll.) saat bot
                 # jalan - bot menunggu; jangan tampilkan 'Sedang mengetik...'
-                # yang basi dari lesson sebelumnya (keluhan user)
+                # yang basi dari lesson sebelumnya
                 self._aktiv_sub_teks = ""
                 self._set_aktivitas(
                     "Kamu sedang memakai browser bot",
@@ -2087,7 +2086,7 @@ class App:
                 bot.MINTA_LOGIN_URL = url
                 bot.MINTA_LOGIN_NAV = True
                 self._log(f"Membuka halaman login di jendela browser bot: {url}")
-                # angkat jendela browser ke depan SETELAH navigasi bot
+                # angkat jendela browser ke depan setelah navigasi bot
                 # dimulai (delay pendek); GUI baru menerima klik = punya
                 # izin foreground di Windows.
                 self.root.after(1200, _fokus_jendela_browser)
@@ -2415,8 +2414,8 @@ class App:
                    if self._profile_label else "pakai profilmu")
         isi = tk.Frame(self.chip, bg=CARD)
         isi.pack(expand=True, fill="both")
-        # ukuran ikon & wrap disesuaikan kartu 132x96 (teks TIDAK boleh
-        # terpotong - keluhan user; label pendek + wraplength)
+        # ukuran ikon & wrap disesuaikan kartu 132x96 (teks tidak boleh
+        # terpotong -; label pendek + wraplength)
         ikon = _ikon_widget(isi, path, pilih, BROWSER_WARNA.get(pilih, "#7c5cff"),
                             42, char="⚡" if pilih == "Otomatis" else None)
         ikon.pack(pady=(5, 0))
@@ -2424,8 +2423,8 @@ class App:
                  fg=FG, bg=CARD, wraplength=118).pack()
         tk.Label(isi, text=sub, font=("Segoe UI", 8), fg=DIM,
                  bg=CARD, wraplength=118).pack(pady=(0, 3))
-        # ukuran kartu DARI ISI -> persegi (auto, tahan DPI). Ukuran fix px
-        # + font 125-150% = teks terpotong (keluhan user 2x).
+        # ukuran kartu dari isi -> persegi (auto, tahan DPI). Ukuran fix px
+        # + font 125-150% = teks terpotong .
         try:
             isi.update_idletasks()
             wj = max(isi.winfo_reqwidth(), ikon.winfo_reqwidth()) + 18
@@ -2434,7 +2433,7 @@ class App:
             self.chip.configure(width=sisi, height=sisi)
         except Exception:
             pass
-        # bind klik + hover ke frame dan SEMUA anak (anak menelan event kalau
+        # bind klik + hover ke frame dan semua anak (anak menelan event kalau
         # tidak di-bind sendiri; canvas ikon termasuk)
         semua = [self.chip, isi, ikon] + self.chip.winfo_children() \
             + isi.winfo_children()
@@ -2536,10 +2535,10 @@ class App:
             self._minta_lisensi()
             if not self.lisensi_ok:
                 return
-        # Rentang level ditanyakan SETELAH tersambung & login diketahui
+        # Rentang level ditanyakan setelah tersambung & login diketahui
         # (bukan sebelum Start) - lihat _poll.
         self._tanya_rentang = True
-        # Popup pilih browser hanya PERTAMA kali (belum ada pengaturan).
+        # Popup pilih browser hanya pertama kali (belum ada pengaturan).
         # Setelah itu pilihan tersimpan; ganti lewat chip di tengah atas.
         if self._first_run:
             hasil = dialog_pilih_browser(self.root, self._detected,
@@ -2569,10 +2568,10 @@ class App:
         bot.FORCE_BROWSER = next((p for n, p in self._detected if n == pilih), "")
         self._simpan_pengaturan()
         self._perbarui_chip_browser()
-        # Konfirmasi 'buka browser?' TEPAT saat bot akan MELUNCURKAN jendela
-        # browser: port mati (bot membuka baru), ATAU port dipegang browser/
-        # aplikasi LAIN (ditutup dulu, lalu bot membuka pilihan user - dulu
-        # kasus ini tidak dikonfirmasi, keluhan user). Kalau port sudah
+        # Konfirmasi 'buka browser?' tepat saat bot akan meluncurkan jendela
+        # browser: port mati (bot membuka baru), atau port dipegang browser/
+        # aplikasi lain (ditutup dulu, lalu bot membuka pilihan user - dulu
+        # kasus ini tidak dikonfirmasi,). Kalau port sudah
         # dipegang browser pilihan sendiri (atau Otomatis menempel browser
         # yang sudah jalan), jendela dipakai ulang -> popup tidak perlu.
         proc = deteksi.get("proc", "").lower()
@@ -2662,7 +2661,7 @@ class App:
 
 
 if __name__ == "__main__":
-    # DPI awareness WAJIB sebelum Tk dibuat: tanpa ini Windows merender app
+    # DPI awareness wajib sebelum Tk dibuat: tanpa ini Windows merender app
     # di 96dpi lalu meregangnya bitmap-style -> GUI terlihat buram/low-res
     # di layar dengan scaling 125%/150% (laptop modern).
     try:
