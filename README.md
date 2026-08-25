@@ -118,14 +118,30 @@ sequenceDiagram
 
 ## Repository layout
 
-| File | Lines | Role |
-|---|---:|---|
-| `autopilot_pw.py` | 4,562 | Current engine (v3): CDP attach, supervisor state machine, recovery |
-| `bot_gui.py` | 2,672 | Desktop front end: dialogs, activity view, activation, launcher |
-| `level_data.py` | 97 | Baked 685-lesson course map |
-| `version2_playwright.py` | 1,082 | v2 engine (Playwright, kept for history) |
-| `version1_selenium.py` | 1,279 | v1 engine (Selenium, kept for history) |
-| `autopilot.py` | - | Earliest prototype |
+```
+engine/                     automation engine (was one 4,600-line file)
+  config.py                 constants: browser candidates, speeds, URLs
+  state.py                  shared mutable state, one namespace
+  hotkeys.py                global F9/F10/F11 hooks
+  browser.py                debug port, launch, CDP connect, tab management
+  profiles.py               profile enumeration + junction trick
+  jsutil.py                 frame/JS helpers, popup & premium-modal handling
+  typing_core.py            CDP keystrokes, delays, user-activity watcher
+  lessons/                  one driver per lesson type
+    standard.py tutorial.py games.py holdkey.py
+    screenkey.py video.py intro.py ocr.py
+  recovery.py               dead page / wrong tab / renderer repair
+  levels.py                 level map, ranges, list navigation
+  session.py                login patrol & session detection
+  rentang.py                per-iteration range check
+  supervisor.py             the main supervisor loop
+autopilot_pw.py             compatibility facade over the package
+bot_gui.py                  desktop front end: dialogs, activity view,
+                            activation, launcher
+level_data.py               baked 685-lesson course map
+version1_selenium.py        v1 engine (Selenium, kept for history)
+version2_playwright.py      v2 engine (Playwright, kept for history)
+```
 
 The version history is deliberate: the repository doubles as a record of how
 the architecture evolved.
