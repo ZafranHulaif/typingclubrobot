@@ -14,6 +14,10 @@ machine that survives human interference. ~9,700 lines of Python across three
 engine generations, shipped to end users as a single-file Windows executable
 with machine-locked activation.
 
+<p align="center">
+  <img src="docs/screenshot.png" width="720" alt="TypingBot supervisor window mid-lesson">
+</p>
+
 > **Disclaimer.** This project automates a third-party website and almost
 > certainly violates TypingClub's terms of service. It is published for
 > educational and portfolio review only. See the [license](#license).
