@@ -39,7 +39,7 @@ def all_frames():
 
 def _edclub_frames():
     """Semua frame milik edclub (frame Stripe/checkout dikecualikan)."""
-    return [fr for fr in all_frames() if browser._frame_edclub(fr)]
+    return [fr for fr in all_frames() if browser._edclub_frame(fr)]
 
 
 def run_js(js, frame=None):
@@ -136,7 +136,7 @@ window.__CLICKPT = cands.length ? cands[0] : null;
                     pt = run_js("return window.__CLICKPT;", fr)
                     if pt:
                         try:
-                            typing_core._tandai_klik_bot()
+                            typing_core._mark_bot_click()
                             state.PAGE.mouse.click(pt["x"], pt["y"])
                         except Exception:
                             pass

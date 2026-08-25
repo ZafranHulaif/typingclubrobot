@@ -30,29 +30,29 @@ PAUSED = False
 
 STOP = False
 
-PERLU_LOGIN = False      # True = sesi edclub mati; GUI memunculkan popup login
+NEEDS_LOGIN = False      # True = sesi edclub mati; GUI memunculkan popup login
 
-MINTA_LOGIN_NAV = False   # GUI meminta bot membuka halaman login edclub
+ASK_LOGIN_NAV = False   # GUI meminta bot membuka halaman login edclub
 
-MINTA_LOGIN_URL = ""      # URL login pilihan GUI (individu / sekolah)
+ASK_LOGIN_URL = ""      # URL login pilihan GUI (individu / sekolah)
 
 LOGIN_DICEK = False       # True setelah patroli login berjalan minimal 1x
 
-TUNGGU_RENTANG = False    # True = GUI sedang menanya rentang; bot menunggu
+AWAIT_RANGE = False    # True = GUI sedang menanya rentang; bot menunggu
 
-MINTA_BANGUN_PETA = False # GUI meminta bot membangun peta level lengkap
+ASK_BUILD_MAP = False # GUI meminta bot membangun peta level lengkap
 
-RENTANG_SELESAI = False   # True = mencapai level akhir rentang pilihan user
+RANGE_DONE = False   # True = mencapai level akhir rentang pilihan user
 
 LEVEL_START = 1           # rentang level pilihan user (GUI)
 
 LEVEL_END = 0             # 0 = tanpa batas akhir
 
-RENTANG_SIAP = False      # True setelah user menjawab dialog rentang di Start
+RANGE_READY = False      # True setelah user menjawab dialog rentang di Start
 
-MENUNGGU_SETUP = False    # True = menunggu user menyelesaikan set-up first-run browser
+WAITING_SETUP = False    # True = menunggu user menyelesaikan set-up first-run browser
 
-HOTKEY_AKTIF = True       # False = F9/F10/F11 diabaikan (toggle GUI)
+HOTKEYS_ON = True       # False = F9/F10/F11 diabaikan (toggle GUI)
 
 SPEED_IDX = 0
 
@@ -102,11 +102,11 @@ STATUS_LABEL = ""  # label level asli dari halaman (mis. 'L87')
 
 _label_retry = 0.0
 
-_rentang_nav = 0.0
+_range_nav = 0.0
 
-_rentang_jump_done = False
+_range_jump_done = False
 
-_rentang_max_seen = 0    # level tertinggi yang terlihat sesi ini (anti lompat-balik)
+_range_max_seen = 0    # level tertinggi yang terlihat sesi ini (anti lompat-balik)
 
 _unlock_set = None    # level terbuka di akun (diisi saat perlu)
 
@@ -128,9 +128,9 @@ _user_note = {"tunda": False}
 
 
 
-_tunggu_user_since = {"url": "", "t": 0.0}
+_wait_user_since = {"url": "", "t": 0.0}
 
-MINTA_TANYA_LANJUT = False   # GUI: popup 'masih menunggu?' setelah 2 menit
+ASK_NEXT_LEVEL = False   # GUI: popup 'masih menunggu?' setelah 2 menit
 
 
 
@@ -218,14 +218,14 @@ _level_map = {str(n): f"https://www.edclub.com/sportal/program-3/{i}.play"
 
 
 # Balik peta: id URL -> nomor level (untuk indikator GUI instan).
-_url_ke_level = {}
+_url_to_level = {}
 
 
 
 # Dialog 'level terkunci' bot<->GUI: bot menunggu jawaban user.
-LEVEL_TANYA = {"aktif": False, "start": 0, "fallback": 0, "jawab": "", "event": None}
+LEVEL_ASKED = {"aktif": False, "start": 0, "fallback": 0, "jawab": "", "event": None}
 
-_rentang_validasi_done = False
+_range_validated = False
 
 
 

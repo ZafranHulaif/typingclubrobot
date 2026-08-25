@@ -41,21 +41,21 @@ def _stop_bot():
     print(">>> STOP diminta, menutup bot... <<<", flush=True)
 
 
-# Wrapper cek HOTKEY_AKTIF: hook keyboard tidak dilepas-lepas saat toggle
+# Wrapper cek HOTKEYS_ON: hook keyboard tidak dilepas-lepas saat toggle
 # (re-hook bisa gagal diam-diam) - cukup diabaikan saat nonaktif. User bisa
 # memakai F9/F10/F11 untuk aplikasi lain tanpa takut menggerakkan bot.
 def _hk_pause():
-    if state.HOTKEY_AKTIF:
+    if state.HOTKEYS_ON:
         _toggle_pause()
 
 
 def _hk_speed():
-    if state.HOTKEY_AKTIF:
+    if state.HOTKEYS_ON:
         _cycle_speed()
 
 
 def _hk_stop():
-    if state.HOTKEY_AKTIF:
+    if state.HOTKEYS_ON:
         _stop_bot()
 
 

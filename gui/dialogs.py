@@ -19,16 +19,16 @@ from ctypes import wintypes
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
-from .icons import _ikon_widget, user32
-from .licensing import (_buat_kunci, _kode_mesin, _norm, _simpan_lisensi)
-from .theme import (ACCENT, BROWSER_WARNA, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, ORANGE, PANEL, RED, YELLOW)
-from .translator import _nama_tampil
+from .icons import _icon_widget, user32
+from .licensing import (_make_key, _machine_code, _norm, _save_license)
+from .theme import (ACCENT, BROWSER_COLORS, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, ORANGE, PANEL, RED, YELLOW)
+from .translator import _display_name
 from .widgets import _Dialog
 
 
 
 
-def _fokus_jendela_browser():
+def _focus_browser_window():
     """Bawa jendela browser bot ke depan (Windows, via win32). Dipanggil
     GUI sesaat SETELAH user menekan tombol login - GUI baru saja menerima
     klik jadi punya izin SetForegroundWindow; bring_to_front CDP saja
@@ -83,7 +83,7 @@ def _fokus_jendela_browser():
 
 
 
-def dialog_pilih_browser(induk, detected, dipilih="Otomatis", profil="bot"):
+def dialog_pick_browser(induk, detected, dipilih="Otomatis", profil="bot"):
     """Kartu pilihan browser (logo asli + nama + keterangan singkat)
     + pilihan profil (khusus bot / profil sendiri).
     Return: (nama pilihan, mode profil 'bot'/'saya') atau None bila dibatalkan."""
@@ -113,7 +113,7 @@ def dialog_pilih_browser(induk, detected, dipilih="Otomatis", profil="bot"):
         wrap.pack_propagate(False)
         dalam = tk.Frame(wrap, bg=CARD)
         dalam.pack(expand=True, fill="both", padx=8, pady=(10, 8))
-        _ikon_widget(dalam, path, nama, BROWSER_WARNA.get(nama, "#7c5cff"),
+        _icon_widget(dalam, path, nama, BROWSER_COLORS.get(nama, "#7c5cff"),
                      40, char="⚡" if nama == "Otomatis" else None).pack()
         nmlbl = tk.Label(dalam, text=nama, font=("Segoe UI", 10, "bold"),
                          fg=FG, bg=CARD)
@@ -240,14 +240,14 @@ def dialog_pilih_browser(induk, detected, dipilih="Otomatis", profil="bot"):
              wraplength=470, justify="left").pack(anchor="w", pady=(10, 0))
     # Batal harus None eksplisit: tombol() tanpa nilai mengembalikan teks
     # tombol ("Batal", truthy) - dulu pemanggil menganggapnya pilihan sah.
-    d.tombol("Batal", None, primer=False, cmd=lambda: d.selesai(None))
-    d.tombol("Pilih", None, cmd=lambda: d.selesai((d.pilihan, d.profil)))
-    return d.tampilkan()
+    d.button("Batal", None, primer=False, cmd=lambda: d.done(None))
+    d.button("Pilih", None, cmd=lambda: d.done((d.pilihan, d.profil)))
+    return d.show()
 
 
 
 
-def dialog_pilih_profil(induk, nama_browser, daftar, dipilih_dir=""):
+def dialog_pick_profile(induk, nama_browser, daftar, dipilih_dir=""):
     """Pilih profil manusia milik browser (dibaca dari 'Local State'-nya:
     nama profil + email). Return dict {'dir','nama','email'} atau None.
     daftar kosong -> tampil pesan dan return None."""
@@ -261,8 +261,8 @@ def dialog_pilih_profil(induk, nama_browser, daftar, dipilih_dir=""):
                               "bot.",
                  font=("Segoe UI", 10), fg=FG, bg=PANEL, wraplength=420,
                  justify="left").pack(anchor="w")
-        d.tombol("Oke")
-        d.tampilkan()
+        d.button("Oke")
+        d.show()
         return None
     d = _Dialog(induk, f"Pilih profilmu di {nama_browser}",
                 "Bot memakai profil ini - login edclub kamu di situ "
@@ -271,7 +271,7 @@ def dialog_pilih_profil(induk, nama_browser, daftar, dipilih_dir=""):
                           daftar[0])
     baris_profil = []
 
-    def pilih_baris(p):
+    def pick_row(p):
         d.hasil_profil = p
         for st, render in baris_profil:
             st["on"] = st["p"] is p
@@ -280,10 +280,10 @@ def dialog_pilih_profil(induk, nama_browser, daftar, dipilih_dir=""):
     PALET = ("#4f8cff", "#3ecf6e", "#e8b339", "#e05555", "#a78bfa",
              "#2dd4bf", "#fb923c", "#f472b6")
 
-    def buat_baris(p, ix):
+    def make_row(p, ix):
         # scope per baris (fungsi terpisah): semua closure (klik/render/
         # hover) harus melihat p yang benar - dulu loop langsung di badan
-        # dialog -> semua baris memanggil pilih_baris(profil terakhir),
+        # dialog -> semua baris memanggil pick_row(profil terakhir),
         # jadi pilihan selalu loncat ke satu profil yang sama (keluhan
         # user: 'dipaksa zafran').
         wrap = tk.Frame(d.body, bg=CARD, highlightthickness=1,
@@ -321,7 +321,7 @@ def dialog_pilih_profil(induk, nama_browser, daftar, dipilih_dir=""):
             wrap.configure(highlightbackground=ACCENT if st["on"] else EDGE)
 
         def klik(_e=None):
-            pilih_baris(p)
+            pick_row(p)
 
         def hover(_e):
             if not st["on"]:
@@ -342,26 +342,26 @@ def dialog_pilih_profil(induk, nama_browser, daftar, dipilih_dir=""):
         render()
 
     for ix, p in enumerate(daftar):
-        buat_baris(p, ix)
-    pilih_baris(d.hasil_profil)
+        make_row(p, ix)
+    pick_row(d.hasil_profil)
 
     # Batal = None eksplisit (bukan teks tombol yang truthy - lihat
-    # dialog_pilih_browser); None = batal -> pemanggil pakai profil khusus.
-    d.tombol("Batal", None, primer=False, cmd=lambda: d.selesai(None))
-    d.tombol("Pilih Profil", None,
-             cmd=lambda: d.selesai(dict(d.hasil_profil)))
-    return d.tampilkan()
+    # dialog_pick_browser); None = batal -> pemanggil pakai profil khusus.
+    d.button("Batal", None, primer=False, cmd=lambda: d.done(None))
+    d.button("Pilih Profil", None,
+             cmd=lambda: d.done(dict(d.hasil_profil)))
+    return d.show()
 
 
 
 
-def dialog_buka_browser(induk, nama, path, profil="bot", profil_label=""):
+def dialog_open_browser(induk, nama, path, profil="bot", profil_label=""):
     """Konfirmasi visual sebelum bot membuka jendela browser sendiri."""
     d = _Dialog(induk, f"Buka {nama} untuk bot?",
                 "TypingBot akan membuka jendela browser khusus.", ikon="🚀")
     atas = tk.Frame(d.body, bg=PANEL)
     atas.pack(fill="x")
-    _ikon_widget(atas, path, nama, BROWSER_WARNA.get(nama, ACCENT), 44).pack(side="left")
+    _icon_widget(atas, path, nama, BROWSER_COLORS.get(nama, ACCENT), 44).pack(side="left")
     tx = tk.Frame(atas, bg=PANEL)
     tx.pack(side="left", padx=(14, 0))
 
@@ -384,26 +384,26 @@ def dialog_buka_browser(induk, nama, path, profil="bot", profil_label=""):
                  anchor="w").pack(anchor="w", pady=1)
     tk.Label(d.body, text="Jendela boleh diminimize, bot tetap jalan di belakang.",
              font=("Segoe UI", 9), fg=FAINT, bg=PANEL).pack(anchor="w", pady=(10, 0))
-    d.tombol("Batal", False, primer=False)
-    d.tombol(f"Buka {nama}", True)
-    return d.tampilkan()
+    d.button("Batal", False, primer=False)
+    d.button(f"Buka {nama}", True)
+    return d.show()
 
 
 
 
-def dialog_tutup_paksa(induk, nama, pid, exe=None):
+def dialog_force_close(induk, nama, pid, exe=None):
     """Konfirmasi sebelum menutup aplikasi lain yang menghalangi bot.
     Bahasa awam total ('Brave sedang jalan, tutup dulu ya') - tanpa kata
     port/PID/proses. Menampilkan LOGO aplikasi yang akan ditutup
     (diekstrak dari exe-nya, mis. logo Adobe kalau yang jalan
     komponennya Adobe)."""
-    nama = _nama_tampil(nama)
+    nama = _display_name(nama)
     d = _Dialog(induk, f"Tutup {nama} dulu, ya",
                 "TypingBot baru bisa jalan setelah aplikasi ini ditutup.",
                 ikon="⚠", warna=RED)
     atas = tk.Frame(d.body, bg=PANEL)
     atas.pack(fill="x", pady=(2, 0))
-    _ikon_widget(atas, exe, nama, ACCENT, 44).pack(side="left")
+    _icon_widget(atas, exe, nama, ACCENT, 44).pack(side="left")
     tx = tk.Frame(atas, bg=PANEL)
     tx.pack(side="left", padx=(14, 0))
     tk.Label(tx, text=nama, font=("Segoe UI", 13, "bold"), fg=FG,
@@ -418,9 +418,9 @@ def dialog_tutup_paksa(induk, nama, pid, exe=None):
                           "simpan dulu." + ekstra,
              font=("Segoe UI", 10), fg=FG, bg=PANEL, wraplength=430,
              justify="left").pack(anchor="w", pady=(10, 0))
-    d.tombol("Batal", False, primer=False)
-    d.tombol(f"Tutup {nama}", True, warna_btn=RED)
-    return d.tampilkan()
+    d.button("Batal", False, primer=False)
+    d.button(f"Tutup {nama}", True, warna_btn=RED)
+    return d.show()
 
 
 
@@ -452,13 +452,13 @@ def dialog_tips(induk, terdeteksi):
         "di sebelah alamat, matikan Shields sebentar, lalu muat ulang halaman.",
         "Browser yang terdeteksi di komputer ini: " + terdeteksi + ".",
     ))
-    d.tombol("Mengerti")
-    return d.tampilkan()
+    d.button("Mengerti")
+    return d.show()
 
 
 
 
-def dialog_rentang(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
+def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
     """Pilih rentang level (dari/sampai). Return: dict hasil (Simpan),
     'halaman' (user memilih level awal sendiri di browser), None (batal)."""
     hasil = {"mulai": mulai, "akhir": akhir}
@@ -509,7 +509,7 @@ def dialog_rentang(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
         def bangun():
             on_bangun()
             return False   # jangan tutup dialog; status terlihat di log
-        d.tombol("Bangun Peta", None, primer=False, cmd=bangun)
+        d.button("Bangun Peta", None, primer=False, cmd=bangun)
 
     def simpan():
         try:
@@ -522,23 +522,23 @@ def dialog_rentang(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
             galat.configure(text=f"Harus 1-{total_level}, dan Dari <= Sampai.")
             return False
         hasil["mulai"], hasil["akhir"] = a, b
-        d.selesai(True)
+        d.done(True)
 
-    d.tombol("Pilih di Halaman", "halaman", primer=False)
-    d.tombol("Simpan", None, cmd=simpan)
-    r = d.tampilkan()
+    d.button("Pilih di Halaman", "halaman", primer=False)
+    d.button("Simpan", None, cmd=simpan)
+    r = d.show()
     return r if r == "halaman" else (r and hasil)
 
 
 
 
-def dialog_aktivasi(induk):
+def dialog_activation(induk):
     """Aktivasi lisensi terikat mesin. Return True bila baru berhasil."""
     d = _Dialog(induk, "Aktivasi TypingBot",
                 "Satu lisensi berlaku untuk satu komputer.", ikon="🔑",
                 warna=ORANGE)
-    kode = _kode_mesin()
-    harapan = _norm(_buat_kunci(kode))
+    kode = _machine_code()
+    harapan = _norm(_make_key(kode))
 
     kotak = tk.Frame(d.body, bg=CARD, highlightthickness=1,
                      highlightbackground=EDGE)
@@ -575,8 +575,8 @@ def dialog_aktivasi(induk):
 
     def coba():
         if _norm(var.get()) == harapan:
-            _simpan_lisensi(var.get())
-            d.selesai(True)
+            _save_license(var.get())
+            d.done(True)
             return
         galat.configure(text="Kunci tidak cocok untuk komputer ini. "
                              "Periksa lagi, atau minta kunci baru.")
@@ -585,15 +585,15 @@ def dialog_aktivasi(induk):
     # 'Nanti Saja' harus False eksplisit: tombol() tanpa nilai
     # mengembalikan teks tombol (truthy) - dulu menekan 'Nanti Saja'
     # malah dianggap aktivasi berhasil oleh pemanggil (bug lisensi!).
-    d.tombol("Nanti Saja", None, primer=False, cmd=lambda: d.selesai(False))
-    d.tombol("Aktivasi", True, cmd=coba)
+    d.button("Nanti Saja", None, primer=False, cmd=lambda: d.done(False))
+    d.button("Aktivasi", True, cmd=coba)
     ent.bind("<Return>", lambda e: coba())
-    return d.tampilkan()
+    return d.show()
 
 
 
 
-def dialog_selesai(induk, akhir):
+def dialog_done(induk, akhir):
     """Popup rentang level selesai (visual, senada tema gelap - bukan
     messagebox polos Windows)."""
     d = _Dialog(induk, "Semua level selesai!", ikon="🏁", warna=GREEN)
@@ -602,5 +602,5 @@ def dialog_selesai(induk, akhir):
                           f"melanjutkan ke level berikutnya.",
              font=("Segoe UI", 10), fg=FG, bg=PANEL, wraplength=420,
              justify="left").pack(anchor="w")
-    d.tombol("Oke")
-    return d.tampilkan()
+    d.button("Oke")
+    return d.show()

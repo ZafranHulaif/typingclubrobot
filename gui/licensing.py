@@ -40,7 +40,7 @@ def _norm(s):
 
 
 
-def _data_mesin():
+def _machine_data():
     """Sidik jari komputer: MAC + nama komputer + serial volume sistem."""
     bagian = []
     nic = uuid.getnode()
@@ -61,15 +61,15 @@ def _data_mesin():
 
 
 
-def _kode_mesin():
-    dig = hashlib.sha256(_data_mesin().encode("utf-8")).digest()
+def _machine_code():
+    dig = hashlib.sha256(_machine_data().encode("utf-8")).digest()
     kode = base64.b32encode(dig).decode("ascii")[:10]
     return "-".join([kode[:5], kode[5:]])
 
 
 
 
-def _buat_kunci(kode_mesin):
+def _make_key(kode_mesin):
     dig = hmac.new(LICENSE_SECRET.encode("utf-8"),
                    _norm(kode_mesin).encode("utf-8"), hashlib.sha256).digest()
     b32 = base64.b32encode(dig).decode("ascii")[:20]
@@ -78,7 +78,7 @@ def _buat_kunci(kode_mesin):
 
 
 
-def _lisensi_tersimpan():
+def _saved_license():
     try:
         return open(LICENSE_FILE, encoding="utf-8").read().strip()
     except Exception:
@@ -87,12 +87,12 @@ def _lisensi_tersimpan():
 
 
 
-def _lisensi_valid():
-    return _norm(_lisensi_tersimpan()) == _norm(_buat_kunci(_kode_mesin()))
+def _license_valid():
+    return _norm(_saved_license()) == _norm(_make_key(_machine_code()))
 
 
 
 
-def _simpan_lisensi(kunci):
+def _save_license(kunci):
     with open(LICENSE_FILE, "w", encoding="utf-8") as f:
         f.write(kunci.strip() + "\n")

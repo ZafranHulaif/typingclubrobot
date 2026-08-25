@@ -28,7 +28,7 @@ def _lesson_id(url):
     return int(m.group(2)) if m else None
 
 
-def _level_map_muat():
+def _load_level_map():
     try:
         with open(_LEVEL_MAP_FILE, encoding="utf-8") as f:
             data = json.load(f)
@@ -38,7 +38,7 @@ def _level_map_muat():
         pass
 
 
-def _level_map_catat(nomor, url):
+def _record_level_map(nomor, url):
     """Simpan asosiasi level -> URL (mis. '87' -> '...192.play')."""
     if not nomor or not url or ".play" not in url:
         return
@@ -53,27 +53,27 @@ def _level_map_catat(nomor, url):
         pass
 
 
-_level_map_muat()
+_load_level_map()
 for _n, _u in state._level_map.items():
     try:
-        state._url_ke_level[int(_u.rsplit("/", 1)[1].split(".")[0])] = int(_n)
+        state._url_to_level[int(_u.rsplit("/", 1)[1].split(".")[0])] = int(_n)
     except Exception:
         pass
 
 
-def url_ke_level(url):
+def url_to_level(url):
     """Nomor level dari URL .play via peta terbalik (pasti & instan,
     tidak menunggu teks halaman termuat)."""
     try:
         m = re.search(r"/program-\d+/(\d+)\.play", url or "")
         if m:
-            return state._url_ke_level.get(int(m.group(1)))
+            return state._url_to_level.get(int(m.group(1)))
     except Exception:
         pass
     return None
 
 
-def _baca_unlock_set():
+def _read_unlock_set():
     """Set nomor level yang TERKUNCI/TERBUKA: kumpulkan nomor lesson yang
     punya class 'is_unlocked' di daftar lesson. Akun baru/logout = hanya
     level 1. None = daftar tidak terbaca."""
@@ -107,7 +107,7 @@ def _baca_unlock_set():
             pass
 
 
-def _rentang_validasi_step():
+def _range_validate_step():
     """Validasi NON-BLOKIR: LEVEL_START harus level TERBUKA di akun
     (terkunci = halaman kosong, bot akan thrash). Dipanggil tiap iterasi
     loop utama SETELAH gerbang login (live 00:04: validasi lama jalan
@@ -115,19 +115,19 @@ def _rentang_validasi_step():
     '662 terkunci' padahal user bahkan belum login, dan wait 300 dtk
     membekukan seluruh loop: popup login & tanya rentang tak pernah
     muncul). Return False = user memilih stop."""
-    if state._rentang_validasi_done or state.LEVEL_START <= 1:
-        state._rentang_validasi_done = True
+    if state._range_validated or state.LEVEL_START <= 1:
+        state._range_validated = True
         return True
     # Tunda selama status login belum pasti / belum login: daftar level
     # versi logout selalu 'hanya level 1' - memvalidasi sekarang hanya
-    # menghasilkan popup terkunci palsu. Setelah login, _rentang_cek
+    # menghasilkan popup terkunci palsu. Setelah login, _range_check
     # mengantar ke level awal; level benar2 terkunci tetap ditangani
     # runtime (deteksi halaman kosong).
-    if state.PERLU_LOGIN or not state.LOGIN_DICEK:
+    if state.NEEDS_LOGIN or not state.LOGIN_DICEK:
         return True
     try:
-        if session._profil_login() == "out":
-            state._rentang_validasi_done = True
+        if session._login_profile() == "out":
+            state._range_validated = True
             return True
     except Exception:
         pass
@@ -136,28 +136,28 @@ def _rentang_validasi_step():
     # user - edclub yang mengizinkan/menolaknya, bukan bot)
     try:
         if ".play" in (browser._real_url(state.PAGE) or ""):
-            state._rentang_validasi_done = True
+            state._range_validated = True
             return True
     except Exception:
         pass
     if state._unlock_set is None:
-        state._unlock_set = _baca_unlock_set()
+        state._unlock_set = _read_unlock_set()
     if state._unlock_set is None or state.LEVEL_START in state._unlock_set:
-        state._rentang_validasi_done = True
+        state._range_validated = True
         return True   # tidak bisa dibaca / memang terbuka: lanjut saja
     fallback = max(state._unlock_set) if state._unlock_set else 1
     print(f"[RENTANG] level {state.LEVEL_START} masih TERKUNCI di akun ini - "
           f"terbuka sampai level {fallback}.")
     ev = threading.Event()
-    state.LEVEL_TANYA.update(aktif=True, start=state.LEVEL_START, fallback=fallback,
+    state.LEVEL_ASKED.update(aktif=True, start=state.LEVEL_START, fallback=fallback,
                        jawab="", event=ev)
     # tunggu bertahap: jawaban GUI, STOP, atau 300 dtk (timeout = mulai)
     batas = time.time() + 300
     while not ev.is_set() and not state.STOP and time.time() < batas:
         ev.wait(timeout=1.0)
-    state.LEVEL_TANYA["aktif"] = False
-    jawab = state.LEVEL_TANYA["jawab"] or "mulai"   # timeout = lanjut dari fallback
-    state._rentang_validasi_done = True
+    state.LEVEL_ASKED["aktif"] = False
+    jawab = state.LEVEL_ASKED["jawab"] or "mulai"   # timeout = lanjut dari fallback
+    state._range_validated = True
     if jawab == "stop":
         print("[RENTANG] dibatalkan user - bot tidak jalan.")
         return False
@@ -179,7 +179,7 @@ def _goto_level_url(nomor):
         return False
 
 
-def bangun_peta_level():
+def build_level_map():
     """Bangun peta level -> URL lengkap (1..685) dengan membuka daftar
     lesson lalu menklik tiap baris dan merekam URL .play-nya (~1.3 dtk/
     level, sekali per akun). Baris daftar terverifikasi: aria-label
@@ -247,7 +247,7 @@ def bangun_peta_level():
                             if (b) b.click();
                         }""")
                 if url and state._level_map.get(str(nomor)) != url:
-                    _level_map_catat(nomor, url)
+                    _record_level_map(nomor, url)
                     baru += 1
                 # go_back hanya kalau memang navigasi ke .play terjadi;
                 # baris yang tidak bisa diklik (mis. bagian khusus akhir
@@ -312,7 +312,7 @@ return m ? m[1] : null;
     # untuk URL itu (pernah membuat indikator level GUI selalu salah).
     if nomor:
         state._level_label_cache[url] = lab
-        _level_map_catat(nomor, url)
+        _record_level_map(nomor, url)
     return lab
 
 

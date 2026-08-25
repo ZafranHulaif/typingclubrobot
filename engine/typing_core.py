@@ -88,14 +88,14 @@ def type_chars(text, max_chars=None, slow=False):
     return True
 
 
-def _tandai_klik_bot(frame=None, ms=900):
+def _mark_bot_click(frame=None, ms=900):
     """Panggil SEBELUM bot mengklik dengan mouse CDP: event mousedown-
     nya jangan dihitung sebagai 'aktivitas user' (echo klik sendiri)."""
     jsutil.run_js(f"window.__tb_ignore = Date.now() + {int(ms)}; return 1;",
            frame if frame is not None else state.PAGE.main_frame)
 
 
-def _user_aktif(batas=2.0):
+def _user_active(batas=2.0):
     """True kalau user asli aktif dalam `batas` detik terakhir di halaman
     edclub (klik/ketik/scroll/ambil fokus). Cache 0.5 dtk supaya murah
     dipanggil per karakter. Kegagalan baca = dianggap tidak aktif."""
@@ -115,25 +115,25 @@ def _user_aktif(batas=2.0):
     return terbaik < batas
 
 
-def _tunggu_user(url):
+def _wait_for_user(url):
     """User sedang menjelajah (bukan di lesson) - catat & tunggu; kalau
     lebih dari 2 menit, minta GUI menanyakan lanjut/stop."""
-    st = state._tunggu_user_since
+    st = state._wait_user_since
     if st["url"] != url:
         st["url"] = url
         st["t"] = time.time()
         print("[USER] kamu sedang memakai browser bot - bot menunggu "
               "(lanjut otomatis begitu kamu diam / buka lesson)")
-    elif time.time() - st["t"] > 120 and not state.MINTA_TANYA_LANJUT:
-        state.MINTA_TANYA_LANJUT = True
+    elif time.time() - st["t"] > 120 and not state.ASK_NEXT_LEVEL:
+        state.ASK_NEXT_LEVEL = True
     time.sleep(0.5)
 
 
-def _user_diam_lagi(url):
+def _user_idle_again(url):
     """Reset status menunggu (dipanggil saat bot bisa bekerja lagi)."""
-    if state._tunggu_user_since["url"]:
-        state._tunggu_user_since.update(url="", t=0.0)
-        state.MINTA_TANYA_LANJUT = False
+    if state._wait_user_since["url"]:
+        state._wait_user_since.update(url="", t=0.0)
+        state.ASK_NEXT_LEVEL = False
         print("[USER] halaman tenang - bot lanjut bekerja.")
 
 
@@ -169,7 +169,7 @@ def advance_score_screen():
             loc = state.PAGE.locator(sel)
             if loc.count() == 0:
                 continue
-            _tandai_klik_bot()
+            _mark_bot_click()
             loc.first.click(timeout=1500)
             print(f"[Skor] klik lanjut via mouse: {sel}")
             return True

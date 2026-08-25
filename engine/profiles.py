@@ -20,7 +20,7 @@ from . import browser
 
 
 
-def _ud_browser_dir(nama):
+def _user_data_dir(nama):
     """Folder data (User Data) ASLI milik browser terpasang. Return '' bila
     browser tidak dikenal/foldernya tidak ada."""
     base = os.path.expandvars("%LOCALAPPDATA%")
@@ -33,11 +33,11 @@ def _ud_browser_dir(nama):
     return ud if ud and os.path.isdir(ud) else ""
 
 
-def _profil_daftar(nama):
+def _list_profiles(nama):
     """Daftar profil manusia di browser terpasang (dibaca dari 'Local
     State', tanpa membuka browser). Return list {'dir','nama','email',
     'utama'}; 'Default' selalu di urutan pertama."""
-    ud = _ud_browser_dir(nama)
+    ud = _user_data_dir(nama)
     if not ud:
         return []
     try:
@@ -58,12 +58,12 @@ def _profil_daftar(nama):
     return hasil
 
 
-def _ud_profil_arg(nama):
+def _profile_dir_arg(nama):
     """Argumen --user-data-dir untuk mode 'profil saya'. Brave: folder asli.
     Chrome/Edge: JUNCTION ke folder asli (path beda, data sama - satu2nya
     cara melewati larangan debug Chromium 136+ pada folder asli).
     Return '' bila tidak bisa (folder tidak ada / profil tidak ada)."""
-    ud = _ud_browser_dir(nama)
+    ud = _user_data_dir(nama)
     if not ud:
         return ""
     if state.PROFILE_DIR and not os.path.isdir(os.path.join(ud, state.PROFILE_DIR)):
@@ -91,7 +91,7 @@ def _ud_profil_arg(nama):
     return ""
 
 
-def _proses_berdasar_nama(proc):
+def _proc_by_name(proc):
     """PID semua proses dengan nama image tertentu (brave.exe dsb.),
     hasil tasklist diurut seperti biasa (kolom ke-2 = PID)."""
     pids = []
@@ -108,19 +108,19 @@ def _proses_berdasar_nama(proc):
     return pids
 
 
-def _tutup_browser_user(proc, nama):
+def _close_user_browser(proc, nama):
     """Mode 'profil saya': browser harus BETUL2 mati dulu agar bisa
     diluncurkan ulang dengan profil user + mode debug (jika masih jalan,
     proses baru hanya membuka jendela di proses lama TANPA debug).
     Selalu minta izin user (dialog logo) sebelum menutup.
     Return False bila user menolak -> pemanggil jatuh ke profil khusus."""
-    pids = _proses_berdasar_nama(proc)
+    pids = _proc_by_name(proc)
     if not pids:
         return True
     exe, _induk = browser._exe_info_pid(pids[0])
     print(f"[PROFIL] {nama} sedang jalan - bot perlu menutupnya dulu "
           "untuk memakai profil kamu.")
-    if not browser._tanya_tutup(nama, pids[0], exe):
+    if not browser._ask_close(nama, pids[0], exe):
         print("[PROFIL] tidak ditutup - bot memakai profil khusus saja.")
         return False
     for pid in pids:
@@ -131,6 +131,6 @@ def _tutup_browser_user(proc, nama):
             pass
     for _ in range(10):
         time.sleep(0.5)
-        if not _proses_berdasar_nama(proc):
+        if not _proc_by_name(proc):
             break
     return True

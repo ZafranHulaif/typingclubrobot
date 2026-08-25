@@ -24,7 +24,7 @@ from .jstemplates import (PLAYABLE_CHECK_JS)
 
 
 
-def _alamat_debug():
+def _debug_address():
     return f"127.0.0.1:{state.DEBUG_PORT}"
 
 # ---------------------------------------------------------------------------
@@ -59,7 +59,7 @@ def _real_url(pg):
         return ""
 
 
-def _frame_edclub(fr):
+def _edclub_frame(fr):
     """Frame ini milik edclub? Frame Stripe checkout (iframe premium)
     TIDAK BOLEH dijalankan klik apa pun - klik di dalamnya pernah
     membawa tab ke checkout Stripe."""
@@ -78,10 +78,10 @@ def _frame_edclub(fr):
     return h.endswith("edclub.com") or h.endswith("typingclub.com")
 
 
-def _cek_debug_port():
+def _check_debug_port():
     import urllib.request
     try:
-        with urllib.request.urlopen(f"http://{_alamat_debug()}/json/version", timeout=2) as r:
+        with urllib.request.urlopen(f"http://{_debug_address()}/json/version", timeout=2) as r:
             return json.loads(r.read().decode()).get("Browser", "")
     except Exception:
         return ""
@@ -134,7 +134,7 @@ def _exe_info_pid(pid):
     return exe, induk
 
 
-def _identitas_pemegang(pid, nama):
+def _holder_identity(pid, nama):
     """Identitas APLIKASI sebenarnya di balik proses pemegang port.
     Kasus nyata: port dipegang msedgewebview2.exe = WebView2 yang ditanam
     aplikasi lain (mis. Adobe), dulu salah terdeteksi sebagai 'Edge' lalu
@@ -157,7 +157,7 @@ def _identitas_pemegang(pid, nama):
     return {"nama": tampil, "pid": pid, "exe": exe, "proses": nama}
 
 
-def _tanya_tutup(nama, pid, exe=""):
+def _ask_close(nama, pid, exe=""):
     if state._confirmer is not None:
         try:
             return bool(state._confirmer(nama, pid, exe))
@@ -179,7 +179,7 @@ def _run_hidden(cmd, **kw):
     return subprocess.run(cmd, **kw)
 
 
-def _bebaskan_port(tanya_semua=True):
+def _free_port(tanya_semua=True):
     """Port 9222 dipakai proses lain -> identifikasi PEMEGANG ASLINYA
     (bisa bukan browser sama sekali; WebView2 milik Adobe dsb. dinaiki
     ke aplikasi induknya), lalu SELALU minta izin user sebelum taskkill.
@@ -187,14 +187,14 @@ def _bebaskan_port(tanya_semua=True):
     WebView milik aplikasi lain.)
     Parameter tanya_semua dipertahankan untuk kompatibilitas pemanggil;
     sekarang semua pemegang selalu ditanyakan."""
-    pemegang = _siapa_pegang_port()
+    pemegang = _port_holders()
     if not pemegang:
         return False
     for pid, nama in pemegang:
-        info = _identitas_pemegang(pid, nama)
+        info = _holder_identity(pid, nama)
         print(f"  -> port 9222 dipakai {info['nama']} "
               f"({nama}, PID {pid})")
-        if not _tanya_tutup(info["nama"], pid, info["exe"]):
+        if not _ask_close(info["nama"], pid, info["exe"]):
             print(f"     tidak jadi ditutup - port tetap dipakai {info['nama']}.")
             continue
         print("     menutup paksa atas izin user...")
@@ -207,7 +207,7 @@ def _bebaskan_port(tanya_semua=True):
     return True
 
 
-def _siapa_pegang_port():
+def _port_holders():
     pids = []
     try:
         out = _run_hidden(["netstat", "-ano", "-p", "TCP"],
@@ -232,7 +232,7 @@ def _siapa_pegang_port():
     return hasil
 
 
-def _adalah_browser_kita(nama_pemegang):
+def _is_our_browser(nama_pemegang):
     """Apakah pemegang port salah satu browser yang dikelola bot
     (brave/chrome/msedge)? Bukan -> aplikasi asing (widget sistem
     bawaan laptop, WebView2 milik aplikasi lain, dll.) -> jangan
@@ -240,7 +240,7 @@ def _adalah_browser_kita(nama_pemegang):
     return any(c["proc"] in nama_pemegang for c in BROWSER_CANDIDATES)
 
 
-def _port_bind_kosong(port):
+def _port_bind_free(port):
     import socket
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -250,23 +250,23 @@ def _port_bind_kosong(port):
         return False
 
 
-def _sesuaikan_port():
-    """Dipanggil di awal siapkan_browser. Port 9222 dipegang aplikasi
+def _pick_port():
+    """Dipanggil di awal ensure_browser. Port 9222 dipegang aplikasi
     ASING (bukan brave/chrome/msedge)? Bot pindah ke port kosong
     berikutnya dan MEMBIARKAN aplikasi itu tetap jalan - tanpa dialog
     'tutup aplikasi' yang menakutkan. Kasus nyata: Batterywidgethost
     bawaan laptop pegang 9222, bot malah minta ditutup padahal cukup
     pindah port."""
-    pemegang = _siapa_pegang_port()
+    pemegang = _port_holders()
     if not pemegang:
         return state.DEBUG_PORT
     nama = " ".join(n.lower() for _, n in pemegang)
-    if _adalah_browser_kita(nama):
+    if _is_our_browser(nama):
         return state.DEBUG_PORT
     for kandidat in range(9223, 9323):
-        if _port_bind_kosong(kandidat):
+        if _port_bind_free(kandidat):
             try:
-                info = _identitas_pemegang(pemegang[0][0], pemegang[0][1])
+                info = _holder_identity(pemegang[0][0], pemegang[0][1])
                 nm = info["nama"]
             except Exception:
                 nm = pemegang[0][1]
@@ -312,7 +312,7 @@ def _find_browser():
     return None
 
 
-def _browser_sudah_jalan():
+def _browser_running():
     proc = (state.BROWSER or {}).get("proc", "brave.exe")
     try:
         out = _run_hidden(["tasklist", "/FI", f"IMAGENAME eq {proc}"],
@@ -322,13 +322,13 @@ def _browser_sudah_jalan():
         return False
 
 
-def _port_dipakai_browser_lain():
+def _port_held_by_other_browser():
     """Port 9222 hidup tetapi dipegang browser BERBEDA dari pilihan user?
     (mis. jendela debug Brave lama masih nyala padahal user pilih Chrome).
     Return list pemegang [(pid, nama)]; [] bila cocok / tidak ada."""
     pilihan = _find_browser() or {}
     proc_pilihan = pilihan.get("proc", "")
-    pemegang = _siapa_pegang_port()
+    pemegang = _port_holders()
     if not (proc_pilihan and pemegang):
         return []
     nama_pemegang = " ".join(n.lower() for _, n in pemegang)
@@ -343,7 +343,7 @@ def _restart_browser_debug():
     Windows; 3x retry connect tetap timeout).
     Restart saja: tutup pemegang 9222, jalankan ulang dengan mode debug.
     Tab browser dipulihkan otomatis oleh sesi restore."""
-    pemegang = _siapa_pegang_port()
+    pemegang = _port_holders()
     if not pemegang:
         return False
     print(f"[PEMULIHAN] Browser debug tidak merespons - memulai ulang "
@@ -356,7 +356,7 @@ def _restart_browser_debug():
             pass
     for _ in range(16):
         time.sleep(0.5)
-        if not _cek_debug_port():
+        if not _check_debug_port():
             break
     pilihan = _find_browser() or (state.BROWSER or {}) or {}
     exe = pilihan.get("exe") or ""
@@ -365,7 +365,7 @@ def _restart_browser_debug():
         return False
     args = [exe, f"--remote-debugging-port={state.DEBUG_PORT}", "--restore-last-session"]
     if state.PROFILE_MODE == "saya" and state.PROFILE_DIR:
-        ud_saya = profiles._ud_profil_arg(pilihan.get("name", ""))
+        ud_saya = profiles._profile_dir_arg(pilihan.get("name", ""))
         if ud_saya:
             args += [f"--user-data-dir={ud_saya}",
                      f"--profile-directory={state.PROFILE_DIR}"]
@@ -383,13 +383,13 @@ def _restart_browser_debug():
         time.sleep(0.5)
         if state.STOP:
             sys.exit(0)
-        if _cek_debug_port().startswith("Chrome"):
+        if _check_debug_port().startswith("Chrome"):
             print("[PEMULIHAN] Browser debug hidup kembali.")
             return True
     return False
 
 
-def _cari_tab_setup(br, pg_utama):
+def _find_setup_tab(br, pg_utama):
     """Tab SET-UP first-run (Edge/Chrome/Brave baru pertama kali dibuka di
     profil khusus bot): welcome / pilih default browser / izin cookie /
     sign-in sync. Return tab set-up pertama yang terlihat, None kalau
@@ -410,7 +410,7 @@ def _cari_tab_setup(br, pg_utama):
     return None
 
 
-def _tutup_tab_kosong(br, pg_utama):
+def _close_empty_tabs(br, pg_utama):
     """Tutup tab kosong sisa start-up browser (newtab/welcome/blank).
     Hanya kalau masih ada tab lain di context - jangan sampai jendela
     ikut tertutup."""
@@ -439,14 +439,14 @@ def _tutup_tab_kosong(br, pg_utama):
             pass
 
 
-def _browser_dari_pemegang_port():
+def _browser_from_port_holder():
     """Browser TERPASANG yang saat ini memegang port 9222 (untuk mode
     Otomatis: tempeli saja yang sudah jalan). None kalau port kosong atau
     dipegang proses non-browser (WebView/Adobe dsb. - itu tetap lewat
     dialog izin)."""
-    if not _cek_debug_port():
+    if not _check_debug_port():
         return None
-    holder = _siapa_pegang_port()
+    holder = _port_holders()
     nama = " ".join(n.lower() for _, n in holder)
     for c in BROWSER_CANDIDATES:
         if c["proc"] in nama:
@@ -456,21 +456,21 @@ def _browser_dari_pemegang_port():
     return None
 
 
-def siapkan_browser():
+def ensure_browser():
     """Pastikan ada browser Chromium (Brave/Chrome/Edge) debug di port
     9222 (atau port berikutnya bila 9222 dipakai aplikasi asing - lihat
-    _sesuaikan_port). Browser LAIN milik bot yang memegang port tetap
+    _pick_port). Browser LAIN milik bot yang memegang port tetap
     ditangani dengan izin user, bukan asal ditutup."""
     if state.STOP:
         sys.exit(0)
-    _sesuaikan_port()
-    browser_on_port = _cek_debug_port()
+    _pick_port()
+    browser_on_port = _check_debug_port()
 
     # otomatis pintar: port sudah dipegang browser terpasang -> pakai browser
     # itu langsung (dulu Otomatis selalu Brave -> 'port dipegang browser lain'
     # -> minta izin menutup Chrome/Edge padahal tinggal ditempeli).
     otomatis = not ((state.FORCE_BROWSER or os.environ.get("TYPINGBOT_BROWSER", "")).strip())
-    reuse = _browser_dari_pemegang_port() if otomatis else None
+    reuse = _browser_from_port_holder() if otomatis else None
     if reuse is not None:
         state.BROWSER = reuse
         print(f"[OTOMATIS] {reuse['name']} sudah jalan dengan port debug - "
@@ -481,8 +481,8 @@ def siapkan_browser():
         # Adobe) yang membalas /json/version dengan string "Edg/...".
         print("Port 9222 dipegang proses berbasis Edge/WebView, "
               "mencari proses pemegangnya...")
-        _bebaskan_port()
-        browser_on_port = _cek_debug_port()
+        _free_port()
+        browser_on_port = _check_debug_port()
         if "Edg" in browser_on_port:
             print("MASIH terkunci. Cek pemegang port: netstat -ano | findstr :9222")
             print("Tutup manual aplikasinya, lalu jalankan ulang program.")
@@ -494,24 +494,24 @@ def siapkan_browser():
         # user pilih Chrome sementara jendela debug Brave lama masih nyala
         # atau menggantung) -> tutup pemegangnya (dengan izin) supaya
         # browser pilihan bisa memakai port.
-        lain = _port_dipakai_browser_lain()
+        lain = _port_held_by_other_browser()
         if lain:
             print(f"Port 9222 dipegang browser lain "
                   f"({', '.join(n for _, n in lain)}), padahal pilihan: "
                   f"{(_find_browser() or {}).get('name', '?')}. "
                   "Menutup pemegang port...")
-            _bebaskan_port(tanya_semua=True)
-            browser_on_port = _cek_debug_port()
+            _free_port(tanya_semua=True)
+            browser_on_port = _check_debug_port()
             if browser_on_port:
                 print("Pemegang port tidak ditutup - bot tidak bisa lanjut. "
                       "Tutup jendela browser lama, lalu klik Start lagi.")
                 sys.exit(1)
 
     if not browser_on_port:
-        if _siapa_pegang_port():
+        if _port_holders():
             print("Port 9222 dipakai proses lain (bukan browser debug)...")
-            _bebaskan_port()
-            browser_on_port = _cek_debug_port()
+            _free_port()
+            browser_on_port = _check_debug_port()
         if not browser_on_port:
             state.BROWSER = _find_browser()
             if state.BROWSER is None:
@@ -522,13 +522,13 @@ def siapkan_browser():
             # Mode 'profil saya': luncurkan dengan profil asli user. Browser
             # yang sedang jalan harus dimatikan dulu (dengan izin) - proses
             # baru hanya membuka jendela di proses lama tanpa mode debug.
-            # Chrome/Edge dibuka lewat junction (lihat _ud_profil_arg).
+            # Chrome/Edge dibuka lewat junction (lihat _profile_dir_arg).
             if state.PROFILE_MODE == "saya" and state.PROFILE_DIR:
-                if _browser_sudah_jalan() and not profiles._tutup_browser_user(
+                if _browser_running() and not profiles._close_user_browser(
                         state.BROWSER["proc"], nm):
                     ud_saya = ""
                 else:
-                    ud_saya = profiles._ud_profil_arg(nm)
+                    ud_saya = profiles._profile_dir_arg(nm)
                 if ud_saya:
                     print(f"[PROFIL] membuka {nm} dengan profilmu "
                           f"({state.PROFILE_LABEL or state.PROFILE_DIR})...")
@@ -542,10 +542,10 @@ def siapkan_browser():
                         time.sleep(0.5)
                         if state.STOP:
                             sys.exit(0)
-                        if _cek_debug_port().startswith("Chrome"):
+                        if _check_debug_port().startswith("Chrome"):
                             break
-                    if _cek_debug_port().startswith("Chrome"):
-                        browser_on_port = _cek_debug_port()
+                    if _check_debug_port().startswith("Chrome"):
+                        browser_on_port = _check_debug_port()
                     else:
                         print("[PROFIL] profil kamu gagal dibuka - bot "
                               "memakai profil khusus bot.")
@@ -555,7 +555,7 @@ def siapkan_browser():
             # Hal yang sama kalau browser sama sudah jalan tanpa debug -
             # profil khusus bisa berjalan berdampingan dengan jendela itu.
             if not browser_on_port:
-                langsung_profil = (nm != "Brave") or _browser_sudah_jalan()
+                langsung_profil = (nm != "Brave") or _browser_running()
                 if not langsung_profil:
                     print(f"Port 9222 kosong: membuka {nm} otomatis "
                           "dengan mode debug...")
@@ -565,13 +565,13 @@ def siapkan_browser():
                         time.sleep(0.5)
                         if state.STOP:
                             sys.exit(0)
-                        if _cek_debug_port().startswith("Chrome"):
+                        if _check_debug_port().startswith("Chrome"):
                             break
-                    if not _cek_debug_port().startswith("Chrome"):
+                    if not _check_debug_port().startswith("Chrome"):
                         langsung_profil = True
                 if langsung_profil:
                     # Profil khusus bot: login edclub sekali, tersimpan selamanya.
-                    alasan = ("sudah jalan tanpa debug" if _browser_sudah_jalan()
+                    alasan = ("sudah jalan tanpa debug" if _browser_running()
                               else "profil default menolak mode debug")
                     print(f"Membuka {nm} dengan profil khusus bot ({alasan})...")
                     subprocess.Popen([state.BROWSER["exe"],
@@ -582,7 +582,7 @@ def siapkan_browser():
                         time.sleep(0.5)
                         if state.STOP:
                             sys.exit(0)
-                        if _cek_debug_port().startswith("Chrome"):
+                        if _check_debug_port().startswith("Chrome"):
                             break
     if state.BROWSER is None:
         state.BROWSER = _find_browser() or {"name": "browser", "exe": "", "proc": ""}
@@ -607,7 +607,7 @@ def siapkan_browser():
             try:
                 p = sync_playwright().start()
                 br = p.chromium.connect_over_cdp(
-                    f"http://{_alamat_debug()}",
+                    f"http://{_debug_address()}",
                     timeout=20000 if percobaan == 0 else 12000)
                 return p, br, ""
             except Exception as e:
@@ -626,7 +626,7 @@ def siapkan_browser():
         return None, None, pesan
 
     pw, browser, pesan = _tangga_connect()
-    if browser is None and _cek_debug_port():
+    if browser is None and _check_debug_port():
         # Port hidup di HTTP tetapi websocket menolak = DevTools browser
         # menggantung (idle lama). Restart browser debug lalu coba lagi.
         # kill + relaunch debug browser -> connect langsung ok.
@@ -767,26 +767,26 @@ def siapkan_browser():
     # ditutup), jaitu pembersihan sekali di sini kurang - jalankan lagi
     # setelah gerbang set-up. Hanya tab newtab/welcome/blank, hanya kalau
     # masih ada tab lain (jangan sampai jendela ikut tertutup).
-    _tutup_tab_kosong(browser, page)
+    _close_empty_tabs(browser, page)
     # Tab set-UP first-run (Edge/Chrome/Brave baru pertama kali dibuka di
     # profil khusus bot): welcome / pilih default browser / izin cookie /
     # sign-in sync. Dulu bot langsung jalan menimpa set-up (
     # sebaiknya tunggu). Sekarang: instruksi + tunggu sampai semua tab
     # set-up ditutup user, bot lanjut otomatis setelahnya.
-    if _cari_tab_setup(browser, page) is not None:
-        state.MENUNGGU_SETUP = True
+    if _find_setup_tab(browser, page) is not None:
+        state.WAITING_SETUP = True
         print("[SETUP] Browser baru sedang set-up (welcome / pilih default "
               "browser / cookie). Selesaikan dulu set-upnya di jendela "
               "browser, lalu TUTUP tab set-upnya - bot mulai bekerja "
               "otomatis begitu tab set-up ditutup.")
         while not state.STOP:
             time.sleep(1.0)
-            if _cari_tab_setup(browser, page) is None:
+            if _find_setup_tab(browser, page) is None:
                 break
-        state.MENUNGGU_SETUP = False
+        state.WAITING_SETUP = False
         if not state.STOP:
             print("[SETUP] Set-up browser selesai - bot mulai bekerja.")
-            _tutup_tab_kosong(browser, page)
+            _close_empty_tabs(browser, page)
     return pw, browser, page
 
 
@@ -796,7 +796,7 @@ def connect():
     if state.PAGE is not None:
         return True
     try:
-        state.pw, state.browser, state.PAGE = siapkan_browser()
+        state.pw, state.browser, state.PAGE = ensure_browser()
     except SystemExit:
         raise
     except Exception as e:
@@ -804,7 +804,7 @@ def connect():
         print("Tutup semua jendela browser, lalu klik Start lagi.")
         sys.exit(1)
     print(f"Terhubung! Tab aktif: {state.PAGE.url}")
-    session._pasang_login_sentinel()
+    session._install_login_sentinel()
     if not OCR_AVAILABLE:
         print("Catatan: 'winocr' tidak ada -> fallback OCR nonaktif (pip install winocr).")
     return True
@@ -817,9 +817,9 @@ def disconnect():
     error "cannot switch to a different thread"."""
     # Reset status login dulu (sebelum guard): disconnect yang dipanggil
     # tanpa koneksi pun harus membersihkan state sesi sebelumnya.
-    state.PERLU_LOGIN = False
+    state.NEEDS_LOGIN = False
     state.LOGIN_DICEK = False
-    state.RENTANG_SIAP = False
+    state.RANGE_READY = False
     state._login_sentinel["ok"] = True
     state._login_sentinel["alasan"] = ""
     state._login_sentinel["pernah_in"] = False

@@ -51,7 +51,7 @@ def _premium_modal_action():
         pm = jsutil.run_js(PREMIUM_MODAL_JS, fr)
         if pm and pm.get("x") is not None:
             try:
-                typing_core._tandai_klik_bot()
+                typing_core._mark_bot_click()
                 state.PAGE.mouse.click(pm["x"], pm["y"])
                 print("[Premium] tombol X modal diklik - "
                       "lanjut lesson berikutnya")
@@ -103,7 +103,7 @@ return null;
 """, fr)
         if pt:
             try:
-                typing_core._tandai_klik_bot()
+                typing_core._mark_bot_click()
                 state.PAGE.mouse.click(pt["x"], pt["y"])
                 print("[Minigame/Phaser] game beku - level dilewati "
                       "via tombol berteks lanjut")

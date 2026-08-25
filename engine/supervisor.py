@@ -43,20 +43,20 @@ def main_loop():
         except SystemExit:
             return
     # Validasi level start terkunci kini non-blokir di dalam loop
-    # (_rentang_validasi_step) setelah gerbang login - lihat catatan di
+    # (_range_validate_step) setelah gerbang login - lihat catatan di
     # fungsinya (bug: 00:04: blokir pra-loop membekukan semuanya).
-    state._rentang_validasi_done = False
-    state._rentang_max_seen = 0    # level tertinggi yang dilihat sesi ini (anti lompat balik)
+    state._range_validated = False
+    state._range_max_seen = 0    # level tertinggi yang dilihat sesi ini (anti lompat balik)
     renderer_gagal = 0
     pulih_selesai = 0
     _nav_time = 0.0           # waktu tiba di URL saat ini (grace pemulihan)
     _tunggu_rentang_baru = False
-    state._rentang_jump_done = False   # lompat ke LEVEL_START hanya sekali, dan
+    state._range_jump_done = False   # lompat ke LEVEL_START hanya sekali, dan
     # hanya kalau saat mulai tidak sedang berada di lesson (user yang membuka
     # level sendiri = kerjakan saja level itu, jangan paksa lompat)
     try:
-        state._rentang_jump_done = ".play" in (browser._real_url(state.PAGE) or "")
-        if state._rentang_jump_done and state.LEVEL_START > 1:
+        state._range_jump_done = ".play" in (browser._real_url(state.PAGE) or "")
+        if state._range_jump_done and state.LEVEL_START > 1:
             print(f"[RENTANG] sudah ada lesson terbuka - kerjakan ini dulu "
                   f"(lompatan ke level {state.LEVEL_START} dilewati).")
     except Exception:
@@ -73,7 +73,7 @@ def main_loop():
             # Gerbang kesehatan renderer sebelum evaluasi apa pun: evaluate
             # di renderer suspend menghang tanpa timeout (bug: log mati
             # total tepat setelah 'Terhubung!'). 2x gagal -> restart browser.
-            if not session._page_hidup(state.PAGE):
+            if not session._page_alive(state.PAGE):
                 renderer_gagal += 1
                 if renderer_gagal == 1:
                     print("[PEMULIHAN] Tab tidak merespons, memberi 5 detik...")
@@ -84,7 +84,7 @@ def main_loop():
                           "stop (cek jendela browser secara manual).")
                     state.STOP = True
                     break
-                if session._pulihkan_renderer():
+                if session._recover_renderer():
                     pulih_selesai = time.time()
                     renderer_gagal = 0
                     continue
@@ -179,8 +179,8 @@ def main_loop():
                     continue
 
             low = url.lower()
-            session._patroli_login(url)
-            if state.PERLU_LOGIN:
+            session._login_patrol(url)
+            if state.NEEDS_LOGIN:
                 # Jangan buang level untuk sesi mati: berhenti mengetik,
                 # GUI memunculkan popup; lanjut sendiri setelah login.
                 if time.time() - state._login_notice > 30:
@@ -213,17 +213,17 @@ def main_loop():
             # validasi level start terkunci (non-blokir, hanya setelah
             # status login pasti; selama menunggu jawaban GUI, loop berhenti
             # di sini dan tidak menyentuh halaman)
-            if not levels._rentang_validasi_step():
+            if not levels._range_validate_step():
                 state.STOP = True
                 return
 
             # user asli sedang memakai browser bot di luar lesson (daftar
             # level, pengaturan, profil) - jangan ambil alih; tunggu sampai
             # user diam atau masuk lesson sendiri. >2 menit -> GUI bertanya.
-            if ".play" not in url and typing_core._user_aktif(25.0):
-                typing_core._tunggu_user(url)
+            if ".play" not in url and typing_core._user_active(25.0):
+                typing_core._wait_for_user(url)
                 continue
-            typing_core._user_diam_lagi(url)
+            typing_core._user_idle_again(url)
 
             if url != state.last_url:
                 # level baru: cooldown Phaser dari game sebelumnya tidak
@@ -258,14 +258,14 @@ def main_loop():
                 _nav_time = time.time()
 
             # permintaan bangun peta level dari GUI
-            if state.MINTA_BANGUN_PETA:
-                state.MINTA_BANGUN_PETA = False
-                levels.bangun_peta_level()
+            if state.ASK_BUILD_MAP:
+                state.ASK_BUILD_MAP = False
+                levels.build_level_map()
                 continue
             # rentang sedang ditanyakan GUI -> berhenti bergerak (dulu:
             # recovery menembak & membuka level terdepan L106 saat popup
             # rentang masih terbuka)
-            if state.TUNGGU_RENTANG:
+            if state.AWAIT_RANGE:
                 _tunggu_rentang_baru = True
                 time.sleep(0.3)
                 continue
@@ -275,7 +275,7 @@ def main_loop():
                 # user berpikir di depan popup bukan 'halaman mati')
                 state.last_action_time = time.time()
             # rentang level pilihan user (lompat awal / berhenti di akhir)
-            if rentang._rentang_cek(url):
+            if rentang._range_check(url):
                 continue
 
             # Watch window: klik X modal premium sebelum penutup pop-up
@@ -349,7 +349,7 @@ def main_loop():
                     # alih (klik lanjut, ganti tab, recovery) ditunda -
                     # dulu intervensi user salah dibaca 'level selesai/
                     # mati' dan bot menekan tombol sendiri.
-                    user_sibuk = typing_core._user_aktif(25.0)
+                    user_sibuk = typing_core._user_active(25.0)
                     # heartbeat: bot tidak boleh pernah diam tanpa kabar.
                     # (dulu: det unknown = sunyi total, kelihatan mati)
                     if stalled > 10 and time.time() - state.last_debug_dump > 10:
@@ -405,7 +405,7 @@ def main_loop():
                             except ValueError:
                                 pass
                         if nomor and state._unlock_set is None:
-                            state._unlock_set = levels._baca_unlock_set()
+                            state._unlock_set = levels._read_unlock_set()
                         if nomor and state._unlock_set and nomor not in state._unlock_set:
                             if levels._skip_to_next_lesson("level terkunci untuk akun"):
                                 state.last_action_time = time.time()

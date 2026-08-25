@@ -19,9 +19,9 @@ from ctypes import wintypes
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
-from .dialogs import (dialog_aktivasi, dialog_buka_browser, dialog_pilih_browser, dialog_pilih_profil, dialog_tips, dialog_tutup_paksa)
-from .icons import _ikon_widget
-from .theme import (ACCENT, BROWSER_WARNA, CARD, CARD_HOVER, DIM, EDGE, FG, LOG_FILE, SETTINGS_FILE)
+from .dialogs import (dialog_activation, dialog_open_browser, dialog_pick_browser, dialog_pick_profile, dialog_tips, dialog_force_close)
+from .icons import _icon_widget
+from .theme import (ACCENT, BROWSER_COLORS, CARD, CARD_HOVER, DIM, EDGE, FG, LOG_FILE, SETTINGS_FILE)
 
 
 class LaunchMixin:
@@ -41,7 +41,7 @@ class LaunchMixin:
             import autopilot_pw as bot
             self.bot = bot
             bot.set_confirmer(self._confirm_kill)
-            self._ui_queue.put(self._deteksi_browser)
+            self._ui_queue.put(self._detect_browsers)
             self._log("Modul bot dimuat. Klik Start untuk mulai.")
         except Exception as ex:
             self._log(f"GAGAL memuat bot: {ex}")
@@ -51,21 +51,21 @@ class LaunchMixin:
         """Dialog 'port 9222 dipakai aplikasi lain, tutup paksa?'.
         Tkinter hanya boleh dari thread utama -> jadwalkan via root.after."""
         hasil = {"ok": False}
-        selesai = threading.Event()
+        done = threading.Event()
 
         def tanya():
             try:
-                hasil["ok"] = dialog_tutup_paksa(self.root, nama, pid, exe)
+                hasil["ok"] = dialog_force_close(self.root, nama, pid, exe)
             except Exception:
                 hasil["ok"] = False
             finally:
-                selesai.set()
+                done.set()
 
         try:
             self.root.after(0, tanya)
         except Exception:
             return False
-        selesai.wait(timeout=180)
+        done.wait(timeout=180)
         return hasil["ok"]
 
 
@@ -76,17 +76,17 @@ class LaunchMixin:
 
     # ------------------------------------------------------ lisensi & browser
 
-    def _minta_lisensi(self):
+    def _request_license(self):
         if self.lisensi_ok:
             return
-        if dialog_aktivasi(self.root):
+        if dialog_activation(self.root):
             self.lisensi_ok = True
-            self._judul()
+            self._title_bar()
             self._log("Lisensi AKTIF. Terima kasih!")
             self._set_state("⏻ Siap", FG)
 
 
-    def _deteksi_browser(self):
+    def _detect_browsers(self):
         """Isi ulang dropdown browser. Dipanggil di thread utama setelah
         modul bot termuat (daftar kandidat browser ada di modul itu)."""
         det = []
@@ -112,8 +112,8 @@ class LaunchMixin:
             if "hotkey" in simpan:
                 self._hotkey = bool(simpan["hotkey"])
                 if self.bot:
-                    self.bot.HOTKEY_AKTIF = self._hotkey
-                self.root.after(0, self._perbarui_hotkey_lbl)
+                    self.bot.HOTKEYS_ON = self._hotkey
+                self.root.after(0, self._update_hotkey_label)
             if simpan.get("profile") in ("bot", "saya"):
                 self._profile = simpan["profile"]
             self._profile_dir = simpan.get("profile_dir", "") or ""
@@ -121,7 +121,7 @@ class LaunchMixin:
         except Exception:
             pass
         try:
-            self.root.after(0, self._perbarui_chip_browser)
+            self.root.after(0, self._update_browser_chip)
         except Exception:
             pass
         self._first_run = not os.path.exists(SETTINGS_FILE)
@@ -129,7 +129,7 @@ class LaunchMixin:
                   + (", ".join(n for n, _ in det) or "tidak ada"))
 
 
-    def _perbarui_chip_browser(self):
+    def _update_browser_chip(self):
         """Gambar ulang kartu browser persegi (kanan atas): logo besar +
         nama pilihan (Otomatis menampilkan browser aktual yang dipakai).
         Semua widget anak ikut di-bind klik (label/canvas menelan klik
@@ -170,7 +170,7 @@ class LaunchMixin:
         isi.pack(expand=True, fill="both")
         # ukuran ikon & wrap disesuaikan kartu 132x96 (teks tidak boleh
         # terpotong -; label pendek + wraplength)
-        ikon = _ikon_widget(isi, path, pilih, BROWSER_WARNA.get(pilih, "#7c5cff"),
+        ikon = _icon_widget(isi, path, pilih, BROWSER_COLORS.get(pilih, "#7c5cff"),
                             42, char="⚡" if pilih == "Otomatis" else None)
         ikon.pack(pady=(5, 0))
         tk.Label(isi, text=label, font=("Segoe UI", 10, "bold"),
@@ -193,7 +193,7 @@ class LaunchMixin:
             + isi.winfo_children()
 
         def klik(_e=None):
-            self._safe(self._ganti_browser)
+            self._safe(self._switch_browser)
 
         def hover(_e):
             for w2 in semua:
@@ -220,7 +220,7 @@ class LaunchMixin:
                 pass
 
 
-    def _nama_browser_profil(self):
+    def _browser_profile_name(self):
         """Nama browser yang profilenya ditampilkan/dipakai mode 'saya'.
         Otomatis -> ikuti preferensi engine (browser terakhir/deteksi)."""
         pilih = self.browser_var.get()
@@ -238,22 +238,22 @@ class LaunchMixin:
         return "Brave"
 
 
-    def _pilih_profil_untuk(self, nama_browser):
+    def _pick_profile_for(self, nama_browser):
         """Buka dialog pilih profil milik browser. Return dict profil atau
         None (batal/tidak terbaca -> pemanggil memakai profil khusus)."""
         daftar = []
         if self.bot:
             try:
-                daftar = self.bot._profil_daftar(nama_browser)
+                daftar = self.bot._list_profiles(nama_browser)
             except Exception as ex:
                 self._log(f"[GUI] baca profil gagal: {ex}")
-        return dialog_pilih_profil(self.root, nama_browser, daftar,
+        return dialog_pick_profile(self.root, nama_browser, daftar,
                                    self._profile_dir)
 
 
-    def _ganti_browser(self):
+    def _switch_browser(self):
         """Klik chip browser: buka popup kartu logo untuk mengganti."""
-        hasil = dialog_pilih_browser(self.root, self._detected,
+        hasil = dialog_pick_browser(self.root, self._detected,
                                      self.browser_var.get(), self._profile)
         if not (isinstance(hasil, tuple) and len(hasil) == 2):
             return
@@ -261,7 +261,7 @@ class LaunchMixin:
         self.browser_var.set(nama)
         self._profile = profil
         if profil == "saya":
-            p = self._pilih_profil_untuk(self._nama_browser_profil())
+            p = self._pick_profile_for(self._browser_profile_name())
             if p:
                 self._profile_dir = p["dir"]
                 self._profile_label = p["nama"]
@@ -272,9 +272,9 @@ class LaunchMixin:
                 self._profile_dir = self._profile_label = ""
         else:
             self._profile_dir = self._profile_label = ""
-        self._simpan_pengaturan()
+        self._save_settings()
         self._first_run = False
-        self._perbarui_chip_browser()
+        self._update_browser_chip()
         if self.bot_thread:
             self._log(f"Browser diganti ke {nama} - berlaku saat Start "
                       "berikutnya.")
@@ -290,7 +290,7 @@ class LaunchMixin:
                           "Klik Stop, tunggu beberapa detik, lalu Start lagi.")
             return
         if not self.lisensi_ok:
-            self._minta_lisensi()
+            self._request_license()
             if not self.lisensi_ok:
                 return
         # Rentang level ditanyakan setelah tersambung & login diketahui
@@ -299,14 +299,14 @@ class LaunchMixin:
         # Popup pilih browser hanya pertama kali (belum ada pengaturan).
         # Setelah itu pilihan tersimpan; ganti lewat chip di tengah atas.
         if self._first_run:
-            hasil = dialog_pilih_browser(self.root, self._detected,
+            hasil = dialog_pick_browser(self.root, self._detected,
                                          self.browser_var.get(), self._profile)
             if not (isinstance(hasil, tuple) and len(hasil) == 2):
                 return
             self.browser_var.set(hasil[0])
             self._profile = hasil[1]
             if self._profile == "saya":
-                p = self._pilih_profil_untuk(self._nama_browser_profil())
+                p = self._pick_profile_for(self._browser_profile_name())
                 if p:
                     self._profile_dir = p["dir"]
                     self._profile_label = p["nama"]
@@ -324,8 +324,8 @@ class LaunchMixin:
         # Otomatis: beri tahu engine browser terakhir yang dipakai
         bot.LAST_BROWSER = self._last_browser_path if pilih == "Otomatis" else ""
         bot.FORCE_BROWSER = next((p for n, p in self._detected if n == pilih), "")
-        self._simpan_pengaturan()
-        self._perbarui_chip_browser()
+        self._save_settings()
+        self._update_browser_chip()
         # Konfirmasi 'buka browser?' tepat saat bot akan meluncurkan jendela
         # browser: port mati (bot membuka baru), atau port dipegang browser/
         # aplikasi lain (ditutup dulu, lalu bot membuka pilihan user - dulu
@@ -333,8 +333,8 @@ class LaunchMixin:
         # dipegang browser pilihan sendiri (atau Otomatis menempel browser
         # yang sudah jalan), jendela dipakai ulang -> popup tidak perlu.
         proc = deteksi.get("proc", "").lower()
-        port_hidup = bool(bot._cek_debug_port())
-        pemegang = bot._siapa_pegang_port() if port_hidup else []
+        port_hidup = bool(bot._check_debug_port())
+        pemegang = bot._port_holders() if port_hidup else []
         nama_pemegang = " ".join(n.lower() for _, n in pemegang)
         akan_buka = (not port_hidup) or (not pemegang) \
             or (proc != "" and proc not in nama_pemegang \
@@ -342,12 +342,12 @@ class LaunchMixin:
         if akan_buka:
             det = {n: p for n, p in self._detected}
             nm = pilih if pilih in det else deteksi.get("name", "browser")
-            if not dialog_buka_browser(self.root, nm, det.get(nm),
+            if not dialog_open_browser(self.root, nm, det.get(nm),
                                        self._profile, self._profile_label):
                 return
         bot.STOP = False
         bot.PAUSED = False
-        bot.RENTANG_SELESAI = False
+        bot.RANGE_DONE = False
         self._selesai_info = False
         self._aktiv_sub_teks = ""
         bot.LEVEL_START = self._rentang_mulai
@@ -369,8 +369,8 @@ class LaunchMixin:
                     exe = self.bot.BROWSER.get("exe", "")
                     if exe and exe != self._last_browser_path:
                         self._last_browser_path = exe
-                        self._simpan_pengaturan()
-                    self.root.after(0, self._perbarui_chip_browser)
+                        self._save_settings()
+                    self.root.after(0, self._update_browser_chip)
             except Exception:
                 pass
             self.bot.main_loop()
@@ -403,7 +403,7 @@ class LaunchMixin:
             self.bot.STOP = True
             self.bot.PAUSED = False
             self._tunggu_pilih_halaman = False
-            self.bot.TUNGGU_RENTANG = False
+            self.bot.AWAIT_RANGE = False
             self._log("Bot sedang berhenti... kalau masih menyambung, "
               "tunggu beberapa detik.")
 

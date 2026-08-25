@@ -19,9 +19,9 @@ from ctypes import wintypes
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
-from .dialogs import dialog_buka_browser, dialog_pilih_browser
-from .licensing import _kode_mesin
-from .theme import (APP_VERSION, BG, CARD, EDGE, FG, LOG_FILE, PANEL, PEMBUAT, SETTINGS_FILE, _build_stamp)
+from .dialogs import dialog_open_browser, dialog_pick_browser
+from .licensing import _machine_code
+from .theme import (APP_VERSION, BG, CARD, EDGE, FG, LOG_FILE, PANEL, CREATOR, SETTINGS_FILE, _build_stamp)
 
 
 class DevMixin:
@@ -65,20 +65,20 @@ class DevMixin:
         baris2 = tk.Frame(win, bg=PANEL)
         baris2.pack(fill="x", padx=8, pady=(2, 8))
 
-        def tombol(induk, nama, cmd):
+        def button(induk, nama, cmd):
             b = tk.Label(induk, text=nama, font=("Segoe UI", 9, "bold"),
                          fg=FG, bg=CARD, padx=10, pady=4, cursor="hand2",
                          highlightthickness=1, highlightbackground=EDGE)
             b.pack(side="left", padx=(0, 6))
             b.bind("<Button-1>", lambda e: self._safe(cmd))
 
-        tombol(baris1, "Salin info", lambda: self._dev_salin(info))
-        tombol(baris1, "Uji: pilih browser", self._dev_uji_pilih)
-        tombol(baris1, "Uji: buka browser", self._dev_uji_buka)
-        tombol(baris2, "Kelola lisensi", self._minta_lisensi)
-        tombol(baris2, "Reset pengaturan", self._dev_reset)
-        tombol(baris2, "Buka bot.log", lambda: self._dev_buka(LOG_FILE))
-        tombol(baris2, "Buka folder", lambda: self._dev_buka(BASE_DIR))
+        button(baris1, "Salin info", lambda: self._dev_salin(info))
+        button(baris1, "Uji: pilih browser", self._dev_uji_pilih)
+        button(baris1, "Uji: buka browser", self._dev_uji_buka)
+        button(baris2, "Kelola lisensi", self._request_license)
+        button(baris2, "Reset pengaturan", self._dev_reset)
+        button(baris2, "Buka bot.log", lambda: self._dev_buka(LOG_FILE))
+        button(baris2, "Buka folder", lambda: self._dev_buka(BASE_DIR))
 
 
     def _dev_info(self):
@@ -89,7 +89,7 @@ class DevMixin:
         baris = [
             f"Versi         : TypingBot {APP_VERSION}",
             f"Build         : {_build_stamp()}  (waktu file program dibuat)",
-            f"Pembuat       : {PEMBUAT}  (github.com/{PEMBUAT})",
+            f"Pembuat       : {CREATOR}  (github.com/{CREATOR})",
             f"Mode          : "
             + ("EXE (PyInstaller)" if getattr(sys, "frozen", False)
                else "skrip Python"),
@@ -98,7 +98,7 @@ class DevMixin:
             "",
             f"Lisensi       : "
             + ("AKTIF" if self.lisensi_ok else "BELUM AKTIF")
-            + f"  (kode mesin {_kode_mesin()})",
+            + f"  (kode mesin {_machine_code()})",
             f"Pengaturan    : {SETTINGS_FILE}",
             f"               file ada={os.path.exists(SETTINGS_FILE)}"
             f", isi={isi if isi else '(kosong)'}",
@@ -126,8 +126,8 @@ class DevMixin:
             port_dbg = getattr(bot, "DEBUG_PORT", 9222)
             baris.append(f"Port debug({port_dbg}) : "
                          + ("TERBUKA - browser debug sedang jalan"
-                            if bot._cek_debug_port() else "kosong"))
-            baris.append(f"Patroli login : PERLU_LOGIN={getattr(bot, 'PERLU_LOGIN', False)} "
+                            if bot._check_debug_port() else "kosong"))
+            baris.append(f"Patroli login : NEEDS_LOGIN={getattr(bot, 'NEEDS_LOGIN', False)} "
                          f"sentinel_ok={getattr(bot, '_login_sentinel', {}).get('ok', '?')} "
                          f"alasan={getattr(bot, '_login_sentinel', {}).get('alasan', '') or '-'}")
         else:
@@ -144,7 +144,7 @@ class DevMixin:
 
 
     def _dev_uji_pilih(self):
-        hasil = dialog_pilih_browser(self.root, self._detected,
+        hasil = dialog_pick_browser(self.root, self._detected,
                                      self.browser_var.get(), self._profile)
         self._log(f"[Dev] uji pilih browser: {hasil!r}")
 
@@ -155,7 +155,7 @@ class DevMixin:
         nm = pilih if pilih in det else (
             (self.bot._find_browser() or {}).get("name", "browser") if self.bot
             else "browser")
-        ok = dialog_buka_browser(self.root, nm, det.get(nm), "bot")
+        ok = dialog_open_browser(self.root, nm, det.get(nm), "bot")
         self._log(f"[Dev] uji buka browser ({nm}): dijawab "
                   f"{'Ya (buka)' if ok else 'Tidak'}")
 

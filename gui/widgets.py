@@ -19,7 +19,7 @@ from ctypes import wintypes
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
-from .icons import _gambar_vektor_ikon
+from .icons import _draw_vector_icon
 from .theme import (ACCENT, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FG, PANEL)
 
 
@@ -121,9 +121,9 @@ class _Dialog(tk.Toplevel):
         # ikon header: pusat lingkaran eksak (23,23); 🌐/⚠ digambar vektor
         # (emoji glyph-nya tidak persis di tengah kotak em -)
         if ikon == "🌐":
-            _gambar_vektor_ikon(box, "bola", 23, 23, 21)
+            _draw_vector_icon(box, "bola", 23, 23, 21)
         elif ikon == "⚠":
-            _gambar_vektor_ikon(box, "warning", 23, 23, 20)
+            _draw_vector_icon(box, "warning", 23, 23, 20)
         else:
             box.create_text(23, 23, text=ikon,
                             font=("Segoe UI Emoji", 16, "bold"),
@@ -143,15 +143,15 @@ class _Dialog(tk.Toplevel):
         self.foot = tk.Frame(self, bg=PANEL)
         self.foot.pack(fill="x", padx=24, pady=(12, 20))
 
-        self.protocol("WM_DELETE_WINDOW", lambda: self.selesai(None))
-        self.bind("<Escape>", lambda e: self.selesai(None))
+        self.protocol("WM_DELETE_WINDOW", lambda: self.done(None))
+        self.bind("<Escape>", lambda e: self.done(None))
         self.bind("<Return>", self._enter)
 
     def _enter(self, _e):
         if self._primer:
             self._primer._klik()
 
-    def tombol(self, teks, nilai=None, warna_btn=ACCENT, primer=True, cmd=None):
+    def button(self, teks, nilai=None, warna_btn=ACCENT, primer=True, cmd=None):
         if primer:
             b = tk.Label(self.foot, text=teks, font=("Segoe UI", 10, "bold"),
                          fg=BTN_FG, bg=warna_btn, padx=20, pady=7, cursor="hand2")
@@ -168,13 +168,13 @@ class _Dialog(tk.Toplevel):
             if cmd() is False:
               return
             return
-          self.selesai(nilai if nilai is not None else teks)
+          self.done(nilai if nilai is not None else teks)
 
         b._klik = klik
         b.bind("<Button-1>", klik)
         return b
 
-    def selesai(self, nilai):
+    def done(self, nilai):
         self.hasil = nilai
         try:
             self.grab_release()
@@ -182,7 +182,7 @@ class _Dialog(tk.Toplevel):
             pass
         self.destroy()
 
-    def tampilkan(self):
+    def show(self):
         self.update_idletasks()
         w, h = self.winfo_reqwidth(), self.winfo_reqheight()
         ix, iy = self.master.winfo_rootx(), self.master.winfo_rooty()

@@ -19,8 +19,8 @@ from ctypes import wintypes
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
-from .licensing import _kode_mesin, _lisensi_valid
-from .theme import (APP_VERSION, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, PANEL, PEMBUAT, RED, SETTINGS_FILE, YELLOW, _build_stamp)
+from .licensing import _machine_code, _license_valid
+from .theme import (APP_VERSION, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, PANEL, CREATOR, RED, SETTINGS_FILE, YELLOW, _build_stamp)
 from .widgets import Dropdown
 
 
@@ -53,7 +53,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self._profile = "bot"        # 'bot' khusus | 'saya' profil browser user
         self._profile_dir = ""       # 'Default' / 'Profile 1' ... (mode saya)
         self._profile_label = ""     # nama tampilan profil (mis. 'Student')
-        self.lisensi_ok = _lisensi_valid()
+        self.lisensi_ok = _license_valid()
 
         root.title("TypingBot")
         # ukuran jendela mengikuti DPI layar (dipanggil setelah
@@ -68,7 +68,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # kecil - footer hotkey tetap tampak, hanya log yang menyusut
         root.minsize(int(700 * k), int(330 * k))
         root.configure(bg=BG)
-        self._judul()
+        self._title_bar()
 
         try:
             root.attributes("-topmost", True)
@@ -90,7 +90,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                                   fg=FG, bg=BG)
         self.state_lbl.pack(side="left")
         self.ver_lbl = tk.Label(head,
-                                text=f"v{APP_VERSION}  •  oleh {PEMBUAT}  •  "
+                                text=f"v{APP_VERSION}  •  oleh {CREATOR}  •  "
                                      f"build {_build_stamp()}",
                                 font=("Segoe UI", 9), fg=FAINT, bg=BG)
         self.ver_lbl.pack(side="right", pady=(6, 0))
@@ -116,7 +116,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                              width=132, height=96)
         self.chip.pack(side="left", padx=(14, 0))
         self.chip.pack_propagate(False)
-        self._perbarui_chip_browser()
+        self._update_browser_chip()
 
         kanan = tk.Frame(ctrl, bg=BG)
         kanan.pack(side="right")
@@ -140,7 +140,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
         # Rentang level tidak lagi ada di jendela utama (diminta saat Start
         # atau otomatis dari lesson yang sedang terbuka).
-        self._rentang_mulai, self._rentang_akhir = self._muat_rentang()
+        self._rentang_mulai, self._rentang_akhir = self._load_range()
         self._total_level = 685
         self._rentang_btn = type("_NoBtn", (), {"configure": lambda self, **kw: None})()
 
@@ -156,7 +156,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                                    wraplength=640, justify="center")
         self.hotkey_lbl.pack(side="bottom", fill="x", pady=(0, 8))
         self.hotkey_lbl.bind("<Button-1>", lambda e: self._safe(self._toggle_hotkey))
-        self._perbarui_hotkey_lbl()
+        self._update_hotkey_label()
 
         # ---------- kartu aktivitas (mengisi sisa ruang tengah) ----------
         # Pengganti log lama (permintaan: user awam tidak perlu lihat log):
@@ -182,15 +182,15 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
         self._log(f"TypingBot v{APP_VERSION}  •  build {_build_stamp()}")
         if self.lisensi_ok:
-            self._log(f"Lisensi aktif (mesin {_kode_mesin()}).")
+            self._log(f"Lisensi aktif (mesin {_machine_code()}).")
         else:
-            self._log(f"Lisensi belum aktif - kode mesin: {_kode_mesin()}")
-            root.after(500, self._minta_lisensi)
+            self._log(f"Lisensi belum aktif - kode mesin: {_machine_code()}")
+            root.after(500, self._request_license)
         threading.Thread(target=self._load_bot, daemon=True).start()
         self.root.after(150, self._poll)
 
 
-    def _judul(self):
+    def _title_bar(self):
         ekstra = "" if self.lisensi_ok else "  •  PERLU AKTIVASI"
         self.root.title(f"TypingBot{ekstra}")
 
@@ -235,7 +235,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self.state_lbl.configure(text=text, fg=color)
 
 
-    def _set_aktivitas(self, utama, sub):
+    def _set_activity(self, utama, sub):
         """Kartu aktivitas: kalimat besar bahasa awam + keterangan kecil."""
         try:
             self.aktiv_lbl.configure(text=utama)
@@ -269,7 +269,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
     # ------------------------------------------------------------------ start
 
-    def _perbarui_hotkey_lbl(self):
+    def _update_hotkey_label(self):
         """Footer = indikator + saklar hotkey global (permintaan user:
         F9/F10/F11 bisa tak sengaja mengetik bot saat dipakai app lain)."""
         try:
@@ -288,15 +288,15 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
     def _toggle_hotkey(self):
         self._hotkey = not self._hotkey
-        self._simpan_pengaturan()
-        self._perbarui_hotkey_lbl()
+        self._save_settings()
+        self._update_hotkey_label()
         if self.bot:
-            self.bot.HOTKEY_AKTIF = self._hotkey
+            self.bot.HOTKEYS_ON = self._hotkey
         self._log("Hotkey global F9/F10/F11 "
                   + ("diaktifkan." if self._hotkey else "DIMATIKAN."))
 
 
-    def _simpan_pengaturan(self):
+    def _save_settings(self):
         """Tulis typingbot_settings.json: browser pilihan + browser terakhir
         yang dipakai Otomatis (dipertahankan antar ganti pilihan)."""
         data = {}

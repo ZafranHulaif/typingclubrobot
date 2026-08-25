@@ -26,7 +26,7 @@ from tkinter.scrolledtext import ScrolledText
 # Baris yang tidak cocok aturan mana pun tetap masuk bot.log tapi tidak
 # ditampilkan: layar pengguna harus bebas istilah teknis (port, debug,
 # proses, dll.); pemilik tetap bisa membuka bot.log lewat jendela Dev.
-_AKTIV_MAP = [
+_ACTIVITY_MAP = [
     (re.compile(r"Menyambungkan .* ke browser \((\w+)\)"), "Menyambung ke %s..."),
     (re.compile(r"[Mm]embuka (\w+) otomatis"), "Membuka jendela %s..."),
     (re.compile(r"Membuka (\w+) dengan profil khusus"), "Menyiapkan jendela %s..."),
@@ -91,15 +91,15 @@ _AKTIV_MAP = [
 
 
 
-_NAMA_BAIK = {"brave": "Brave", "chrome": "Google Chrome",
+_NICE_NAMES = {"brave": "Brave", "chrome": "Google Chrome",
               "msedge": "Microsoft Edge"}
 
 
 
 
-def _teks_ramah(line):
+def _friendly_text(line):
     """Baris log -> kalimat awam, atau None bila tidak perlu ditampilkan."""
-    for rx, tmpl in _AKTIV_MAP:
+    for rx, tmpl in _ACTIVITY_MAP:
         m = rx.search(line)
         if m:
             try:
@@ -111,9 +111,9 @@ def _teks_ramah(line):
 
 
 
-def _nama_tampil(nama):
+def _display_name(nama):
     """'brave'/'msedge' dari sistem -> nama produk yang dikenal pengguna."""
     kunci = (nama or "").strip().lower().replace("  (webview)", "")
-    if kunci in _NAMA_BAIK:
-        return _NAMA_BAIK[kunci]
+    if kunci in _NICE_NAMES:
+        return _NICE_NAMES[kunci]
     return kunci[:1].upper() + kunci[1:] if kunci else "Aplikasi"

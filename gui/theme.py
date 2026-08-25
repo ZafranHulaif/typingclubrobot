@@ -110,7 +110,7 @@ LICENSE_FILE = os.path.join(BASE_DIR, "license.dat")
 APP_VERSION = "2.6"
 
 
-PEMBUAT = "ZafranHulaif"
+CREATOR = "ZafranHulaif"
 
 
 
@@ -158,7 +158,7 @@ BTN_FG = "#101116"
 
 
 
-BROWSER_WARNA = {"Brave": "#fb542b", "Chrome": "#4285f4", "Edge": "#0f7eb6"}
+BROWSER_COLORS = {"Brave": "#fb542b", "Chrome": "#4285f4", "Edge": "#0f7eb6"}
 
 
 

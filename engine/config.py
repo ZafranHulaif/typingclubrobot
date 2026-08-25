@@ -16,9 +16,9 @@ from playwright.sync_api import sync_playwright
 
 
 
-LOGIN_URL_INDIVIDU = "https://www.edclub.com/signin"   # Individual Edition
+LOGIN_URL_INDIVIDUAL = "https://www.edclub.com/signin"   # Individual Edition
 
-LOGIN_URL_SEKOLAH = "https://sportal.edclub.com/"      # akun sekolah (Google)
+LOGIN_URL_SCHOOL = "https://sportal.edclub.com/"      # akun sekolah (Google)
 
 SPEEDS = [(140, "NORMAL (140 wpm)"), (200, "CEPAT (200 wpm)"), (85, "SANTAI (85 wpm)")]
 

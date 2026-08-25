@@ -118,8 +118,8 @@ def recover_and_restart_lesson():
         # ). Fallback: baris pertama seperti biasa.
         lanjut_lvl = 0
         try:
-            if state.RENTANG_SIAP and (state.LEVEL_START > 1 or state.LEVEL_END):
-                lanjut_lvl = max(state.LEVEL_START, state._rentang_max_seen)
+            if state.RANGE_READY and (state.LEVEL_START > 1 or state.LEVEL_END):
+                lanjut_lvl = max(state.LEVEL_START, state._range_max_seen)
         except Exception:
             lanjut_lvl = 0
         if lanjut_lvl and str(lanjut_lvl) in state._level_map:

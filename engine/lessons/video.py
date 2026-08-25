@@ -30,7 +30,7 @@ def handle_video_level():
         if info.get("paused"):
             try:
                 btn = fr.locator(".vjs-big-play-button").first
-                typing_core._tandai_klik_bot(fr)
+                typing_core._mark_bot_click(fr)
                 btn.click(timeout=2000)
                 time.sleep(0.8)
             except Exception:

@@ -149,7 +149,7 @@ def _bilinear_rgb(src, w0, h0, w1, h1):
 
 
 
-def _ikon_png(path, ukuran=44, bg=(32, 35, 43)):
+def _icon_png(path, ukuran=44, bg=(32, 35, 43)):
     """Logo asli aplikasi dari file exe-nya -> bytes PNG RGB berukuran
     PERSIS `ukuran` px. Ekstraksi resolusi tinggi (256px dulu, via
     PrivateExtractIconsW) lalu bilinear mengecil - ekstraksi 32px lalu
@@ -232,7 +232,7 @@ def _ikon_png(path, ukuran=44, bg=(32, 35, 43)):
 
 
 
-def _gambar_vektor_ikon(c, nama, cx, cy, r, warna="white"):
+def _draw_vector_icon(c, nama, cx, cy, r, warna="white"):
     """Gambar ikon VEKTOR di dalam lingkaran (pusat presisi, bukan emoji
     glyph-nya suka miring dalam kotak em-nya)."""
     if nama == "petir":
@@ -267,7 +267,7 @@ def _gambar_vektor_ikon(c, nama, cx, cy, r, warna="white"):
 
 
 
-def _skala_tkimg(img, target):
+def _scale_tkimg(img, target):
     """Skala tk.PhotoImage agar PAS di dalam kotak `target`x`target` px
     (aspek dipertahankan, sisi TERPANJANG = target; zoom+subsample
     rasional). Dulu hanya lebar yang disamakan -> ikon persegi panjang
@@ -297,7 +297,7 @@ def _skala_tkimg(img, target):
 
 
 
-def _ikon_widget(parent, path=None, nama="?", warna=ACCENT, ukuran=40, char=None):
+def _icon_widget(parent, path=None, nama="?", warna=ACCENT, ukuran=40, char=None):
     """Slot ikon: logo asli bila exe ketemu, kalau tidak lingkaran warna
     merek + ikon vektor/awalan nama. Ikon vektor digambar dengan pusat
     presisi (emoji ⚡ pernah tampak miring dalam kotak em-nya)."""
@@ -307,10 +307,10 @@ def _ikon_widget(parent, path=None, nama="?", warna=ACCENT, ukuran=40, char=None
     img = None
     if path:
         try:
-            png, alasan = _ikon_png(path, ukuran)
+            png, alasan = _icon_png(path, ukuran)
             if png:
                 img = tk.PhotoImage(master=c, data=base64.b64encode(png).decode())
-                img = _skala_tkimg(img, ukuran)
+                img = _scale_tkimg(img, ukuran)
                 c._img = img
             else:
                 print(f"[GUI] ikon {nama}: pakai fallback ({alasan})")
@@ -326,7 +326,7 @@ def _ikon_widget(parent, path=None, nama="?", warna=ACCENT, ukuran=40, char=None
         r = (ukuran - 1) / 2 - 1
         cx = cy = ukuran / 2
         if char == "⚡":
-            _gambar_vektor_ikon(c, "petir", cx, cy, r)
+            _draw_vector_icon(c, "petir", cx, cy, r)
         else:
             c.create_text(cx, cy, text=char if char else nama[0].upper(),
                           font=("Segoe UI", int(ukuran * 0.42), "bold"),

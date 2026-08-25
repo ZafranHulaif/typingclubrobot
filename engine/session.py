@@ -17,13 +17,13 @@ from playwright.sync_api import sync_playwright
 from . import state
 from . import browser
 from . import jsutil
-from .config import (LOGIN_URL_INDIVIDU)
+from .config import (LOGIN_URL_INDIVIDUAL)
 from .jstemplates import (PROFILE_CHECK_JS, SESI_PATH_RE)
 
 
 
 
-def _pasang_login_sentinel():
+def _install_login_sentinel():
     """Pasang listener response XHR/fetch edclub -> tangkap 401/403.
     Dipasang ke semua context (tab baru ikut terpasang lewat event page)."""
     if state.browser is None:
@@ -83,7 +83,7 @@ def _pasang_login_sentinel():
             pass
 
 
-def _profil_login():
+def _login_profile():
     """'in'/'out'/None dari elemen .profile-name halaman aktif. INI sinyal
  utama edclub Individual: sesi TIDAK disimpan di cookie sama sekali
  (live: user login betulan, cookie cuma tracker/cloudflare) - deteksi
@@ -164,16 +164,16 @@ def _probe_tab_login(timeout_s=15.0):
     return hasil
 
 
-def _patroli_login(url):
-    """Cek berkala dari main loop: set/bersihkan PERLU_LOGIN. Interval 8 dtk
+def _login_patrol(url):
+    """Cek berkala dari main loop: set/bersihkan NEEDS_LOGIN. Interval 8 dtk
     biasa, 3 dtk saat sedang menunggu user login (popup harus tertutup
     cepat begitu user selesai login, bukan 8 dtk kemudian)."""
     now = time.time()
-    jeda = 3.0 if state.PERLU_LOGIN else 8.0
+    jeda = 3.0 if state.NEEDS_LOGIN else 8.0
     if now - state._login_ck["terakhir"] < jeda:
         return
     state._login_ck["terakhir"] = now
-    profil = _profil_login()
+    profil = _login_profile()
     low = (url or "").lower()
     di_login = any(k in low for k in ("login", "signin", "sign-in", "signup"))
     # DOM halaman aktif tidak punya penanda (lesson .play, SPA kosong,
@@ -183,9 +183,9 @@ def _patroli_login(url):
     # atau sedang menunggu login).
     if (profil is None and not di_login
             and ("edclub" in low or "typingclub" in low)
-            and (state.PERLU_LOGIN or not state.LOGIN_DICEK)
+            and (state.NEEDS_LOGIN or not state.LOGIN_DICEK)
             and now - state._probe_tab_ck["terakhir"]
-                > (60.0 if state.PERLU_LOGIN else 30.0)):
+                > (60.0 if state.NEEDS_LOGIN else 30.0)):
         state._probe_tab_ck["terakhir"] = now
         print("[LOGIN] Halaman ini tanpa penanda login - cek sesi lewat "
               "tab cadangan...")
@@ -193,7 +193,7 @@ def _patroli_login(url):
     # pemulihan instan: profil bernama = pasti login (menimpa sentinel)
     if profil == "in":
         state._login_sentinel["pernah_in"] = True
-        if not state._login_sentinel["ok"] or state.PERLU_LOGIN:
+        if not state._login_sentinel["ok"] or state.NEEDS_LOGIN:
             state._login_sentinel["ok"] = True
             state._login_sentinel["alasan"] = ""
             state._login_sentinel["path401"].clear()
@@ -201,7 +201,7 @@ def _patroli_login(url):
             or profil == "out") and profil != "in"
     if profil is not None:
         state._login_sentinel["unknown_mulai"] = 0.0
-    elif not mati and not state.PERLU_LOGIN and not state._login_sentinel["pernah_in"]:
+    elif not mati and not state.NEEDS_LOGIN and not state._login_sentinel["pernah_in"]:
         # profil masih None walau DOM + tab cadangan gagal (halaman mati /
         # Cloudflare menggantung / renderer sibuk). Kumpulkan durasi;
         # >40 dtk di halaman edclub -> perlakukan seperti logout.
@@ -219,25 +219,25 @@ def _patroli_login(url):
     # GUI hanya boleh menanya rentang kalau status login pasti (in/out/mati)
     if mati or profil in ("in", "out"):
         state.LOGIN_DICEK = True
-    if mati and not state.PERLU_LOGIN:
-        state.PERLU_LOGIN = True
+    if mati and not state.NEEDS_LOGIN:
+        state.NEEDS_LOGIN = True
         print("[LOGIN] Sesi edclub tidak aktif"
               + (f" ({state._login_sentinel['alasan']})" if state._login_sentinel["alasan"] else "")
               + ". Login di jendela browser bot - bot menunggu di sini.")
-    elif state.PERLU_LOGIN and profil == "in":
+    elif state.NEEDS_LOGIN and profil == "in":
         # Pulih hanya dengan bukti positif login (profil 'in'). Kalau profil
         # None (halaman tanpa penanda + tab cadangan tertahan throttle)
-        # dianggap 'pulih' -> PERLU_LOGIN=False -> popup login tertutup &
+        # dianggap 'pulih' -> NEEDS_LOGIN=False -> popup login tertutup &
         # bot jalan mengetik padahal user logout .
-        state.PERLU_LOGIN = False
+        state.NEEDS_LOGIN = False
         state._login_sentinel["ok"] = True
         state._login_sentinel["alasan"] = ""
         print("[LOGIN] Sesi edclub aktif kembali - lanjut.")
-    if state.PERLU_LOGIN and state.MINTA_LOGIN_NAV:
-        state.MINTA_LOGIN_NAV = False
+    if state.NEEDS_LOGIN and state.ASK_LOGIN_NAV:
+        state.ASK_LOGIN_NAV = False
         # URL login yang benar (live: /login = 404). Individu = /signin
         # ("Login Individual Edition"); akun sekolah = portal sportal.
-        tujuan = state.MINTA_LOGIN_URL or LOGIN_URL_INDIVIDU
+        tujuan = state.ASK_LOGIN_URL or LOGIN_URL_INDIVIDUAL
         try:
             state.PAGE.goto(tujuan, timeout=25000)
             # fokus ke jendela browser: user baru memilih 'buka halaman
@@ -276,7 +276,7 @@ def _sweep_stripe_tabs(force=False):
         pass
 
 
-def _page_hidup(pg, timeout_ms=3000):
+def _page_alive(pg, timeout_ms=3000):
     """Renderer halaman masih merespons? evaluate() di renderer yang
     di-suspend Windows (browser idle di latar) MENGHANG TANPA TIMEOUT -
     pernah membuat main loop mati diam total (live). wait_for_load_state
@@ -289,7 +289,7 @@ def _page_hidup(pg, timeout_ms=3000):
         return False
 
 
-def _pulihkan_renderer():
+def _recover_renderer():
     """Renderer tab aktif mati/suspend. Satu-satunya obat:
     restart browser debug (taskkill + relaunch, tanpa curi fokus), lalu
     sambung ulang. Dipanggil dari main loop (thread pemilik Playwright).

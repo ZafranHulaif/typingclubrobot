@@ -19,9 +19,9 @@ from ctypes import wintypes
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
-from .dialogs import (_fokus_jendela_browser, dialog_rentang, dialog_selesai)
+from .dialogs import (_focus_browser_window, dialog_range, dialog_done)
 from .theme import (ACCENT, BTN_FG, CARD, DIM, EDGE, FAINT, FG, GREEN, ORANGE, PANEL, RED, SETTINGS_FILE, YELLOW)
-from .translator import _teks_ramah
+from .translator import _friendly_text
 
 
 class ActivityMixin:
@@ -38,7 +38,7 @@ class ActivityMixin:
         try:
             while True:
                 line = self.log_q.get_nowait()
-                ramah = _teks_ramah(line)
+                ramah = _friendly_text(line)
                 if ramah:
                     self._aktiv_sub_teks = ramah
         except queue.Empty:
@@ -61,7 +61,7 @@ class ActivityMixin:
                 # cadangan: peta terbalik id URL -> level (instan, pasti)
                 lvl = None
                 try:
-                    lvl = bot.url_ke_level(url)
+                    lvl = bot.url_to_level(url)
                 except Exception:
                     pass
                 if lvl:
@@ -78,7 +78,7 @@ class ActivityMixin:
             url_now = (getattr(bot, "STATUS_URL", "") or "").lower()
             di_halaman_login = any(k in url_now
                                    for k in ("signin", "login", "signup"))
-            if getattr(bot, "PERLU_LOGIN", False):
+            if getattr(bot, "NEEDS_LOGIN", False):
                 if (self._login_win is None and not self._login_dismiss
                         and not di_halaman_login
                         and not self._rentang_terbuka
@@ -95,17 +95,17 @@ class ActivityMixin:
             # >2 menit tanpa lesson karena user memakai browser bot
             # (saat menunggu pilihan level di halaman, popup ini mubazir -
             # kartu aktivitas sudah menjelaskan apa yang harus dilakukan)
-            if getattr(bot, "MINTA_TANYA_LANJUT", False) and self._tanya_win is None \
+            if getattr(bot, "ASK_NEXT_LEVEL", False) and self._tanya_win is None \
                     and not self._tunggu_pilih_halaman:
-                bot.MINTA_TANYA_LANJUT = False
-                self._tanya_dialog()
+                bot.ASK_NEXT_LEVEL = False
+                self._ask_dialog()
 
             # user memilih level awal sendiri: tunggu dia membuka pelajaran
             # di jendela browser (bot diam sampai itu terjadi)
             if self._tunggu_pilih_halaman:
                 if not bot_thread_hidup:
                     self._tunggu_pilih_halaman = False
-                    bot.TUNGGU_RENTANG = False
+                    bot.AWAIT_RANGE = False
                 else:
                     url_p = getattr(bot, "STATUS_URL", "") or ""
                     lbl_p = getattr(bot, "STATUS_LABEL", "") or ""
@@ -114,23 +114,23 @@ class ActivityMixin:
                         lvl_p = int(lbl_p[1:])
                     if not lvl_p:
                         try:
-                            lvl_p = bot.url_ke_level(url_p) or 0
+                            lvl_p = bot.url_to_level(url_p) or 0
                         except Exception:
                             pass
                     if ".play" in url_p:
                         self._tunggu_pilih_halaman = False
-                        bot.TUNGGU_RENTANG = False
+                        bot.AWAIT_RANGE = False
                         if lvl_p:
                             self._rentang_mulai = lvl_p
-                            self._simpan_rentang_settings()
-                            self._terapkan_rentang_ke_bot(
+                            self._save_range_settings()
+                            self._apply_range_to_bot(
                                 bot, lvl_p, self._rentang_akhir)
                             self._log(f"[RENTANG] mulai dari level "
                                       f"pilihanmu: {lvl_p}.")
                         else:
                             # kursus tak dikenali di peta -> kerjakan dari
                             # posisi sekarang saja
-                            self._terapkan_rentang_ke_bot(bot, 1, 0)
+                            self._apply_range_to_bot(bot, 1, 0)
                             self._log("[RENTANG] mulai dari pelajaran yang "
                                       "kamu buka.")
 
@@ -139,19 +139,19 @@ class ActivityMixin:
             # itu sebagai awal otomatis (tanpa popup). Kalau tidak -> dialog.
             if (self._tanya_rentang and bot_thread_hidup
                     and getattr(bot, "LOGIN_DICEK", False)
-                    and not getattr(bot, "PERLU_LOGIN", False)
+                    and not getattr(bot, "NEEDS_LOGIN", False)
                     and getattr(bot, "STATUS_URL", "")):
                 self._tanya_rentang = False
                 lvl = 0
                 try:
-                    lvl = bot.url_ke_level(bot.STATUS_URL) or 0
+                    lvl = bot.url_to_level(bot.STATUS_URL) or 0
                 except Exception:
                     pass
                 if lvl:
                     self._rentang_mulai = lvl
                     bot.LEVEL_START = lvl
-                    bot._rentang_jump_done = True
-                    bot.RENTANG_SIAP = True
+                    bot._range_jump_done = True
+                    bot.RANGE_READY = True
                     self._rentang_btn.configure(
                         text=f"🎯  {lvl} - "
                              f"{self._rentang_akhir or self._total_level}")
@@ -160,20 +160,20 @@ class ActivityMixin:
                 else:
                     # tahan bot diam selama popup rentang terbuka (dulu:
                     # recovery malah membuka level terdepan akun)
-                    bot.TUNGGU_RENTANG = True
+                    bot.AWAIT_RANGE = True
                     try:
-                        r = self._buka_rentang()
+                        r = self._open_range()
                         if r == "halaman":
                             # user memilih sendiri: bot tetap diam sampai
                             # pelajaran pilihan dibuka (lihat blok tunggu di
-                            # atas); TUNGGU_RENTANG tidak dilepas
+                            # atas); AWAIT_RANGE tidak dilepas
                             self._tunggu_pilih_halaman = True
                         elif r:
                             bot.LEVEL_START = self._rentang_mulai
                             bot.LEVEL_END = self._rentang_akhir
-                            bot.RENTANG_SELESAI = False
-                            bot._rentang_jump_done = False
-                            bot.RENTANG_SIAP = True
+                            bot.RANGE_DONE = False
+                            bot._range_jump_done = False
+                            bot.RANGE_READY = True
                         else:
                             # dilewati = jalan dari posisi sekarang; rentang
                             # lama tidak boleh dipakai (live: bot pernah
@@ -181,22 +181,22 @@ class ActivityMixin:
                             # sebelum user menjawab apapun)
                             bot.LEVEL_START = 1
                             bot.LEVEL_END = 0
-                            bot.RENTANG_SELESAI = False
-                            bot._rentang_jump_done = True
-                            bot.RENTANG_SIAP = True
+                            bot.RANGE_DONE = False
+                            bot._range_jump_done = True
+                            bot.RANGE_READY = True
                             self._log("Rentang dilewati - bot jalan otomatis "
                                       "dari posisi sekarang.")
                     finally:
                         if not self._tunggu_pilih_halaman:
-                            bot.TUNGGU_RENTANG = False
+                            bot.AWAIT_RANGE = False
 
             # bot menanyakan level start yang terkunci
-            tanya = getattr(bot, "LEVEL_TANYA", None)
+            tanya = getattr(bot, "LEVEL_ASKED", None)
             if tanya and tanya.get("aktif") and self._terkunci_win is None \
-                    and not getattr(bot, "PERLU_LOGIN", False):
-                self._terkunci_dialog(tanya)
+                    and not getattr(bot, "NEEDS_LOGIN", False):
+                self._locked_dialog(tanya)
             # login dibutuhkan -> dialog terkunci tidak relevan, tutup
-            if getattr(bot, "PERLU_LOGIN", False) and self._terkunci_win is not None:
+            if getattr(bot, "NEEDS_LOGIN", False) and self._terkunci_win is not None:
                 try:
                     self._terkunci_win._tb_tutup() if hasattr(
                         self._terkunci_win, "_tb_tutup") else None
@@ -204,7 +204,7 @@ class ActivityMixin:
                     pass
                 self._terkunci_win.destroy()
                 self._terkunci_win = None
-                tanya2 = getattr(bot, "LEVEL_TANYA", None)
+                tanya2 = getattr(bot, "LEVEL_ASKED", None)
                 if tanya2 and tanya2.get("aktif"):
                     tanya2["jawab"] = "mulai"
                     if tanya2.get("event") is not None:
@@ -214,18 +214,18 @@ class ActivityMixin:
             # bot mencapai level akhir rentang -> popup sekali.
             # try: error di sini pernah membunuh _poll seluruhnya
             # (reschedule after(150) tak jalan -> status beku 'Berjalan').
-            if getattr(bot, "RENTANG_SELESAI", False) and not self._selesai_info:
+            if getattr(bot, "RANGE_DONE", False) and not self._selesai_info:
                 self._selesai_info = True
                 self._log("Rentang level selesai - bot berhenti sendiri.")
                 try:
-                    dialog_selesai(self.root, self._rentang_akhir
+                    dialog_done(self.root, self._rentang_akhir
                                    or self._total_level)
                 except Exception as ex:
                     self._log(f"[GUI] popup selesai gagal: {ex!r}")
 
             if not self.lisensi_ok:
                 self._set_state("⚠ Perlu aktivasi", ORANGE)
-            elif getattr(bot, "RENTANG_SELESAI", False):
+            elif getattr(bot, "RANGE_DONE", False):
                 self._set_state("🏁 Selesai (rentang)", GREEN)
             elif not bot_thread_hidup:
                 # tidak ada sesi bot berjalan: jangan tampilkan 'Berjalan'
@@ -234,13 +234,13 @@ class ActivityMixin:
                     self._set_state("⏹ Berhenti", RED)
                 else:
                     self._set_state("⏻ Siap", FAINT)
-            elif getattr(bot, "MENUNGGU_SETUP", False):
+            elif getattr(bot, "WAITING_SETUP", False):
                 self._set_state("🧭 Menunggu set-up browser", YELLOW)
             elif self._rentang_terbuka:
                 # dialog rentang terbuka = fokus user ada di situ, bukan login
                 # (dulu label masih 'Menunggu login' saat popup muncul)
                 self._set_state("🎯 Memilih level", ACCENT)
-            elif getattr(bot, "PERLU_LOGIN", False):
+            elif getattr(bot, "NEEDS_LOGIN", False):
                 self._set_state("⚠ Menunggu login", YELLOW)
             elif self._tunggu_pilih_halaman:
                 self._set_state("🎯 Memilih level", ACCENT)
@@ -253,52 +253,52 @@ class ActivityMixin:
 
             # kartu aktivitas: kalimat besar mengikuti keadaan bot
             if not self.lisensi_ok:
-                self._set_aktivitas("Perlu aktivasi",
+                self._set_activity("Perlu aktivasi",
                                     "Masukkan kunci aktivasi untuk memakai "
                                     "TypingBot.")
-            elif getattr(bot, "RENTANG_SELESAI", False):
-                self._set_aktivitas(
+            elif getattr(bot, "RANGE_DONE", False):
+                self._set_activity(
                     "Selesai!",
                     f"Semua level sampai level {self._rentang_akhir or self._total_level} "
                     "sudah dikerjakan. Klik Start untuk lanjut.")
             elif bot.PAUSED:
-                self._set_aktivitas("Jeda",
+                self._set_activity("Jeda",
                                     "Klik Lanjut atau tekan F9 untuk melanjutkan.")
-            elif getattr(bot, "MENUNGGU_SETUP", False):
-                self._set_aktivitas(
+            elif getattr(bot, "WAITING_SETUP", False):
+                self._set_activity(
                     "Menyiapkan browser...",
                     "Selesaikan setelan awal di jendela browser, lalu tutup "
                     "halamannya.")
             elif self._rentang_terbuka:
-                self._set_aktivitas("Memilih level",
+                self._set_activity("Memilih level",
                                     "Pilih rentang level di jendela yang muncul.")
-            elif getattr(bot, "PERLU_LOGIN", False):
-                self._set_aktivitas("Menunggu login",
+            elif getattr(bot, "NEEDS_LOGIN", False):
+                self._set_activity("Menunggu login",
                                     "Selesaikan login edclub di jendela browser.")
             elif self._tunggu_pilih_halaman:
-                self._set_aktivitas(
+                self._set_activity(
                     "Pilih level awal",
                     "Buka pelajaran pilihanmu di jendela browser - "
                     "bot mulai dari situ.")
             elif bot.STOP:
-                self._set_aktivitas("Berhenti", "Klik Start untuk mulai lagi.")
+                self._set_activity("Berhenti", "Klik Start untuk mulai lagi.")
             elif not bot_thread_hidup:
-                self._set_aktivitas("Siap", "Klik Start untuk mulai.")
+                self._set_activity("Siap", "Klik Start untuk mulai.")
             elif ".play" not in url:
                 # pengguna membuka halaman lain (daftar level dll.) saat bot
                 # jalan - bot menunggu; jangan tampilkan 'Sedang mengetik...'
                 # yang basi dari lesson sebelumnya
                 self._aktiv_sub_teks = ""
-                self._set_aktivitas(
+                self._set_activity(
                     "Kamu sedang memakai browser bot",
                     "Bot menunggu. Buka pelajaran mana pun - bot lanjut "
                     "dari sana.")
             elif nama_level:
-                self._set_aktivitas(nama_level,
+                self._set_activity(nama_level,
                                     self._aktiv_sub_teks
                                     or "Sedang dikerjakan otomatis.")
             else:
-                self._set_aktivitas("Bot sedang bekerja",
+                self._set_activity("Bot sedang bekerja",
                                     self._aktiv_sub_teks
                                     or "Buka pelajaran mana pun di jendela browser.")
 
@@ -308,14 +308,14 @@ class ActivityMixin:
             self.btn_stop["state"] = "normal" if self.bot_thread else "disabled"
             self.btn_start["state"] = "disabled" if self.bot_thread else "normal"
         else:
-            self._set_aktivitas("Siap", "Klik Start untuk mulai.")
+            self._set_activity("Siap", "Klik Start untuk mulai.")
 
         self.root.after(150, self._poll)
 
 
     # ------------------------------------------------------ popup login edclub
 
-    def _muat_rentang(self):
+    def _load_range(self):
         try:
             s = json.load(open(SETTINGS_FILE, encoding="utf-8"))
             return int(s.get("start", 1)), int(s.get("end", 0))
@@ -325,10 +325,10 @@ class ActivityMixin:
 
     def on_rentang(self):
         """Buka dialog rentang (dipakai alur Start; tidak ada tombol GUI)."""
-        self._buka_rentang()
+        self._open_range()
 
 
-    def _buka_rentang(self):
+    def _open_range(self):
         """Dialog rentang level. Return: False batal, True simpan,
         'halaman' = user memilih level awal sendiri di jendela browser."""
         bot = self.bot
@@ -347,13 +347,13 @@ class ActivityMixin:
                 self._log("Bot belum berjalan - klik Start dulu, "
                           "lalu Bangun Peta.")
                 return
-            bot.MINTA_BANGUN_PETA = True
+            bot.ASK_BUILD_MAP = True
             self._log("Membangun peta level di latar belakang "
                       "(lihat progres [PETA] di log / jangan Stop).")
 
         self._rentang_terbuka = True
         try:
-            hasil = dialog_rentang(self.root, self._rentang_mulai,
+            hasil = dialog_range(self.root, self._rentang_mulai,
                                    self._rentang_akhir, jumlah,
                                    self._total_level, on_bangun)
         finally:
@@ -364,13 +364,13 @@ class ActivityMixin:
             return False
         self._rentang_mulai = hasil["mulai"]
         self._rentang_akhir = hasil["akhir"]
-        self._simpan_rentang_settings()
+        self._save_range_settings()
         self._log(f"Rentang level: {self._rentang_mulai} - "
                   f"{self._rentang_akhir or 'akhir kursus'}.")
         return True
 
 
-    def _simpan_rentang_settings(self):
+    def _save_range_settings(self):
         try:
             s = json.load(open(SETTINGS_FILE, encoding="utf-8"))
         except Exception:
@@ -384,15 +384,15 @@ class ActivityMixin:
 
 
     @staticmethod
-    def _terapkan_rentang_ke_bot(bot, mulai, akhir):
+    def _apply_range_to_bot(bot, mulai, akhir):
         bot.LEVEL_START = mulai
         bot.LEVEL_END = akhir
-        bot.RENTANG_SELESAI = False
-        bot._rentang_jump_done = True
-        bot.RENTANG_SIAP = True
+        bot.RANGE_DONE = False
+        bot._range_jump_done = True
+        bot.RANGE_READY = True
 
 
-    def _terkunci_dialog(self, tanya):
+    def _locked_dialog(self, tanya):
         """Popup 'level start terkunci' - jawaban dikirim balik ke bot."""
         if self._terkunci_win is not None:
             return
@@ -461,7 +461,7 @@ class ActivityMixin:
         win.geometry(f"+{max(ix + (iw - w) // 2, 40)}+{max(iy + (ih - h) // 2, 40)}")
 
 
-    def _tanya_dialog(self):
+    def _ask_dialog(self):
         """Popup 'bot menunggu >2 menit' - dibangun di thread UI (Tkinter
         tidak boleh dari thread lain), pola sama dengan _login_popup."""
         bot = self.bot
@@ -475,7 +475,7 @@ class ActivityMixin:
         except Exception:
             pass
 
-        def selesai(stop=False):
+        def done(stop=False):
             self._tanya_win = None
             try:
                 win.destroy()
@@ -515,14 +515,14 @@ class ActivityMixin:
         b1 = tk.Label(foot, text="Stop Bot", font=("Segoe UI", 10, "bold"),
                       fg=BTN_FG, bg=RED, padx=18, pady=7, cursor="hand2")
         b1.pack(side="right")
-        b1.bind("<Button-1>", lambda e: selesai(stop=True))
+        b1.bind("<Button-1>", lambda e: done(stop=True))
         b2 = tk.Label(foot, text="Lanjut Menunggu", font=("Segoe UI", 10, "bold"),
                       fg=FG, bg=CARD, padx=16, pady=7, cursor="hand2",
                       highlightthickness=1, highlightbackground=EDGE)
         b2.pack(side="right", padx=(0, 8))
-        b2.bind("<Button-1>", lambda e: selesai(stop=False))
+        b2.bind("<Button-1>", lambda e: done(stop=False))
 
-        win.protocol("WM_DELETE_WINDOW", lambda: selesai(stop=False))
+        win.protocol("WM_DELETE_WINDOW", lambda: done(stop=False))
         win.update_idletasks()
         ix, iy = self.root.winfo_rootx(), self.root.winfo_rooty()
         iw, ih = self.root.winfo_width(), self.root.winfo_height()
@@ -597,13 +597,13 @@ class ActivityMixin:
 
         def buka_login(url):
             if bot:
-                bot.MINTA_LOGIN_URL = url
-                bot.MINTA_LOGIN_NAV = True
+                bot.ASK_LOGIN_URL = url
+                bot.ASK_LOGIN_NAV = True
                 self._log(f"Membuka halaman login di jendela browser bot: {url}")
                 # angkat jendela browser ke depan setelah navigasi bot
                 # dimulai (delay pendek); GUI baru menerima klik = punya
                 # izin foreground di Windows.
-                self.root.after(1200, _fokus_jendela_browser)
+                self.root.after(1200, _focus_browser_window)
             # Popup ditutup: user sudah memilih pergi ke halaman login.
             # Kalau login tidak dilakukan, popup muncul lagi setelah 3
             # menit (selama user masih di halaman login, tidak muncul).
@@ -618,16 +618,16 @@ class ActivityMixin:
                       fg=BTN_FG, bg=YELLOW, padx=18, pady=7, cursor="hand2")
         b1.pack(side="right")
         b1.bind("<Button-1>", lambda e: self._safe(
-            lambda: buka_login(bot.LOGIN_URL_INDIVIDU if bot else "")))
-        b1._tb_klik = lambda: buka_login(bot.LOGIN_URL_INDIVIDU if bot else "")
+            lambda: buka_login(bot.LOGIN_URL_INDIVIDUAL if bot else "")))
+        b1._tb_klik = lambda: buka_login(bot.LOGIN_URL_INDIVIDUAL if bot else "")
 
         b15 = tk.Label(foot, text="Akun Sekolah", font=("Segoe UI", 9, "bold"),
                        fg=FG, bg=CARD, padx=12, pady=7, cursor="hand2",
                        highlightthickness=1, highlightbackground=EDGE)
         b15.pack(side="right", padx=(0, 8))
         b15.bind("<Button-1>", lambda e: self._safe(
-            lambda: buka_login(bot.LOGIN_URL_SEKOLAH if bot else "")))
-        b15._tb_klik = lambda: buka_login(bot.LOGIN_URL_SEKOLAH if bot else "")
+            lambda: buka_login(bot.LOGIN_URL_SCHOOL if bot else "")))
+        b15._tb_klik = lambda: buka_login(bot.LOGIN_URL_SCHOOL if bot else "")
 
         def tutup():
             self._login_dismiss = True

@@ -33,7 +33,7 @@ def handle_standard(frame, text):
         if hint and hint.get("premium"):
             print("[Premium] level terkunci premium - lewati via tombol lanjut")
             try:
-                typing_core._tandai_klik_bot()
+                typing_core._mark_bot_click()
                 state.PAGE.locator(".navbar-continue, a.navbar-continue") \
                     .first.click(timeout=2500)
             except Exception:
@@ -181,7 +181,7 @@ def handle_standard(frame, text):
                 # halaman (klik user = mouse-only watcher, aman dari
                 # ketikan bot sendiri).
                 stall += 1
-                user_kehadian = typing_core._user_aktif(3.0)
+                user_kehadian = typing_core._user_active(3.0)
                 if user_kehadian:
                     stall = min(stall, 3)
                     if not state._stall_user_note:
