@@ -24,7 +24,8 @@ with machine-locked activation.
   attaches to a real Brave / Chrome / Edge instance on port 9222 and dispatches
   keyboard events straight into the lesson player's DOM. No screenshots, no
   OCR, no pixel math — CPU usage stays near zero and it works in background
-  tabs.
+  tabs. If another app already occupies 9222, the agent silently moves to the
+  next free port instead of asking the user to close it.
 - **Self-healing supervisor.** A human grabbing the keyboard makes the bot
   yield and stand by until the machine is idle again. Lost tab → reattach,
   lost focus → refocus, stalled lesson → watchdog recovery, signed out →

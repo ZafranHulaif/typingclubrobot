@@ -219,7 +219,14 @@ DEDICATED_PROFILE = os.path.expandvars(r"%LOCALAPPDATA%\TypingBot\profile")
 PROFILE_MODE = "bot"
 PROFILE_DIR = ""       # 'Default' / 'Profile 1' / ... (mode 'saya')
 PROFILE_LABEL = ""     # nama tampilan profil utk pesan ramah (mis. 'Student')
-DEBUG_ADDRESS = "127.0.0.1:9222"
+# Port debug bisa BERUBAH saat runtime: kalau 9222 kebetulan dipakai
+# aplikasi lain (widget sistem bawaan laptop, WebView milik Adobe dsb.),
+# bot cukup memakai port berikutnya - aplikasi itu TIDAK perlu ditutup.
+DEBUG_PORT = 9222
+
+
+def _alamat_debug():
+    return f"127.0.0.1:{DEBUG_PORT}"
 OCR_MIN_INTERVAL = 3.0       # jeda minimal antar percobaan OCR
 
 try:
@@ -294,7 +301,7 @@ def _frame_edclub(fr):
 def _cek_debug_port():
     import urllib.request
     try:
-        with urllib.request.urlopen(f"http://{DEBUG_ADDRESS}/json/version", timeout=2) as r:
+        with urllib.request.urlopen(f"http://{_alamat_debug()}/json/version", timeout=2) as r:
             return json.loads(r.read().decode()).get("Browser", "")
     except Exception:
         return ""
@@ -433,7 +440,7 @@ def _siapa_pegang_port():
                           capture_output=True, text=True, timeout=8).stdout
         for line in out.splitlines():
             parts = line.split()
-            if len(parts) >= 5 and parts[1].endswith(":9222") and parts[4].isdigit():
+            if len(parts) >= 5 and parts[1].endswith(f":{DEBUG_PORT}") and parts[4].isdigit():
                 pids.append(int(parts[4]))
     except Exception:
         pass
@@ -449,6 +456,52 @@ def _siapa_pegang_port():
         except Exception:
             pass
     return hasil
+
+
+def _adalah_browser_kita(nama_pemegang):
+    """Apakah pemegang port salah satu browser yang dikelola bot
+    (brave/chrome/msedge)? Bukan -> aplikasi asing (widget sistem
+    bawaan laptop, WebView2 milik aplikasi lain, dsb.) -> JANGAN
+    pernah dipaksa ditutup."""
+    return any(c["proc"] in nama_pemegang for c in BROWSER_CANDIDATES)
+
+
+def _port_bind_kosong(port):
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", port))
+            return True
+    except OSError:
+        return False
+
+
+def _sesuaikan_port():
+    """Dipanggil di awal siapkan_browser. Port 9222 dipegang aplikasi
+    ASING (bukan brave/chrome/msedge)? Bot pindah ke port kosong
+    berikutnya dan MEMBIARKAN aplikasi itu tetap jalan - tanpa dialog
+    'tutup aplikasi' yang menakutkan. Kasus live (keluhan user):
+    Batterywidgethost bawaan laptop memegang 9222 lalu bot memaksa
+    user menutupnya, padahal cukup pakai port lain."""
+    global DEBUG_PORT
+    pemegang = _siapa_pegang_port()
+    if not pemegang:
+        return DEBUG_PORT
+    nama = " ".join(n.lower() for _, n in pemegang)
+    if _adalah_browser_kita(nama):
+        return DEBUG_PORT
+    for kandidat in range(9223, 9323):
+        if _port_bind_kosong(kandidat):
+            try:
+                info = _identitas_pemegang(pemegang[0][0], pemegang[0][1])
+                nm = info["nama"]
+            except Exception:
+                nm = pemegang[0][1]
+            print(f"[PORT] 9222 sedang dipakai {nm} - bot memakai jalur "
+                  f"lain ({kandidat}); {nm} dibiarkan tetap jalan.")
+            DEBUG_PORT = kandidat
+            return DEBUG_PORT
+    return DEBUG_PORT
 
 
 def _ud_browser_dir(nama):
@@ -653,7 +706,7 @@ def _restart_browser_debug():
     if not exe or not os.path.isfile(exe):
         print("[PEMULIHAN] Browser tidak ditemukan - tidak bisa restart.")
         return False
-    args = [exe, "--remote-debugging-port=9222", "--restore-last-session"]
+    args = [exe, f"--remote-debugging-port={DEBUG_PORT}", "--restore-last-session"]
     if PROFILE_MODE == "saya" and PROFILE_DIR:
         ud_saya = _ud_profil_arg(pilihan.get("name", ""))
         if ud_saya:
@@ -748,11 +801,13 @@ def _browser_dari_pemegang_port():
 
 def siapkan_browser():
     """Pastikan ada browser Chromium (Brave/Chrome/Edge) debug di port
-    9222. Port yang dipakai aplikasi lain (Adobe/WebView) ditangani
-    dengan izin user, bukan asal ditutup."""
+    9222 (atau port berikutnya bila 9222 dipakai aplikasi asing - lihat
+    _sesuaikan_port). Browser LAIN milik bot yang memegang port tetap
+    ditangani dengan izin user, bukan asal ditutup."""
     global BROWSER
     if STOP:
         sys.exit(0)
+    _sesuaikan_port()
     browser_on_port = _cek_debug_port()
 
     # OTOMATIS pintar: port sudah dipegang browser terpasang -> pakai browser
@@ -822,7 +877,7 @@ def siapkan_browser():
                     print(f"[PROFIL] membuka {nm} dengan profilmu "
                           f"({PROFILE_LABEL or PROFILE_DIR})...")
                     subprocess.Popen(
-                        [BROWSER["exe"], "--remote-debugging-port=9222",
+                        [BROWSER["exe"], f"--remote-debugging-port={DEBUG_PORT}",
                          f"--user-data-dir={ud_saya}",
                          f"--profile-directory={PROFILE_DIR}",
                          "--no-first-run"],
@@ -848,7 +903,7 @@ def siapkan_browser():
                 if not langsung_profil:
                     print(f"Port 9222 kosong: membuka {nm} otomatis "
                           "dengan mode debug...")
-                    subprocess.Popen([BROWSER["exe"], "--remote-debugging-port=9222"],
+                    subprocess.Popen([BROWSER["exe"], f"--remote-debugging-port={DEBUG_PORT}"],
                                      close_fds=True)
                     for _ in range(30):
                         time.sleep(0.5)
@@ -864,7 +919,7 @@ def siapkan_browser():
                               else "profil default menolak mode debug")
                     print(f"Membuka {nm} dengan profil khusus bot ({alasan})...")
                     subprocess.Popen([BROWSER["exe"],
-                                      "--remote-debugging-port=9222",
+                                      f"--remote-debugging-port={DEBUG_PORT}",
                                       f"--user-data-dir={DEDICATED_PROFILE}"],
                                      close_fds=True)
                     for _ in range(30):
@@ -896,7 +951,7 @@ def siapkan_browser():
             try:
                 p = sync_playwright().start()
                 br = p.chromium.connect_over_cdp(
-                    f"http://{DEBUG_ADDRESS}",
+                    f"http://{_alamat_debug()}",
                     timeout=20000 if percobaan == 0 else 12000)
                 return p, br, ""
             except Exception as e:

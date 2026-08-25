@@ -40,7 +40,8 @@ LOG_FILE = os.path.join(BASE_DIR, "bot.log")
 SETTINGS_FILE = os.path.join(BASE_DIR, "typingbot_settings.json")
 LICENSE_FILE = os.path.join(BASE_DIR, "license.dat")
 
-APP_VERSION = "2.5"
+APP_VERSION = "2.6"
+PEMBUAT = "ZafranHulaif"
 
 # Secret penandatanganan lisensi. Nilai asli ada di _license_secret.py
 # (di-gitignore) supaya tidak ikut terekspos kalau kode dibuat publik.
@@ -676,6 +677,9 @@ _AKTIV_MAP = [
     (re.compile(r"Gagal menyambung ke browser"), "Tidak bisa menyambung ke browser"),
     (re.compile(r"Tutup semua jendela browser, lalu klik Start lagi"),
      "Tutup semua jendela browser, lalu klik Start lagi"),
+    (re.compile(r"\[PORT\] 9222 sedang dipakai"),
+     "Ada aplikasi lain yang kebetulan satu jalur dengan bot - bot pakai "
+     "jalur lain, tidak menutup apa pun"),
     (re.compile(r"\[PROFIL\] (\w+) sedang jalan"),
      "Menutup %s dulu supaya bot bisa memakai profil kamu"),
     (re.compile(r"\[PROFIL\] tidak ditutup"),
@@ -1285,7 +1289,9 @@ class App:
         self.state_lbl = tk.Label(head, text="⏻ Siap", font=("Segoe UI", 15, "bold"),
                                   fg=FG, bg=BG)
         self.state_lbl.pack(side="left")
-        self.ver_lbl = tk.Label(head, text=f"v{APP_VERSION}  •  build {_build_stamp()}",
+        self.ver_lbl = tk.Label(head,
+                                text=f"v{APP_VERSION}  •  oleh {PEMBUAT}  •  "
+                                     f"build {_build_stamp()}",
                                 font=("Segoe UI", 9), fg=FAINT, bg=BG)
         self.ver_lbl.pack(side="right", pady=(6, 0))
         # Akses jendela Dev (hanya untuk pemilik): klik teks versi 5x cepat
@@ -2239,6 +2245,7 @@ class App:
         baris = [
             f"Versi         : TypingBot {APP_VERSION}",
             f"Build         : {_build_stamp()}  (waktu file program dibuat)",
+            f"Pembuat       : {PEMBUAT}  (github.com/{PEMBUAT})",
             f"Mode          : "
             + ("EXE (PyInstaller)" if getattr(sys, "frozen", False)
                else "skrip Python"),
@@ -2272,7 +2279,8 @@ class App:
             except Exception:
                 npeta = 0
             baris.append(f"Peta level    : {bot._LEVEL_MAP_FILE} ({npeta} level tercatat)")
-            baris.append(f"Port 9222     : "
+            port_dbg = getattr(bot, "DEBUG_PORT", 9222)
+            baris.append(f"Port debug({port_dbg}) : "
                          + ("TERBUKA - browser debug sedang jalan"
                             if bot._cek_debug_port() else "kosong"))
             baris.append(f"Patroli login : PERLU_LOGIN={getattr(bot, 'PERLU_LOGIN', False)} "
