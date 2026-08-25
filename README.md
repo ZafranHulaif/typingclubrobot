@@ -56,27 +56,39 @@ hands control to the supervisor, which repairs the situation and resyncs to
 the lesson the session was already working on.
 
 ```mermaid
+%%{init: {"theme":"dark","themeVariables":{"fontSize":"14px"}}}%%
 stateDiagram-v2
+    direction TB
     [*] --> IDLE
     IDLE --> BROWSER_SETUP: Start
     BROWSER_SETUP --> LOGIN_PATROL: not signed in
-    BROWSER_SETUP --> SESSION_READY: session valid
+    BROWSER_SETUP --> SESSION_READY: signed in
     LOGIN_PATROL --> SESSION_READY: login detected
     SESSION_READY --> LESSON_LOOP
-    LESSON_LOOP --> LESSON_LOOP: lesson passed, next level
-    LESSON_LOOP --> SUPERVISOR: disturbance detected
+    LESSON_LOOP --> LESSON_LOOP: lesson passed
+    LESSON_LOOP --> SUPERVISOR: disturbance
     SUPERVISOR --> LESSON_LOOP: resync to session level
     SUPERVISOR --> BROWSER_SETUP: browser restarted
-    LESSON_LOOP --> [*]: range complete or Stop
+    LESSON_LOOP --> [*]: range done or Stop
 
-    note right of SUPERVISOR
-        human typing → yield and stand by
-        tab lost → reattach
-        focus lost → refocus
-        stalled lesson → watchdog recovery
-        signed out → re-login patrol
-    end note
+    classDef idle fill:#20232b,stroke:#4f8cff,color:#e9eaee
+    classDef ok fill:#1f4d36,stroke:#3ecf6e,color:#e9eaee
+    classDef warn fill:#4d1f1f,stroke:#e05555,color:#e9eaee
+    class IDLE idle
+    class BROWSER_SETUP,LOGIN_PATROL,SESSION_READY idle
+    class LESSON_LOOP ok
+    class SUPERVISOR warn
 ```
+
+What the supervisor handles:
+
+| Disturbance | Response |
+|---|---|
+| Human starts typing | yield and stand by until the machine is idle |
+| Lesson tab closed or lost | reattach or reopen the session level |
+| Focus stolen by another tab | refocus the lesson element |
+| Lesson stalled or frozen | watchdog recovery |
+| edclub session signed out | re-login patrol, then resume |
 
 ## How a session runs
 
