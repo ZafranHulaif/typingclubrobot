@@ -42,9 +42,12 @@ LICENSE_FILE = os.path.join(BASE_DIR, "license.dat")
 
 APP_VERSION = "2.5"
 
-# Secret penandatanganan lisensi. Digunakan juga oleh _license_gen.py.
-LICENSE_SECRET = ("***REMOVED***"
-                  "***REMOVED***")
+# Secret penandatanganan lisensi. Nilai asli ada di _license_secret.py
+# (di-gitignore) supaya tidak ikut terekspos kalau kode dibuat publik.
+try:
+    from _license_secret import LICENSE_SECRET
+except ImportError:
+    LICENSE_SECRET = "DEV-ONLY-BUKAN-SECRET-ASLI"
 
 # ---------------------------------------------------------------- palet warna
 BG = "#141519"          # latar jendela
@@ -1080,7 +1083,8 @@ def dialog_tips(induk, terdeteksi):
 
 
 def dialog_rentang(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
-    """Pilih rentang level (dari/sampai) + status & tombol bangun peta."""
+    """Pilih rentang level (dari/sampai). Return: dict hasil (Simpan),
+    'halaman' (user memilih level awal sendiri di browser), None (batal)."""
     hasil = {"mulai": mulai, "akhir": akhir}
     d = _Dialog(induk, "Rentang level", "Bot hanya mengerjakan level dalam "
                 "rentang ini.", ikon="🎯")
@@ -1106,24 +1110,30 @@ def dialog_rentang(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
                     wraplength=440, justify="left")
 
     def info_teks():
-        info.configure(text=f"Peta level: {jumlah_peta['n']}/{total_level} "
-                            f"terpetakan" + ("" if jumlah_peta["n"] >= total_level
-                            else "  -  lompat ke level awal butuh peta; "
-                            "klik Bangun Peta di bawah (sekali saja, ~15 menit)")
-                            + "\nCatatan: level mengikuti progres akunmu - "
-                            "level yang masih terkunci akan diminta konfirmasi "
-                            "saat Start.")
+        # peta 685 level sudah TERTANAM di dalam aplikasi - pengguna tidak
+        # perlu membangun apa pun. Teks bangun peta hanya utk kasus khusus
+        # (kursus berbeda -> peta belum lengkap).
+        info.configure(text=
+            ("Level yang masih terkunci akan dikonfirmasi saat mulai.\n"
+             "Tidak yakin angkanya? Klik Pilih di Halaman, lalu buka "
+             "pelajaran pilihanmu di browser - bot mulai dari situ.")
+            if jumlah_peta["n"] >= total_level else
+            (f"Peta level: {jumlah_peta['n']}/{total_level} terpetakan - "
+             "klik Bangun Peta (sekali saja, ~15 menit).\n"
+             "Level yang masih terkunci akan dikonfirmasi saat mulai."))
     info_teks()
     info.pack(anchor="w")
 
     galat = tk.Label(d.body, text="", font=("Segoe UI", 9), fg=RED, bg=PANEL)
     galat.pack(anchor="w")
 
-    def bangun():
-        on_bangun()
-        return False   # jangan tutup dialog; status terlihat di log
-
-    d.tombol("Bangun Peta", None, primer=False, cmd=bangun)
+    # Bangun Peta disembunyikan saat peta lengkap (dulu wajib sebelum ada
+    # peta tertanam; tombol yang tampil malah membingungkan user - keluhan).
+    if jumlah_peta["n"] < total_level:
+        def bangun():
+            on_bangun()
+            return False   # jangan tutup dialog; status terlihat di log
+        d.tombol("Bangun Peta", None, primer=False, cmd=bangun)
 
     def simpan():
         try:
@@ -1138,8 +1148,10 @@ def dialog_rentang(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
         hasil["mulai"], hasil["akhir"] = a, b
         d.selesai(True)
 
+    d.tombol("Pilih di Halaman", "halaman", primer=False)
     d.tombol("Simpan", None, cmd=simpan)
-    return d.tampilkan() and hasil
+    r = d.tampilkan()
+    return r if r == "halaman" else (r and hasil)
 
 
 def dialog_aktivasi(induk):
@@ -1231,6 +1243,8 @@ class App:
         self._selesai_info = False   # popup 'rentang selesai' sudah tampil
         self._terkunci_win = None    # popup 'level start terkunci'
         self._tanya_rentang = True   # tanya rentang level saat Start berikutnya
+        self._rentang_terbuka = False   # dialog rentang sedang tampil (state label)
+        self._tunggu_pilih_halaman = False  # user memilih level awal di browser
         self._login_grace = 0        # jeda re-popup login setelah tombol buka login
         self._profile = "bot"        # 'bot' khusus | 'saya' profil browser user
         self._profile_dir = ""       # 'Default' / 'Profile 1' ... (mode saya)
@@ -1513,6 +1527,7 @@ class App:
             if getattr(bot, "PERLU_LOGIN", False):
                 if (self._login_win is None and not self._login_dismiss
                         and not di_halaman_login
+                        and not self._rentang_terbuka
                         and time.time() > self._login_grace):
                     self._login_popup()
             elif self._login_win is not None:
@@ -1524,9 +1539,46 @@ class App:
                 self._login_dismiss = False
 
             # >2 menit tanpa lesson karena user memakai browser bot
-            if getattr(bot, "MINTA_TANYA_LANJUT", False) and self._tanya_win is None:
+            # (saat menunggu pilihan level di halaman, popup ini mubazir -
+            # kartu aktivitas sudah menjelaskan apa yang harus dilakukan)
+            if getattr(bot, "MINTA_TANYA_LANJUT", False) and self._tanya_win is None \
+                    and not self._tunggu_pilih_halaman:
                 bot.MINTA_TANYA_LANJUT = False
                 self._tanya_dialog()
+
+            # user memilih level awal sendiri: tunggu dia membuka pelajaran
+            # di jendela browser (bot diam sampai itu terjadi)
+            if self._tunggu_pilih_halaman:
+                if not bot_thread_hidup:
+                    self._tunggu_pilih_halaman = False
+                    bot.TUNGGU_RENTANG = False
+                else:
+                    url_p = getattr(bot, "STATUS_URL", "") or ""
+                    lbl_p = getattr(bot, "STATUS_LABEL", "") or ""
+                    lvl_p = 0
+                    if lbl_p.startswith("L") and lbl_p[1:].isdigit():
+                        lvl_p = int(lbl_p[1:])
+                    if not lvl_p:
+                        try:
+                            lvl_p = bot.url_ke_level(url_p) or 0
+                        except Exception:
+                            pass
+                    if ".play" in url_p:
+                        self._tunggu_pilih_halaman = False
+                        bot.TUNGGU_RENTANG = False
+                        if lvl_p:
+                            self._rentang_mulai = lvl_p
+                            self._simpan_rentang_settings()
+                            self._terapkan_rentang_ke_bot(
+                                bot, lvl_p, self._rentang_akhir)
+                            self._log(f"[RENTANG] mulai dari level "
+                                      f"pilihanmu: {lvl_p}.")
+                        else:
+                            # kursus tak dikenali di peta -> kerjakan dari
+                            # posisi sekarang saja
+                            self._terapkan_rentang_ke_bot(bot, 1, 0)
+                            self._log("[RENTANG] mulai dari pelajaran yang "
+                                      "kamu buka.")
 
             # tanya rentang SETELAH tersambung + login dicek + tidak sedang
             # butuh login. Kalau user sudah berada dalam lesson -> pakai level
@@ -1556,7 +1608,13 @@ class App:
                     # recovery malah membuka level terdepan akun)
                     bot.TUNGGU_RENTANG = True
                     try:
-                        if self._buka_rentang():
+                        r = self._buka_rentang()
+                        if r == "halaman":
+                            # user memilih sendiri: bot tetap diam sampai
+                            # pelajaran pilihan dibuka (lihat blok tunggu di
+                            # atas); TUNGGU_RENTANG TIDAK dilepas
+                            self._tunggu_pilih_halaman = True
+                        elif r:
                             bot.LEVEL_START = self._rentang_mulai
                             bot.LEVEL_END = self._rentang_akhir
                             bot.RENTANG_SELESAI = False
@@ -1575,7 +1633,8 @@ class App:
                             self._log("Rentang dilewati - bot jalan otomatis "
                                       "dari posisi sekarang.")
                     finally:
-                        bot.TUNGGU_RENTANG = False
+                        if not self._tunggu_pilih_halaman:
+                            bot.TUNGGU_RENTANG = False
 
             # bot menanyakan level start yang terkunci
             tanya = getattr(bot, "LEVEL_TANYA", None)
@@ -1623,8 +1682,14 @@ class App:
                     self._set_state("⏻ Siap", FAINT)
             elif getattr(bot, "MENUNGGU_SETUP", False):
                 self._set_state("🧭 Menunggu set-up browser", YELLOW)
+            elif self._rentang_terbuka:
+                # dialog rentang terbuka = fokus user ada di situ, bukan login
+                # (dulu label masih 'Menunggu login' saat popup muncul)
+                self._set_state("🎯 Memilih level", ACCENT)
             elif getattr(bot, "PERLU_LOGIN", False):
                 self._set_state("⚠ Menunggu login", YELLOW)
+            elif self._tunggu_pilih_halaman:
+                self._set_state("🎯 Memilih level", ACCENT)
             elif bot.STOP:
                 self._set_state("⏹ Berhenti", RED)
             elif bot.PAUSED:
@@ -1650,13 +1715,30 @@ class App:
                     "Menyiapkan browser...",
                     "Selesaikan setelan awal di jendela browser, lalu tutup "
                     "halamannya.")
+            elif self._rentang_terbuka:
+                self._set_aktivitas("Memilih level",
+                                    "Pilih rentang level di jendela yang muncul.")
             elif getattr(bot, "PERLU_LOGIN", False):
                 self._set_aktivitas("Menunggu login",
                                     "Selesaikan login edclub di jendela browser.")
+            elif self._tunggu_pilih_halaman:
+                self._set_aktivitas(
+                    "Pilih level awal",
+                    "Buka pelajaran pilihanmu di jendela browser - "
+                    "bot mulai dari situ.")
             elif bot.STOP:
                 self._set_aktivitas("Berhenti", "Klik Start untuk mulai lagi.")
             elif not bot_thread_hidup:
                 self._set_aktivitas("Siap", "Klik Start untuk mulai.")
+            elif ".play" not in url:
+                # pengguna membuka halaman lain (daftar level dsb.) saat bot
+                # jalan - bot menunggu; jangan tampilkan 'Sedang mengetik...'
+                # yang basi dari lesson sebelumnya (keluhan user)
+                self._aktiv_sub_teks = ""
+                self._set_aktivitas(
+                    "Kamu sedang memakai browser bot",
+                    "Bot menunggu. Buka pelajaran mana pun - bot lanjut "
+                    "dari sana.")
             elif nama_level:
                 self._set_aktivitas(nama_level,
                                     self._aktiv_sub_teks
@@ -1733,8 +1815,8 @@ class App:
         self._buka_rentang()
 
     def _buka_rentang(self):
-        """Dialog rentang level. Return False bila user membatalkan (dipakai
-        alur Start: batal = jangan mulai bot)."""
+        """Dialog rentang level. Return: False batal, True simpan,
+        'halaman' = user memilih level awal sendiri di jendela browser."""
         bot = self.bot
         jumlah = {"n": 0}
         if bot:
@@ -1755,16 +1837,25 @@ class App:
             self._log("Membangun peta level di latar belakang "
                       "(lihat progres [PETA] di log / jangan Stop).")
 
-        hasil = dialog_rentang(self.root, self._rentang_mulai,
-                               self._rentang_akhir, jumlah,
-                               self._total_level, on_bangun)
+        self._rentang_terbuka = True
+        try:
+            hasil = dialog_rentang(self.root, self._rentang_mulai,
+                                   self._rentang_akhir, jumlah,
+                                   self._total_level, on_bangun)
+        finally:
+            self._rentang_terbuka = False
+        if hasil == "halaman":
+            return "halaman"
         if hasil is None:
             return False
         self._rentang_mulai = hasil["mulai"]
         self._rentang_akhir = hasil["akhir"]
-        self._rentang_btn.configure(
-            text=f"🎯  {self._rentang_mulai} - "
-                 f"{self._rentang_akhir or self._total_level}")
+        self._simpan_rentang_settings()
+        self._log(f"Rentang level: {self._rentang_mulai} - "
+                  f"{self._rentang_akhir or 'akhir kursus'}.")
+        return True
+
+    def _simpan_rentang_settings(self):
         try:
             s = json.load(open(SETTINGS_FILE, encoding="utf-8"))
         except Exception:
@@ -1775,9 +1866,14 @@ class App:
             json.dump(s, open(SETTINGS_FILE, "w", encoding="utf-8"))
         except Exception:
             pass
-        self._log(f"Rentang level: {self._rentang_mulai} - "
-                  f"{self._rentang_akhir or 'akhir kursus'}.")
-        return True
+
+    @staticmethod
+    def _terapkan_rentang_ke_bot(bot, mulai, akhir):
+        bot.LEVEL_START = mulai
+        bot.LEVEL_END = akhir
+        bot.RENTANG_SELESAI = False
+        bot._rentang_jump_done = True
+        bot.RENTANG_SIAP = True
 
     def _terkunci_dialog(self, tanya):
         """Popup 'level start terkunci' - jawaban dikirim balik ke bot."""
@@ -2538,6 +2634,8 @@ class App:
         if self.bot:
             self.bot.STOP = True
             self.bot.PAUSED = False
+            self._tunggu_pilih_halaman = False
+            self.bot.TUNGGU_RENTANG = False
             self._log("Bot sedang berhenti... kalau masih menyambung, "
               "tunggu beberapa detik.")
 
