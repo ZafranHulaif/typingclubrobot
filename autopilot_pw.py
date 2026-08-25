@@ -3178,6 +3178,29 @@ def recover_and_restart_lesson():
                 pass
             return False
     else:
+        # Rentang aktif: kembali ke level SESI (max start vs yang sudah
+        # dilihat), bukan baris pertama di daftar (= level terdepan akun,
+        # keluhan live L106). Fallback: baris pertama seperti biasa.
+        lanjut_lvl = 0
+        try:
+            if RENTANG_SIAP and (LEVEL_START > 1 or LEVEL_END):
+                lanjut_lvl = max(LEVEL_START, _rentang_max_seen)
+        except Exception:
+            lanjut_lvl = 0
+        if lanjut_lvl and str(lanjut_lvl) in _level_map:
+            try:
+                newpg.goto(_level_map[str(lanjut_lvl)], timeout=25000)
+                print(f"[RECOVERY] kembali ke level {lanjut_lvl} sesi ini")
+                _finish_recovery(newpg)
+                return True
+            except Exception as e:
+                print(f"[RECOVERY] gagal kembali ke level {lanjut_lvl} "
+                      f"({str(e)[:60]}) - coba daftar")
+                try:
+                    newpg.close()
+                    newpg = PAGE.context.new_page()
+                except Exception:
+                    return False
         try:
             newpg.goto(LIST_URL, timeout=20000)
         except Exception as e:
@@ -4091,13 +4114,13 @@ def _rentang_cek(url):
         print(f"[RENTANG] level akhir {_rentang_max_seen} selesai (keluar dari "
               f"lesson) - bot selesai.")
         return True
-    if LEVEL_START <= 1 or _rentang_jump_done:
-        return False
-    # Jangan lompat balik ke awal rentang kalau level dalam rentang SUDAH
-    # pernah dikerjakan sesi ini (mendarat di daftar = istirahat/recovery,
-    # bukan permulaan) - biarkan recovery membuka level terdepan.
-    if _rentang_max_seen >= LEVEL_START and _rentang_max_seen > 1:
-        return False
+    if on_play:
+        if LEVEL_START <= 1 or _rentang_jump_done:
+            return False
+        # Jangan lompat balik ke awal rentang kalau level dalam rentang SUDAH
+        # pernah dikerjakan sesi ini - user sengaja membuka level itu.
+        if _rentang_max_seen >= LEVEL_START and _rentang_max_seen > 1:
+            return False
     # 2) di lesson yang di bawah awal rentang -> lompat
     if on_play:
         if nomor and nomor < LEVEL_START and time.time() - _rentang_nav > 10:
@@ -4111,16 +4134,20 @@ def _rentang_cek(url):
                       "bangun peta dulu (tombol Rentang).")
             return True
         return False
-    # 3) TIDAK di lesson (daftar/home edclub) dan sudah login -> langsung
-    #    menuju level awal (kecuali user sedang aktif memakai browser)
+    # 3) TIDAK di lesson (daftar/home edclub) dan sudah login, user diam:
+    #    kembali ke level yang sedang dikerjakan sesi ini (LEVEL_START kalau
+    #    belum ada), BUKAN level terdepan akun. (Keluhan live: user diam di
+    #    daftar pelajaran, recovery malah membuka L106 terdepan dan bot
+    #    mengetiknya.) Dulu case ini dibiarkan ke recovery.
     if not PERLU_LOGIN and not _user_aktif(25.0) \
             and time.time() - _rentang_nav > 10:
         _rentang_nav = time.time()
-        if _goto_level_url(LEVEL_START):
+        lanjut = max(LEVEL_START, _rentang_max_seen)
+        if _goto_level_url(lanjut):
             _rentang_jump_done = True
-            print(f"[RENTANG] menuju level awal {LEVEL_START}...")
+            print(f"[RENTANG] kembali ke level {lanjut}...")
             return True
-        print("[RENTANG] URL level awal belum ada di peta - lanjut otomatis.")
+        print("[RENTANG] URL level lanjut belum ada di peta - lanjut otomatis.")
     return False
 
 
