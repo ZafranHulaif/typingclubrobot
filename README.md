@@ -1,5 +1,7 @@
 # TypingClub Autopilot (TypingBot)
 
+![TypingBot](docs/banner.png)
+
 ![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
 ![Automation](https://img.shields.io/badge/Automation-Playwright%20%C2%B7%20CDP-2EAD33?logo=playwright&logoColor=white)
 ![GUI](https://img.shields.io/badge/GUI-tkinter-informational)
@@ -14,7 +16,7 @@ with machine-locked activation.
 
 > **Disclaimer.** This project automates a third-party website and almost
 > certainly violates TypingClub's terms of service. It is published for
-> educational and portfolio review only — see the [license](#license).
+> educational and portfolio review only. See the [license](#license).
 > "TypingClub" and "edclub.com" are trademarks of their respective owners;
 > this project is not affiliated with them.
 
@@ -23,7 +25,7 @@ with machine-locked activation.
 - **DOM-level automation over the Chrome DevTools Protocol.** The agent
   attaches to a real Brave / Chrome / Edge instance on port 9222 and dispatches
   keyboard events straight into the lesson player's DOM. No screenshots, no
-  OCR, no pixel math — CPU usage stays near zero and it works in background
+  OCR, no pixel math: CPU usage stays near zero and it works in background
   tabs. If another app already occupies 9222, the agent silently moves to the
   next free port instead of asking the user to close it.
 - **Self-healing supervisor.** A human grabbing the keyboard makes the bot
@@ -37,7 +39,7 @@ with machine-locked activation.
 - **Any browser profile.** The launcher can drive the user's *own* Chrome /
   Edge / Brave profile. Since Chromium 136 refuses remote debugging on a real
   user-data directory, the bot transparently creates an NTFS directory
-  junction to it — the browser sees its genuine profile, the debugger sees a
+  junction to it: the browser sees its genuine profile, the debugger sees a
   "custom" one.
 - **Machine-locked activation.** The exe derives a hardware fingerprint
   (MAC + hostname + volume serial → SHA-256 → base32 machine code) and
@@ -49,44 +51,53 @@ with machine-locked activation.
 
 ## State machine
 
+The engine is a supervised loop rather than a linear script. Any disturbance
+hands control to the supervisor, which repairs the situation and resyncs to
+the lesson the session was already working on.
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> BROWSER_SETUP: Start
+    BROWSER_SETUP --> LOGIN_PATROL: not signed in
+    BROWSER_SETUP --> SESSION_READY: session valid
+    LOGIN_PATROL --> SESSION_READY: login detected
+    SESSION_READY --> LESSON_LOOP
+    LESSON_LOOP --> LESSON_LOOP: lesson passed, next level
+    LESSON_LOOP --> SUPERVISOR: disturbance detected
+    SUPERVISOR --> LESSON_LOOP: resync to session level
+    SUPERVISOR --> BROWSER_SETUP: browser restarted
+    LESSON_LOOP --> [*]: range complete or Stop
+
+    note right of SUPERVISOR
+        human typing → yield and stand by
+        tab lost → reattach
+        focus lost → refocus
+        stalled lesson → watchdog recovery
+        signed out → re-login patrol
+    end note
 ```
-                      +------+
-                      | IDLE |
-                      +--+---+
-                         |  Start
-                         v
-                +-----------------+   not signed in   +--------------+
-                |  BROWSER SETUP  |------------------>| LOGIN PATROL |
-                |  (CDP attach)   |                   +------+-------+
-                +--------+--------+                          |
-                         | signed in                         |
-                         v                                   |
-              +------------------------------+               |
-              |         SESSION READY        |<--------------+
-              +---------------+--------------+
-                              |
-                              v
-                    +------------------+
-              +---->|    LESSON LOOP   |
-              |     | navigate, type,  |
-              |     | verify, advance  |
-              |     +-----+------+-----+
-              |           |      |
-              | lesson    |      | disturbance detected
-              | passed    |      v
-              |           |  +-------------------------------+
-              |           |  |          SUPERVISOR           |
-              |           |  |  human input -> yield/standby |
-              |           |  |  tab lost    -> reattach      |
-              |           |  |  focus lost  -> refocus       |
-              |           |  |  stall       -> watchdog      |
-              |           |  |  signed out  -> re-login      |
-              |           |  +---------------+---------------+
-              |           |                  |
-              |           |                  | stable again
-              |           |                  v
-              +-----------+------------------+--->
-                        resync to session lesson level
+
+## How a session runs
+
+```mermaid
+sequenceDiagram
+    participant U as User (GUI)
+    participant E as Engine thread
+    participant B as Browser (CDP :9222)
+    participant S as edclub.com
+
+    U->>E: Start (browser + level range)
+    E->>B: launch or attach to debug port
+    B-->>E: DevTools websocket
+    E->>B: open lesson page
+    B->>S: page requests
+    E->>B: dispatch keystrokes into lesson DOM
+    B-->>S: exercise answers
+    S-->>B: score + progress
+    Note over E,B: loop per lesson, supervisor on standby
+    E-->>U: progress updates (plain-language lines)
+    E-->>U: done, range complete
 ```
 
 ## Repository layout
@@ -98,20 +109,20 @@ with machine-locked activation.
 | `level_data.py` | 97 | Baked 685-lesson course map |
 | `version2_playwright.py` | 1,082 | v2 engine (Playwright, kept for history) |
 | `version1_selenium.py` | 1,279 | v1 engine (Selenium, kept for history) |
-| `autopilot.py` | — | Earliest prototype |
+| `autopilot.py` | - | Earliest prototype |
 
 The version history is deliberate: the repository doubles as a record of how
 the architecture evolved.
 
 ## Evolution
 
-1. **v1 — Selenium.** Drove a dedicated browser instance by CSS selectors.
+1. **v1: Selenium.** Drove a dedicated browser instance by CSS selectors.
    Brittle to UI changes, could not reach the user's daily browser, and the
    typing approach burned CPU.
-2. **v2 — Playwright.** Replaced selector scraping with page-level event
+2. **v2: Playwright.** Replaced selector scraping with page-level event
    injection. Faster and stabler, but still coupled to a browser it owned.
-3. **v3 — CDP supervisor (current).** Attaches to *any* real browser over the
-   DevTools protocol — including the user's own profile — and wraps the whole
+3. **v3: CDP supervisor (current).** Attaches to *any* real browser over the
+   DevTools protocol, including the user's own profile, and wraps the whole
    run in a resilience layer: collision handling, focus/tab recovery, login
    patrol, session-level resume, and a plain-language GUI. Distributed as a
    single-file exe with machine-locked activation.
@@ -145,6 +156,6 @@ forge nor validate activation keys.
 ## License
 
 Published as **source-available for educational and portfolio review**.
-You may read and reference the code, but running, redistributing, or using it
-— commercially or not — requires prior written permission. See
+You may read and reference the code, but running, redistributing, or using it,
+commercially or not, requires prior written permission. See
 [LICENSE](LICENSE).
