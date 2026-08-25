@@ -7,6 +7,9 @@ _*.py
 _*.png
 _*.js
 
+# Snapshot manual engine (backup lokal, bukan bagian dari repo)
+version3_stable.py
+
 # Hasil build PyInstaller (exe 50MB+ tidak disimpan di git, build ulang dengan:
 #   python -m PyInstaller --onefile --name TypingBot autopilot_pw.py )
 build/
