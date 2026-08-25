@@ -1,0 +1,13 @@
+{
+  "exclude": [
+    "_arsip",
+    "tests",
+    "dist",
+    "build",
+    "docs",
+    "version1_selenium.py",
+    "version2_playwright.py",
+    "autopilot.py"
+  ],
+  "reportPossiblyUnboundVariable": "warning"
+}
