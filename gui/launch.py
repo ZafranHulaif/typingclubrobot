@@ -28,6 +28,26 @@ class LaunchMixin:
     """Mixin: dipadukan di gui/app.py."""
 
 
+    class _Writer:
+        def __init__(self, app):
+            self.app = app
+
+        def write(self, s):
+            if s and s.strip():
+                self.app.log_q.put(s.rstrip("\n"))
+            f = self.app.log_file
+            if f:
+                try:
+                    f.write(s)
+                    f.flush()
+                except Exception:
+                    pass
+            return len(s)
+
+        def flush(self):
+            pass
+
+
     # ------------------------------------------------------------------ bot
 
     def _load_bot(self):
