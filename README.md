@@ -1,5 +1,9 @@
 # TypingClub Autopilot (TypingBot)
 
+<p align="left">
+  <img src="docs/logo.png" width="96" alt="TypingBot logo">
+</p>
+
 ![TypingBot](docs/banner.png)
 
 ![Release](https://img.shields.io/github/v/release/ZafranHulaif/typingclubrobot?display_name=tag&include_prereleases)

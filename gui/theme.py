@@ -114,6 +114,20 @@ CREATOR = "ZafranHulaif"
 
 
 
+
+def _asset_path(nama):
+    """Cari aset terbundel (logo dsb): _MEIPASS/assets saat frozen,
+    folder docs/ saat dijalankan dari sumber."""
+    if getattr(sys, "frozen", False):
+        p = os.path.join(getattr(sys, "_MEIPASS", ""), "assets", nama)
+        if os.path.exists(p):
+            return p
+    p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "docs", nama)
+    return p if os.path.exists(p) else ""
+
+
+
 # ---------------------------------------------------------------- palet warna
 BG = "#141519"          # latar jendela
 

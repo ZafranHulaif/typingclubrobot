@@ -29,6 +29,12 @@ class ActivityMixin:
 
 
     def _poll(self):
+        # pasang timer BERIKUTNYA di awal, bukan di akhir: callback antrean
+        # bisa memblokir lama di dalam dialog modal (show() menunggu
+        # window) - kalau after() ada di ekor, rantai timer mati selama
+        # dialog terbuka dan _ui_queue tak pernah diproses lagi (bug:
+        # popup aktivasi tidak pernah menutup sendiri).
+        self.root.after(150, self._poll)
         try:
             while True:
                 fn = self._ui_queue.get_nowait()
@@ -310,7 +316,6 @@ class ActivityMixin:
         else:
             self._set_activity("Siap", "Klik Start untuk mulai.")
 
-        self.root.after(150, self._poll)
 
 
     # ------------------------------------------------------ popup login edclub

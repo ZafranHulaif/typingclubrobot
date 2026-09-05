@@ -16,7 +16,7 @@ The real interpreter is the manager shim:
    "AKURASI 100% di semua skenario."
 4. Build: taskkill TypingBot.exe first (a running app LOCKS the exe and
    PyInstaller can report success while the file stays stale!), then
-   `"$PY" -m PyInstaller --onefile --windowed --name TypingBot --version-file version_info.txt --clean --noconfirm bot_gui.py`
+   `"$PY" -m PyInstaller --onefile --windowed --name TypingBot --icon docs/logo.ico --add-data "docs/logo.png;assets" --version-file version_info.txt --clean --noconfirm bot_gui.py`
 5. PYZ check via CArchiveReader + open_embedded_archive('PYZ.pyz').
 6. Smoke: run exe 25s, require "Modul bot dimuat" line in dist/bot.log
    (empty log = false pass, that hid a startup crash once).

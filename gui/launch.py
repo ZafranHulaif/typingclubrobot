@@ -150,13 +150,15 @@ class LaunchMixin:
                 self._tok_cache = data["token"]
                 self._log("[net] lisensi online diperpanjang "
                           f"({netlic.days_left(data['token'])} hari lagi)")
-            elif st in ("revoked", "denied"):
-                self._ui_queue.put(lambda: self._on_license_revoked(st))
-            elif st == "unknown":
-                self._log("[net] server tidak mengenal mesin ini - minta ulang")
-                self._net_request_flow(mc)
-            else:
+            elif st == "approved":
+                # server setuju tapi tanpa token (jawaban aneh) - jangan
+                # kunci mesin karena glitch sesaat
                 self._tok_cache = tok
+            else:
+                # revoked/denied/pending/unknown: server TIDAK lagi menjamin
+                # mesin ini - token offline tidak boleh dipercaya (dulu:
+                # mesin 'pending' tetap bisa dipakai dengan token lama)
+                self._ui_queue.put(lambda: self._on_license_revoked(st))
             return
         if self.lisensi_ok:
             # kunci lama tetap valid; daftar diam-diam supaya bisa ikut
@@ -271,8 +273,11 @@ class LaunchMixin:
         self._tok_cache = None
         self.lisensi_ok = False
         self._title_bar()
-        self._log(f"[net] akses komputer ini dicabut/ditolak server ({st}) - "
-                  "token lokal dihapus")
+        pesan = ("Server meminta persetujuan ulang untuk komputer ini."
+                 if st == "pending" else
+                 f"Pemilik aplikasi mencabut/menolak akses komputer ini "
+                 f"({st}).")
+        self._log(f"[net] {pesan} Token lokal dihapus.")
         try:
             if self.bot_thread and self.bot_thread.is_alive():
                 self._log("[net] sesi bot dihentikan karena akses dicabut")
@@ -281,6 +286,14 @@ class LaunchMixin:
                 self.on_stop()
         except Exception:
             pass
+        d = _Dialog(self.root, "Lisensi tidak aktif", pesan,
+                    ikon="⛔", warna=RED)
+        tk.Label(d.body, text="Kirim permintaan baru untuk minta persetujuan.",
+                 font=("Segoe UI", 10), fg=FG, bg=PANEL,
+                 wraplength=420, justify="left").pack(anchor="w", pady=(4, 0))
+        d.button("Minta persetujuan", None,
+                 cmd=lambda: (d.done(None), self._ask_online()))
+        d.show()
         d = _Dialog(self.root, "Lisensi dicabut",
                     "Pemilik aplikasi mencabut akses komputer ini.",
                     ikon="⛔", warna=RED)
@@ -304,11 +317,13 @@ class LaunchMixin:
         except Exception:
             return
         st = data.get("status")
-        if st in ("revoked", "denied"):
-            self._ui_queue.put(lambda: self._on_license_revoked(st))
-        elif st == "approved" and data.get("token"):
+        if st == "approved" and data.get("token"):
             _save_online_token(data["token"])
             self._tok_cache = data["token"]
+        elif st == "approved":
+            pass
+        else:
+            self._ui_queue.put(lambda: self._on_license_revoked(st))
 
     def _net_periodic(self):
         threading.Thread(target=self._net_license_recheck, daemon=True).start()

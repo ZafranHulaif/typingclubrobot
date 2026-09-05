@@ -20,7 +20,7 @@ from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
 from .licensing import _machine_code, _license_valid
-from .theme import (APP_VERSION, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, PANEL, CREATOR, RED, SETTINGS_FILE, YELLOW, _build_stamp)
+from .theme import (APP_VERSION, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, PANEL, CREATOR, RED, SETTINGS_FILE, YELLOW, _asset_path, _build_stamp)
 from .widgets import Dropdown
 
 
@@ -75,6 +75,13 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # kecil - footer hotkey tetap tampak, hanya log yang menyusut
         root.minsize(int(700 * k), int(330 * k))
         root.configure(bg=BG)
+        logo = _asset_path("logo.png")
+        if logo:
+            try:
+                self._logo_img = tk.PhotoImage(file=logo)
+                root.iconphoto(True, self._logo_img)
+            except Exception:
+                pass
         self._title_bar()
 
         try:

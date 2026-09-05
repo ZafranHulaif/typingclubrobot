@@ -70,6 +70,7 @@ ikut:
 
 ```
 python -m PyInstaller --onefile --windowed --name TypingBot ^
+    --icon docs/logo.ico --add-data "docs/logo.png;assets" ^
     --version-file version_info.txt --clean --noconfirm bot_gui.py
 ```
 
