@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-DEFAULT_BASE_URL = ""
+DEFAULT_BASE_URL = "https://typingbot-api.zafranhulaif.workers.dev"
 
 # Cloudflare menolak (error 1010) permintaan tanpa User-Agent - wajib ada.
 USER_AGENT = "TypingBot/2.7 (+github.com/ZafranHulaif/typingclubrobot)"

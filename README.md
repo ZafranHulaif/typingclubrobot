@@ -2,6 +2,7 @@
 
 ![TypingBot](docs/banner.png)
 
+![Release](https://img.shields.io/github/v/release/ZafranHulaif/typingclubrobot?display_name=tag&include_prereleases)
 ![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
 ![Automation](https://img.shields.io/badge/Automation-Playwright%20%C2%B7%20CDP-2EAD33?logo=playwright&logoColor=white)
 ![GUI](https://img.shields.io/badge/GUI-tkinter-informational)
@@ -24,6 +25,28 @@ with machine-locked activation.
 > "TypingClub" and "edclub.com" are trademarks of their respective owners;
 > this project is not affiliated with them.
 
+## Download
+
+<p align="center">
+  <a href="https://github.com/ZafranHulaif/typingclubrobot/releases/latest">
+    <img src="https://img.shields.io/badge/Download-TypingBot.exe-2EAD33?style=for-the-badge&logo=github" alt="Download latest release">
+  </a>
+</p>
+
+1. Grab `TypingBot.exe` from the **[latest release](https://github.com/ZafranHulaif/typingclubrobot/releases/latest)**
+   (single file, ~73 MB, no installer).
+2. Windows SmartScreen may warn about an unknown publisher — choose
+   *More info → Run anyway*.
+3. On first launch the app asks for a nickname and waits for the owner to
+   approve the machine (activation is per-computer and manual, on purpose).
+4. Once approved: pick a browser, press **Start**, walk away.
+
+Updates are built in: when a new version is released the app offers a
+one-click upgrade on next launch and swaps itself — no re-downloading.
+
+> The exe talks to a tiny Cloudflare Worker backend exactly once at startup
+> (version check + license refresh) and otherwise runs fully offline.
+
 ## Highlights
 
 - **DOM-level automation over the Chrome DevTools Protocol.** The agent
@@ -45,10 +68,15 @@ with machine-locked activation.
   user-data directory, the bot transparently creates an NTFS directory
   junction to it: the browser sees its genuine profile, the debugger sees a
   "custom" one.
-- **Machine-locked activation.** The exe derives a hardware fingerprint
-  (MAC + hostname + volume serial → SHA-256 → base32 machine code) and
-  unlocks against an HMAC-SHA256 challenge key issued per machine. The
-  signing secret lives outside this repository.
+- **Owner-approved activation, self-verifying.** Each machine derives a
+  hardware fingerprint (MAC + hostname + volume serial → SHA-256 → base32
+  machine code). Licenses are Ed25519 tokens signed by the release server;
+  the exe embeds only the *public* key, so tokens cannot be forged even by
+  reverse-engineering the binary. Tokens stay valid offline for 30 days and
+  can be revoked remotely.
+- **Self-updating.** On launch the app checks for a new release and can
+  download, hash-verify, and swap its own exe — the era of re-sending
+  builds by chat is over.
 - **Plain-language desktop UI.** A tkinter front end with a translation
   layer that converts technical engine output into friendly activity lines,
   so non-technical users never see port numbers, PIDs, or log paths.
@@ -177,22 +205,22 @@ the architecture evolved.
 | Browsers driven | Brave, Google Chrome, Microsoft Edge (any profile) |
 | Desktop UI | tkinter (custom dark theme, bilingual-friendly strings) |
 | Concurrency | Engine thread + GUI poll loop |
-| Licensing | `hashlib` / `hmac` hardware-fingerprint challenge keys |
-| Packaging | PyInstaller `--onefile --windowed`, ~58 MB exe |
+| Licensing | Ed25519 tokens signed server-side, verified offline (`cryptography`) |
+| Packaging | PyInstaller `--onefile --windowed`, ~73 MB exe |
 | Platform | Windows 10/11 |
 
 ## Running from source
 
 ```bash
-pip install playwright
+pip install playwright cryptography
 python bot_gui.py
 ```
 
-The app requires an activation key bound to the machine code it displays on
-first run. Keys are issued by the author per machine; the license below does
-not grant a right to run the software. Note that the public source ships
-with a **placeholder** signing secret, so self-built binaries can neither
-forge nor validate activation keys.
+The app requires its machine to be approved by the release server before it
+will run; the license below does not grant a right to run the software. The
+public source also ships with a **placeholder** HMAC secret, so self-built
+binaries can neither forge nor validate legacy activation keys, and the
+backend (see `server/`) is required for the online flow.
 
 ## License
 
