@@ -640,9 +640,18 @@ def dialog_online_activation(induk, nickname, on_send, on_cancel):
     sub_lbl.pack(anchor="w")
 
     def kirim():
+        if terkirim["ok"]:
+            return
+        terkirim["ok"] = True
         nick = var.get().strip() or "Tanpa-nama"
         fase1.pack_forget()
         fase2.pack(fill="x")
+        try:
+            btn_kirim.configure(text="⏳  Terkirim — menunggu...",
+                                bg=CARD, fg=DIM, cursor="arrow")
+            btn_kirim.unbind("<Button-1>")
+        except Exception:
+            pass
         try:
             on_send(nick)
         except Exception:
@@ -662,10 +671,11 @@ def dialog_online_activation(induk, nickname, on_send, on_cancel):
         except Exception:
             pass
 
+    terkirim = {"ok": False}
     d.set_status = set_status
     d.finish = finish
     d.button("Batalkan", None, primer=False,
              cmd=lambda: (on_cancel(), d.done(False)))
-    d.button("Kirim Permintaan", None, cmd=kirim)
+    btn_kirim = d.button("Kirim Permintaan", None, cmd=kirim)
     ent.bind("<Return>", lambda e: kirim())
     return d.show()

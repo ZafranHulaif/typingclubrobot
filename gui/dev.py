@@ -20,8 +20,10 @@ from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
 from .dialogs import dialog_open_browser, dialog_pick_browser
-from .licensing import _machine_code
-from .theme import (APP_VERSION, BG, CARD, EDGE, FG, LOG_FILE, PANEL, CREATOR, SETTINGS_FILE, _build_stamp)
+from .licensing import _machine_code, _load_online_token
+from net import api as netapi
+from net import license as netlic
+from .theme import (APP_VERSION, BASE_DIR, BG, CARD, EDGE, FG, LICENSE_FILE, LOG_FILE, PANEL, CREATOR, PROGRAM_PATH, SETTINGS_FILE, _build_stamp)
 
 
 class DevMixin:
@@ -63,7 +65,11 @@ class DevMixin:
         baris1 = tk.Frame(win, bg=PANEL)
         baris1.pack(fill="x", padx=8, pady=(2, 2))
         baris2 = tk.Frame(win, bg=PANEL)
-        baris2.pack(fill="x", padx=8, pady=(2, 8))
+        baris2.pack(fill="x", padx=8, pady=(2, 2))
+        baris3 = tk.Frame(win, bg=PANEL)
+        baris3.pack(fill="x", padx=8, pady=(2, 2))
+        baris4 = tk.Frame(win, bg=PANEL)
+        baris4.pack(fill="x", padx=8, pady=(2, 8))
 
         def button(induk, nama, cmd):
             b = tk.Label(induk, text=nama, font=("Segoe UI", 9, "bold"),
@@ -79,6 +85,12 @@ class DevMixin:
         button(baris2, "Reset pengaturan", self._dev_reset)
         button(baris2, "Buka bot.log", lambda: self._dev_buka(LOG_FILE))
         button(baris2, "Buka folder", lambda: self._dev_buka(BASE_DIR))
+        # --- uji fitur online (v2.7): lisensi + pembaruan ---
+        button(baris3, "Cek lisensi+update", self._dev_net_check)
+        button(baris3, "Hapus lisensi (uji fresh)", self._dev_hapus_lisensi)
+        button(baris3, "Cek pembaruan", self._dev_cek_update)
+        button(baris4, "Versi 0.0.1: ON/OFF", self._dev_toggle_fake_version)
+        button(baris4, "Buka halaman admin", self._dev_buka_admin)
 
 
     def _dev_info(self):
@@ -99,6 +111,11 @@ class DevMixin:
             f"Lisensi       : "
             + ("AKTIF" if self.lisensi_ok else "BELUM AKTIF")
             + f"  (kode mesin {_machine_code()})",
+            f"Lisensi online: {self._dev_lic_info()}",
+            f"Server        : {netapi.BASE_URL or '(tidak dikonfigurasi)'}",
+            f"Nickname      : {self._load_nickname() or '-'}"
+            + (f"  | versi lokal dikira {self._ver_override}"
+               if getattr(self, "_ver_override", None) else ""),
             f"Pengaturan    : {SETTINGS_FILE}",
             f"               file ada={os.path.exists(SETTINGS_FILE)}"
             f", isi={isi if isi else '(kosong)'}",
@@ -177,3 +194,67 @@ class DevMixin:
             os.startfile(path)   # file -> aplikasi default, folder -> explorer
         except Exception as ex:
             self._log(f"[Dev] gagal membuka {path}: {ex}")
+
+
+    # --------------------------------------------- uji fitur online (v2.7)
+
+    def _dev_lic_info(self):
+        tok = _load_online_token()
+        if tok and netlic.verify_token(tok):
+            return (f"token valid, sisa {netlic.days_left(tok)} hari "
+                    f"(exp {time.strftime('%Y-%m-%d', time.localtime(int(tok['exp'])))})")
+        if tok:
+            return "token ADA tapi kedaluwarsa/tidak valid"
+        if self.lisensi_ok:
+            return "memakai kunci lama (HMAC manual)"
+        return "tidak ada"
+
+    def _dev_net_check(self):
+        threading.Thread(target=self._net_worker, daemon=True).start()
+        self._log("[Dev] cek lisensi + pembaruan dijalankan (lihat baris [net]).")
+
+    def _dev_hapus_lisensi(self):
+        try:
+            if os.path.exists(LICENSE_FILE):
+                os.remove(LICENSE_FILE)
+                self.lisensi_ok = False
+                self._title_bar()
+                self._log("[Dev] file lisensi dihapus - mesin kini 'fresh'. "
+                          "Tekan 'Cek lisensi+update' untuk alur persetujuan "
+                          "penuh, atau restart aplikasi.")
+            else:
+                self._log("[Dev] file lisensi memang tidak ada.")
+        except Exception as ex:
+            self._log(f"[Dev] gagal hapus lisensi: {ex}")
+
+    def _dev_cek_update(self):
+        threading.Thread(target=self._net_update_check, daemon=True).start()
+        self._log("[Dev] cek pembaruan dijalankan.")
+
+    def _dev_toggle_fake_version(self):
+        if getattr(self, "_ver_override", None):
+            self._ver_override = None
+            self._log("[Dev] versi lokal kembali normal - cek pembaruan "
+                      "akan bilang sudah terbaru.")
+        else:
+            self._ver_override = "0.0.1"
+            self._log("[Dev] versi lokal DIKIRA 0.0.1 - tombol pembaruan "
+                      "akan muncul setelah cek. Tekan tombol hijau itu untuk "
+                      "uji unduh+verifikasi hash (swap exe hanya di EXE).")
+        threading.Thread(target=self._net_update_check, daemon=True).start()
+
+    def _dev_buka_admin(self):
+        import webbrowser
+        if not netapi.BASE_URL:
+            self._log("[Dev] server tidak dikonfigurasi.")
+            return
+        url = netapi.BASE_URL + "/admin"
+        try:
+            kunci = json.load(open(os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "server", "_admin.json"), encoding="utf-8"))["admin_key"]
+            url += "?key=" + kunci
+        except Exception:
+            pass
+        webbrowser.open(url)
+        self._log("[Dev] halaman admin dibuka di browser.")

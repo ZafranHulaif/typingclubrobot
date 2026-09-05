@@ -262,7 +262,8 @@ class LaunchMixin:
     def _net_update_check(self):
         from net import license as netlic
         from net import updater as netupd
-        info = netupd.check(APP_VERSION)
+        ver = getattr(self, "_ver_override", None) or APP_VERSION
+        info = netupd.check(ver)
         if not info:
             self._log("[net] versi sudah yang terbaru")
             return
