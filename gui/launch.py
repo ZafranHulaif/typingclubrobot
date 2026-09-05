@@ -185,7 +185,7 @@ class LaunchMixin:
 
         def buka():
             self._online_dlg = dialog_online_activation(
-                self._load_nickname(),
+                self.root, self._load_nickname(),
                 on_send=kirim_nick,
                 on_cancel=lambda: setattr(self, "_online_cancel", True))
 
