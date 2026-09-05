@@ -20,7 +20,6 @@ from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
 from .icons import _icon_widget, user32
-from .licensing import (_make_key, _machine_code, _norm, _save_license)
 from .theme import (ACCENT, BROWSER_COLORS, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, ORANGE, PANEL, RED, YELLOW)
 from .translator import _display_name
 from .widgets import _Dialog
@@ -532,67 +531,6 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
 
 
 
-def dialog_activation(induk):
-    """Aktivasi lisensi terikat mesin. Return True bila baru berhasil."""
-    d = _Dialog(induk, "Aktivasi TypingBot",
-                "Satu lisensi berlaku untuk satu komputer.", ikon="🔑",
-                warna=ORANGE)
-    kode = _machine_code()
-    harapan = _norm(_make_key(kode))
-
-    kotak = tk.Frame(d.body, bg=CARD, highlightthickness=1,
-                     highlightbackground=EDGE)
-    kotak.pack(fill="x")
-    kiri = tk.Frame(kotak, bg=CARD)
-    kiri.pack(side="left", fill="both", expand=True, padx=12, pady=10)
-    tk.Label(kiri, text="Kode mesin komputer ini:", font=("Segoe UI", 9),
-             fg=DIM, bg=CARD).pack(anchor="w")
-    tk.Label(kiri, text=kode, font=("Consolas", 15, "bold"), fg=FG,
-             bg=CARD).pack(anchor="w", pady=(2, 0))
-    salin = tk.Label(kotak, text="📋\nSalin", font=("Segoe UI", 9, "bold"),
-                     fg=FG, bg=CARD_HOVER, padx=12, pady=12, cursor="hand2")
-    salin.pack(side="right", padx=10, pady=10)
-
-    def salin_klik(_e=None):
-        induk.clipboard_clear()
-        induk.clipboard_append(kode)
-        salin.configure(text="✔\nTersalin")
-
-    salin.bind("<Button-1>", salin_klik)
-
-    tk.Label(d.body, text="Kirim kode mesin di atas ke pemberi aplikasi untuk "
-                          "dapatkan kunci lisensi, lalu tempel di sini:",
-             font=("Segoe UI", 9), fg=DIM, bg=PANEL,
-             wraplength=440, justify="left").pack(anchor="w", pady=(12, 4))
-    var = tk.StringVar()
-    ent = tk.Entry(d.body, textvariable=var, font=("Consolas", 12),
-                   bg=CARD, fg=FG, insertbackground=FG, relief="flat",
-                   highlightthickness=1, highlightbackground=EDGE,
-                   highlightcolor=ACCENT)
-    ent.pack(fill="x", ipady=8, padx=1)
-    galat = tk.Label(d.body, text="", font=("Segoe UI", 9), fg=RED, bg=PANEL)
-    galat.pack(anchor="w", pady=(6, 0))
-
-    def coba():
-        if _norm(var.get()) == harapan:
-            _save_license(var.get())
-            d.done(True)
-            return
-        galat.configure(text="Kunci tidak cocok untuk komputer ini. "
-                             "Periksa lagi, atau minta kunci baru.")
-        return False
-
-    # 'Nanti Saja' harus False eksplisit: tombol() tanpa nilai
-    # mengembalikan teks tombol (truthy) - dulu menekan 'Nanti Saja'
-    # malah dianggap aktivasi berhasil oleh pemanggil (bug lisensi!).
-    d.button("Nanti Saja", None, primer=False, cmd=lambda: d.done(False))
-    d.button("Aktivasi", True, cmd=coba)
-    ent.bind("<Return>", lambda e: coba())
-    return d.show()
-
-
-
-
 def dialog_done(induk, akhir):
     """Popup rentang level selesai (visual, senada tema gelap - bukan
     messagebox polos Windows)."""
@@ -608,7 +546,7 @@ def dialog_done(induk, akhir):
 
 
 
-def dialog_online_activation(induk, nickname, on_send, on_cancel):
+def dialog_online_activation(induk, nickname, on_send, on_cancel, on_ready=None):
     """Aktivasi online: isi nickname, kirim, lalu tunggu persetujuan.
 
     on_send(nickname) dipanggil di thread utama saat tombol kirim
@@ -678,4 +616,9 @@ def dialog_online_activation(induk, nickname, on_send, on_cancel):
              cmd=lambda: (on_cancel(), d.done(False)))
     btn_kirim = d.button("Kirim Permintaan", None, cmd=kirim)
     ent.bind("<Return>", lambda e: kirim())
+    if on_ready:
+        try:
+            on_ready(d)
+        except Exception:
+            pass
     return d.show()

@@ -80,7 +80,7 @@ from gui.translator import (  # noqa: F401
 )
 from gui.dialogs import (  # noqa: F401
     _focus_browser_window,
-    dialog_activation,
+    dialog_online_activation,
     dialog_open_browser,
     dialog_pick_browser,
     dialog_pick_profile,

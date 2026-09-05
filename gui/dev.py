@@ -81,7 +81,7 @@ class DevMixin:
         button(baris1, "Salin info", lambda: self._dev_salin(info))
         button(baris1, "Uji: pilih browser", self._dev_uji_pilih)
         button(baris1, "Uji: buka browser", self._dev_uji_buka)
-        button(baris2, "Kelola lisensi", self._request_license)
+        button(baris2, "Minta persetujuan", self._ask_online)
         button(baris2, "Reset pengaturan", self._dev_reset)
         button(baris2, "Buka bot.log", lambda: self._dev_buka(LOG_FILE))
         button(baris2, "Buka folder", lambda: self._dev_buka(BASE_DIR))

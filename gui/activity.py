@@ -254,8 +254,8 @@ class ActivityMixin:
             # kartu aktivitas: kalimat besar mengikuti keadaan bot
             if not self.lisensi_ok:
                 self._set_activity("Perlu aktivasi",
-                                    "Masukkan kunci aktivasi untuk memakai "
-                                    "TypingBot.")
+                                    "Tunggu persetujuan pemilik, atau tekan "
+                                    "Start untuk mengirim permintaan.")
             elif getattr(bot, "RANGE_DONE", False):
                 self._set_activity(
                     "Selesai!",

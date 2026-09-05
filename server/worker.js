@@ -172,6 +172,10 @@ async function handle(request) {
     const machines = await readMachines();
     const m = machines[mc] ||
       { mc, status: "pending", first_seen: Math.floor(Date.now() / 1000) };
+    if (m.status === "denied" || m.status === "revoked") {
+      // mesin dicabut/ditolak minta lagi -> wajib disetujui ulang
+      m.status = "pending";
+    }
     m.nickname = String(d.nickname || "?").slice(0, 40) || m.nickname || "?";
     m.app_version = String(d.app_version || "").slice(0, 16);
     m.last_seen = Math.floor(Date.now() / 1000);

@@ -299,6 +299,10 @@ class Handler(BaseHTTPRequestHandler):
                     m = {"mc": mc, "status": "pending",
                          "first_seen": int(time.time())}
                     machines[mc] = m
+                if m.get("status") in ("denied", "revoked"):
+                    # mesin dicabut/ditolak minta lagi -> harus disetujui
+                    # ulang, bukan langsung dapat token lama
+                    m["status"] = "pending"
                 m["nickname"] = nick or m.get("nickname", "?")
                 m["app_version"] = ver
                 m["last_seen"] = int(time.time())

@@ -19,7 +19,7 @@ from ctypes import wintypes
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
-from .dialogs import (dialog_activation, dialog_online_activation, dialog_open_browser, dialog_pick_browser, dialog_pick_profile, dialog_tips, dialog_force_close)
+from .dialogs import (dialog_online_activation, dialog_open_browser, dialog_pick_browser, dialog_pick_profile, dialog_tips, dialog_force_close)
 from .icons import _icon_widget
 from .licensing import _machine_code
 from .theme import (ACCENT, APP_VERSION, BROWSER_COLORS, CARD, CARD_HOVER, DIM, EDGE, FG, GREEN, LOG_FILE, PANEL, PROGRAM_PATH, RED, SETTINGS_FILE)
@@ -123,14 +123,15 @@ class LaunchMixin:
         if not api.BASE_URL:
             self._log("[net] server tidak dikonfigurasi - mode offline")
             if not self.lisensi_ok:
-                self._ui_queue.put(self._request_license)
+                self._log("[net] aktivasi butuh server - jalur kunci manual "
+                          "sudah dihapus")
             return
         try:
             self._net_license_flow()
         except Exception as ex:
             self._log(f"[net] lisensi online gagal: {ex}")
             if not self.lisensi_ok:
-                self._ui_queue.put(self._request_license)
+                self._ui_queue.put(self._ask_online)
         try:
             self._net_update_check()
         except Exception as ex:
@@ -174,6 +175,7 @@ class LaunchMixin:
 
     def _net_request_flow(self, mc):
         """Dialog nickname + polling sampai disetujui / ditolak / bosan."""
+        from net import api
         from net import license as netlic
         from .licensing import _save_online_token
         self._online_cancel = False
@@ -183,11 +185,19 @@ class LaunchMixin:
             self._save_nickname(nick)
             self._nick_q.put(nick)
 
+        def siap(dlg):
+            # WAJIB sebelum show(): show() memblokir thread utama sampai
+            # dialog ditutup - tanpa ini referensi _online_dlg masih None
+            # saat thread net mau memanggil set_status/finish (popup lama
+            # tidak pernah menutup sendiri karena ini).
+            self._online_dlg = dlg
+
         def buka():
-            self._online_dlg = dialog_online_activation(
+            dialog_online_activation(
                 self.root, self._load_nickname(),
                 on_send=kirim_nick,
-                on_cancel=lambda: setattr(self, "_online_cancel", True))
+                on_cancel=lambda: setattr(self, "_online_cancel", True),
+                on_ready=siap)
 
         self._ui_queue.put(buka)
         try:
@@ -197,6 +207,15 @@ class LaunchMixin:
         nick = self._load_nickname() or "Tanpa-nama"
         try:
             data = netlic.request_approval(mc, nick, APP_VERSION)
+        except api.Unreachable as ex:
+            self._log(f"[net] server tidak terjangkau: {ex}")
+            self._ui_queue.put(
+                lambda: self._online_dlg
+                and (self._online_dlg.set_status(
+                    "🌐 Tidak dapat menjangkau server.",
+                    "Periksa koneksi internet, lalu buka aplikasi lagi."),
+                     self._online_dlg.finish(False)))
+            return
         except Exception as ex:
             self._log(f"[net] permintaan gagal: {ex}")
             data = {}
@@ -220,7 +239,7 @@ class LaunchMixin:
 
                 self._ui_queue.put(sukses)
                 return
-            if st == "denied":
+            if st in ("denied", "revoked"):
                 self._ui_queue.put(
                     lambda: self._online_dlg
                     and self._online_dlg.set_status("❌ Permintaan ditolak pemilik."))
@@ -247,9 +266,13 @@ class LaunchMixin:
                                             "Coba buka aplikasi lagi nanti."))
 
     def _on_license_revoked(self, st):
+        from .licensing import _delete_online_token
+        _delete_online_token()
+        self._tok_cache = None
         self.lisensi_ok = False
         self._title_bar()
-        self._log(f"[net] akses komputer ini dicabut/ditolak server ({st})")
+        self._log(f"[net] akses komputer ini dicabut/ditolak server ({st}) - "
+                  "token lokal dihapus")
         d = _Dialog(self.root, "Lisensi dicabut",
                     "Pemilik aplikasi mencabut akses komputer ini.",
                     ikon="⛔", warna=RED)
@@ -339,14 +362,22 @@ class LaunchMixin:
 
     # ------------------------------------------------------ lisensi & browser
 
-    def _request_license(self):
+    def _ask_online(self):
+        """Satu-satunya jalur aktivasi: minta persetujuan lewat server."""
         if self.lisensi_ok:
             return
-        if dialog_activation(self.root):
-            self.lisensi_ok = True
-            self._title_bar()
-            self._log("Lisensi AKTIF. Terima kasih!")
-            self._set_state("⏻ Siap", FG)
+        if getattr(self, "_online_running", False):
+            self._log("[net] permintaan persetujuan sudah berjalan.")
+            return
+        self._online_running = True
+
+        def kerja():
+            try:
+                self._net_request_flow(_machine_code())
+            finally:
+                self._online_running = False
+
+        threading.Thread(target=kerja, daemon=True).start()
 
 
     def _detect_browsers(self):
@@ -553,9 +584,8 @@ class LaunchMixin:
                           "Klik Stop, tunggu beberapa detik, lalu Start lagi.")
             return
         if not self.lisensi_ok:
-            self._request_license()
-            if not self.lisensi_ok:
-                return
+            self._ask_online()
+            return
         # Rentang level ditanyakan setelah tersambung & login diketahui
         # (bukan sebelum Start) - lihat _poll.
         self._tanya_rentang = True

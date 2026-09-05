@@ -101,6 +101,16 @@ def _save_online_token(tok):
 
 
 
+def _delete_online_token():
+    """Hapus token lokal (mis. dicabut server) supaya state bersih."""
+    try:
+        os.remove(LICENSE_FILE)
+    except Exception:
+        pass
+
+
+
+
 def _license_valid():
     # dua format file: kunci lama (teks) atau token online (satu baris JSON)
     if _saved_license().startswith("{"):
