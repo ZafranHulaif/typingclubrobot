@@ -85,8 +85,9 @@ function adminPage(machines, key) {
 <button class="b" style="background:${col}">${txt}</button></form>`).join("");
     const kapan = m.last_seen
       ? new Date(m.last_seen * 1000).toLocaleString("id-ID",
-          { day: "2-digit", month: "2-digit", year: "numeric",
-            hour: "2-digit", minute: "2-digit" }) : "-";
+          { timeZone: "Asia/Jakarta", day: "2-digit", month: "2-digit",
+            year: "numeric", hour: "2-digit", minute: "2-digit" }) + " WIB"
+      : "-";
     return `<tr><td><b>${esc(m.nickname || "?")}</b>
 <div class="dim">${esc(m.mc)}</div></td>
 <td class="dim">${esc(m.app_version || "-")}</td>

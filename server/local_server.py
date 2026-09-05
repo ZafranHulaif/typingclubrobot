@@ -133,7 +133,7 @@ def _admin_page(store, key):
         return ("<tr><td><b>" + html.escape(m.get("nickname", "?")) + "</b>"
                 + f'<div class="dim">{html.escape(m["mc"])}</div></td>'
                 + f'<td class="dim">{html.escape(str(m.get("app_version", "") or "-"))}</td>'
-                + f'<td class="dim">{time.strftime("%d-%m-%Y %H:%M", time.localtime(m.get("last_seen", 0)))}</td>'
+                + f'<td class="dim">{time.strftime("%d-%m-%Y %H:%M", time.gmtime(m.get("last_seen", 0) + 7 * 3600))} WIB</td>'
                 + f"<td>{t}</td></tr>")
 
     def tabel(daftar):
