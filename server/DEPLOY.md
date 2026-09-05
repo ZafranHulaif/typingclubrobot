@@ -28,14 +28,21 @@ persetujuanmu. Layar itu tetap buka / foto dulu, langkah 2 pakai itu.
 
 ## LANGKAH 2 - bikin Workernya (5 menit)
 
-1. Menu kiri: **Workers & Pages** -> tombol **Create**
-2. Pilih **Create Worker** -> nama: `typingbot-api` -> **Deploy**
-3. Setelah jadi, klik **Edit code**
-4. Hapus SEMUA kode bawaan di editor, tempel seluruh isi file
+1. Menu kiri: **Compute -> Workers & Pages**
+2. Klik **Create application** (di dashboard lama tombolnya cuma
+   bernama "Create" - sama saja)
+3. Pilih opsi **Workers** (kalau diminta pilih jenis: Workers, bukan
+   Pages/Containers - cari yang menyebut "Hello World" atau
+   "Start from scratch")
+4. Nama: `typingbot-api` -> **Deploy**
+5. Setelah jadi, klik **Edit code** (ikon `</>`)
+6. Hapus SEMUA kode bawaan di editor, tempel seluruh isi file
    `server/worker.js` (dari repo ini)
-5. Klik **Save and Deploy** (kanan atas)
-6. Catat URL Workermu, bentuknya:
+7. Klik **Save and Deploy** (kanan atas)
+8. Catat URL Workermu, bentuknya:
    `https://typingbot-api.nama-kamu.workers.dev`
+   (terlihat di halaman Worker, bagian preview/URL, atau Settings ->
+   Domains & Routes)
 
 ## LANGKAH 3 - isi 4 nilai dari LANGKAH 0 (5 menit)
 

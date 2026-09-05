@@ -78,9 +78,10 @@ def tampilkan_nilai(keys, admin):
     langkah(3, "Tempel 4 nilai ini ke Cloudflare (salin satu per satu)")
     print("""Kalau kamu belum bikin Workernya: buka
 https://dash.cloudflare.com -> daftar/akun gratis ->
-Workers & Pages -> Create -> Worker -> nama: typingbot-api ->
-Deploy -> Edit code -> hapus semua isi -> tempel isi
-server/worker.js -> Save and Deploy.
+Compute -> Workers & Pages -> Create application (dashboard
+lama: "Create") -> pilih Workers / Hello World ->
+nama: typingbot-api -> Deploy -> Edit code (ikon </>) ->
+hapus semua isi -> tempel isi server/worker.js -> Save and Deploy.
 
 Lalu di Settings Worker kamu, buat yang ini:""")
     print(f"""
