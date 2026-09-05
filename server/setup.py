@@ -136,6 +136,17 @@ def tanam_pubkey(pub_hex):
     return True
 
 
+def rapikan_url(base):
+    """Lengkapi skema kalau user tempel tanpa https:// (bug umum)."""
+    base = (base or "").strip().rstrip("/")
+    if not base:
+        return base
+    if "://" in base:
+        return base
+    lokal = base.startswith("127.0.0.1") or base.startswith("localhost")
+    return ("http://" if lokal else "https://") + base
+
+
 def tulis_server_url_txt(base):
     p = os.path.join(ROOT, "dist", "server_url.txt")
     os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -173,9 +184,9 @@ def main():
     tampilkan_nilai(keys, admin)
 
     langkah(4, "Tes sambungan ke Worker kamu")
-    base = a.url or tanya(
-        "Tempel URL Worker kamu (contoh: https://typingbot-api.xxx.workers.dev):",
-        admin.get("url", ""))
+    base = rapikan_url(a.url or tanya(
+        "Tempel URL Worker kamu (contoh: typingbot-api.xxx.workers.dev):",
+        admin.get("url", "")))
     if not base:
         print("Belum ada URL - jalankan setup.py lagi setelah Workernya jadi.")
         return 1
