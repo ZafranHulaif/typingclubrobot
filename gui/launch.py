@@ -19,9 +19,11 @@ from ctypes import wintypes
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
-from .dialogs import (dialog_activation, dialog_open_browser, dialog_pick_browser, dialog_pick_profile, dialog_tips, dialog_force_close)
+from .dialogs import (dialog_activation, dialog_online_activation, dialog_open_browser, dialog_pick_browser, dialog_pick_profile, dialog_tips, dialog_force_close)
 from .icons import _icon_widget
-from .theme import (ACCENT, BROWSER_COLORS, CARD, CARD_HOVER, DIM, EDGE, FG, LOG_FILE, SETTINGS_FILE)
+from .licensing import _machine_code
+from .theme import (ACCENT, APP_VERSION, BROWSER_COLORS, CARD, CARD_HOVER, DIM, EDGE, FG, GREEN, LOG_FILE, PANEL, PROGRAM_PATH, RED, SETTINGS_FILE)
+from .widgets import _Dialog
 
 
 class LaunchMixin:
@@ -92,6 +94,246 @@ class LaunchMixin:
     def on_tips(self):
         det = ", ".join(n for n, _ in self._detected) or "tidak terdeteksi"
         dialog_tips(self.root, det)
+
+    # -------------------------------------------------------------- jaringan
+
+    def _load_nickname(self):
+        try:
+            return json.load(open(SETTINGS_FILE, encoding="utf-8")).get("nickname", "")
+        except Exception:
+            return ""
+
+    def _save_nickname(self, nick):
+        try:
+            data = {}
+            try:
+                data = json.load(open(SETTINGS_FILE, encoding="utf-8"))
+            except Exception:
+                pass
+            data["nickname"] = nick
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+        except Exception:
+            pass
+
+    def _net_worker(self):
+        """Satu-satunya pintu internet aplikasi: dipanggil sekali saat
+        mulai (lisensi + cek versi), setelah itu sepenuhnya offline."""
+        from net import api
+        if not api.BASE_URL:
+            self._log("[net] server tidak dikonfigurasi - mode offline")
+            if not self.lisensi_ok:
+                self._ui_queue.put(self._request_license)
+            return
+        try:
+            self._net_license_flow()
+        except Exception as ex:
+            self._log(f"[net] lisensi online gagal: {ex}")
+            if not self.lisensi_ok:
+                self._ui_queue.put(self._request_license)
+        try:
+            self._net_update_check()
+        except Exception as ex:
+            self._log(f"[net] cek pembaruan gagal: {ex}")
+
+    def _net_license_flow(self):
+        from net import license as netlic
+        from .licensing import _load_online_token, _save_online_token
+        mc = _machine_code()
+        tok = _load_online_token()
+        if tok and netlic.verify_token(tok):
+            data = netlic.fetch_status(mc)
+            st = data.get("status")
+            if st == "approved" and data.get("token"):
+                _save_online_token(data["token"])
+                self._tok_cache = data["token"]
+                self._log("[net] lisensi online diperpanjang "
+                          f"({netlic.days_left(data['token'])} hari lagi)")
+            elif st in ("revoked", "denied"):
+                self._ui_queue.put(lambda: self._on_license_revoked(st))
+            elif st == "unknown":
+                self._log("[net] server tidak mengenal mesin ini - minta ulang")
+                self._net_request_flow(mc)
+            else:
+                self._tok_cache = tok
+            return
+        if self.lisensi_ok:
+            # kunci lama tetap valid; daftar diam-diam supaya bisa ikut
+            # pembaruan (token unduhan hanya untuk mesin yang disetujui)
+            nick = self._load_nickname() or "pemilik-lama"
+            data = netlic.request_approval(mc, nick, APP_VERSION)
+            if data.get("status") == "approved" and data.get("token"):
+                _save_online_token(data["token"])
+                self._tok_cache = data["token"]
+                self._log("[net] mesin ini sudah disetujui server")
+            else:
+                self._log("[net] menunggu persetujuan server untuk "
+                          "fitur pembaruan")
+            return
+        self._net_request_flow(mc)
+
+    def _net_request_flow(self, mc):
+        """Dialog nickname + polling sampai disetujui / ditolak / bosan."""
+        from net import license as netlic
+        from .licensing import _save_online_token
+        self._online_cancel = False
+        self._online_dlg = None
+
+        def kirim_nick(nick):
+            self._save_nickname(nick)
+            self._nick_q.put(nick)
+
+        def buka():
+            self._online_dlg = dialog_online_activation(
+                self.root, mc, self._load_nickname(),
+                on_send=kirim_nick,
+                on_cancel=lambda: setattr(self, "_online_cancel", True))
+
+        self._ui_queue.put(buka)
+        try:
+            self._nick_q.get(timeout=600)
+        except queue.Empty:
+            return
+        nick = self._load_nickname() or "Tanpa-nama"
+        try:
+            data = netlic.request_approval(mc, nick, APP_VERSION)
+        except Exception as ex:
+            self._log(f"[net] permintaan gagal: {ex}")
+            data = {}
+        for i in range(36):
+            if self._online_cancel:
+                return
+            st = data.get("status")
+            if st == "approved" and data.get("token"):
+                _save_online_token(data["token"])
+                self._tok_cache = data["token"]
+
+                def sukses():
+                    self.lisensi_ok = True
+                    self._title_bar()
+                    self._log("Lisensi AKTIF (disetujui pemilik). Terima kasih!")
+                    self._set_state("⏻ Siap", FG)
+                    try:
+                        self._online_dlg.finish(True)
+                    except Exception:
+                        pass
+
+                self._ui_queue.put(sukses)
+                return
+            if st == "denied":
+                self._ui_queue.put(
+                    lambda: self._online_dlg
+                    and self._online_dlg.set_status("❌ Permintaan ditolak pemilik."))
+                return
+            info = f"⏳ Menunggu persetujuan pemilik... ({(i + 1) * 5}s)"
+
+            def status(t=info):
+                try:
+                    self._online_dlg.set_status(t,
+                                                "Pemilik menyetujui lewat "
+                                                "halaman admin-nya.")
+                except Exception:
+                    pass
+
+            self._ui_queue.put(status)
+            time.sleep(5)
+            try:
+                data = netlic.fetch_status(mc)
+            except Exception:
+                pass
+        self._ui_queue.put(
+            lambda: self._online_dlg
+            and self._online_dlg.set_status("⌛ Waktu tunggu habis.",
+                                            "Coba buka aplikasi lagi nanti."))
+
+    def _on_license_revoked(self, st):
+        self.lisensi_ok = False
+        self._title_bar()
+        self._log(f"[net] akses komputer ini dicabut/ditolak server ({st})")
+        d = _Dialog(self.root, "Lisensi dicabut",
+                    "Pemilik aplikasi mencabut akses komputer ini.",
+                    ikon="⛔", warna=RED)
+        tk.Label(d.body, text="Aplikasi tidak bisa dipakai lagi di sini.",
+                 font=("Segoe UI", 10), fg=FG, bg=PANEL,
+                 wraplength=420, justify="left").pack(anchor="w", pady=(4, 0))
+        d.button("Oke")
+        d.show()
+
+    def _net_update_check(self):
+        from net import license as netlic
+        from net import updater as netupd
+        info = netupd.check(APP_VERSION)
+        if not info:
+            self._log("[net] versi sudah yang terbaru")
+            return
+        tok = getattr(self, "_tok_cache", None)
+        if not (tok and netlic.verify_token(tok)):
+            self._log("[net] pembaruan tersedia tapi mesin belum "
+                      "disetujui server")
+            return
+        self._update_info = info
+        self._ui_queue.put(lambda: self._show_update_button(info))
+
+    def _show_update_button(self, info):
+        try:
+            ver = info.get("version", "?")
+            if self._update_btn is None:
+                self._update_btn = self._btn(self.kanan, f"⬇ v{ver}",
+                                             GREEN, self.on_update, kecil=True)
+            else:
+                self._update_btn.configure(text=f"⬇ v{ver}")
+            self._log(f"[net] pembaruan tersedia: v{ver} "
+                      f"({info.get('notes') or '-'})")
+        except Exception:
+            pass
+
+    def on_update(self):
+        if getattr(self, "_updating", False):
+            return
+        info = getattr(self, "_update_info", None)
+        tok = getattr(self, "_tok_cache", None)
+        if not info or not tok:
+            return
+        self._updating = True
+        self._set_state("⬇ Mengunduh pembaruan...", ACCENT)
+        try:
+            self._update_btn.configure(state="disabled")
+        except Exception:
+            pass
+
+        def maju(persen):
+            self._ui_queue.put(
+                lambda p=persen: self._set_state(f"⬇ Mengunduh {p}%", ACCENT))
+
+        def kerja():
+            from net import updater as netupd
+            try:
+                def prog(got, total):
+                    if total:
+                        maju(int(got * 100 / total))
+
+                netupd.download(info, tok, PROGRAM_PATH + netupd.NEW_SUFFIX, prog)
+                if netupd.apply_update_and_restart(PROGRAM_PATH):
+                    self._ui_queue.put(self._update_restart)
+                else:
+                    self._ui_queue.put(lambda: self._set_state("⏻ Siap", FG))
+                    self._log("[net] unduhan tersimpan di folder aplikasi - "
+                              "ganti file lama secara manual")
+                    self._updating = False
+            except Exception as ex:
+                self._log(f"[net] pembaruan gagal: {ex}")
+                self._ui_queue.put(lambda: self._set_state("⏻ Siap", FG))
+                self._updating = False
+
+        threading.Thread(target=kerja, daemon=True).start()
+
+    def _update_restart(self):
+        self._log("Pembaruan siap - aplikasi dimulai ulang...")
+        self._set_state("✓ Diperbarui", FG)
+        try:
+            self.root.after(1200, self.on_close)
+        except Exception:
+            self.on_close()
 
 
     # ------------------------------------------------------ lisensi & browser

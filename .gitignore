@@ -6,6 +6,13 @@ __pycache__/
 _*.py
 _*.png
 _*.js
+!server/worker.js
+
+# Rahasia backend (vault privat menyimpan salinannya)
+server/_signing.json
+server/_admin.json
+server/_admin_key.txt
+server/_store/
 
 # Snapshot manual engine (backup lokal, bukan bagian dari repo)
 version3_stable.py

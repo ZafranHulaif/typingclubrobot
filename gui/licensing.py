@@ -1,4 +1,4 @@
-"""Aktivasi: fingerprint mesin + kunci HMAC."""
+"""Aktivasi: fingerprint mesin + kunci HMAC + lisensi online."""
 
 import base64
 import ctypes
@@ -18,6 +18,8 @@ import zlib
 from ctypes import wintypes
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
+
+from net import license as _netlic
 
 from .theme import LICENSE_FILE
 
@@ -87,7 +89,23 @@ def _saved_license():
 
 
 
+def _load_online_token():
+    return _netlic.load_token(LICENSE_FILE)
+
+
+
+
+def _save_online_token(tok):
+    _netlic.save_token(LICENSE_FILE, tok)
+
+
+
+
 def _license_valid():
+    # dua format file: kunci lama (teks) atau token online (satu baris JSON)
+    if _saved_license().startswith("{"):
+        tok = _load_online_token()
+        return bool(tok and _netlic.verify_token(tok))
     return _norm(_saved_license()) == _norm(_make_key(_machine_code()))
 
 

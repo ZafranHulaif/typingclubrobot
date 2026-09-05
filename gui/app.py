@@ -53,6 +53,13 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self._profile = "bot"        # 'bot' khusus | 'saya' profil browser user
         self._profile_dir = ""       # 'Default' / 'Profile 1' ... (mode saya)
         self._profile_label = ""     # nama tampilan profil (mis. 'Student')
+        self._nick_q = queue.Queue()   # nickname dari dialog online -> thread net
+        self._tok_cache = None         # token lisensi online terakhir (net)
+        self._update_info = None       # info rilis baru (thread net)
+        self._updating = False         # sedang mengunduh pembaruan
+        self._online_cancel = False    # user menutup dialog aktivasi online
+        self._online_dlg = None        # dialog aktivasi online aktif
+        self._update_btn = None        # tombol perbarui (muncul bila ada rilis)
         self.lisensi_ok = _license_valid()
 
         root.title("TypingBot")
@@ -118,9 +125,9 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self.chip.pack_propagate(False)
         self._update_browser_chip()
 
-        kanan = tk.Frame(ctrl, bg=BG)
-        kanan.pack(side="right")
-        self._btn(kanan, "❓", CARD, self.on_tips, kecil=True)
+        self.kanan = tk.Frame(ctrl, bg=BG)
+        self.kanan.pack(side="right")
+        self._btn(self.kanan, "❓", CARD, self.on_tips, kecil=True)
 
         # ---------- baris pengaturan: kecepatan ----------
         # Dropdown Browser dihapus (permintaan user): pilihan browser lewat
@@ -185,8 +192,8 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             self._log(f"Lisensi aktif (mesin {_machine_code()}).")
         else:
             self._log(f"Lisensi belum aktif - kode mesin: {_machine_code()}")
-            root.after(500, self._request_license)
         threading.Thread(target=self._load_bot, daemon=True).start()
+        threading.Thread(target=self._net_worker, daemon=True).start()
         self.root.after(150, self._poll)
 
 

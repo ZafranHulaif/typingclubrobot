@@ -136,8 +136,17 @@ engine/                     automation engine (was one 4,600-line file)
   rentang.py                per-iteration range check
   supervisor.py             the main supervisor loop
 autopilot_pw.py             compatibility facade over the package
-bot_gui.py                  desktop front end: dialogs, activity view,
-                            activation, launcher
+gui/                        desktop front end (tkinter), split by role:
+  theme.py licensing.py icons.py widgets.py translator.py
+  dialogs.py activity.py launch.py dev.py app.py
+net/                        online client (v2.7): self-update + licensing
+  api.py                    thin urllib layer, the only internet touchpoint
+  license.py                Ed25519 token verify (offline) + status calls
+  updater.py                version check, hash-verified download, exe swap
+server/                     optional backend (contract: server/API.md)
+  worker.js                 Cloudflare Worker (KV + R2, free tier)
+  local_server.py           the same API as a local Python process
+  publish.py                owner tool: push a new release in one command
 level_data.py               baked 685-lesson course map
 version1_selenium.py        v1 engine (Selenium, kept for history)
 version2_playwright.py      v2 engine (Playwright, kept for history)

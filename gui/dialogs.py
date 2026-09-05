@@ -604,3 +604,71 @@ def dialog_done(induk, akhir):
              justify="left").pack(anchor="w")
     d.button("Oke")
     return d.show()
+
+
+
+
+def dialog_online_activation(induk, kode, nickname, on_send, on_cancel):
+    """Aktivasi online: isi nickname, kirim, lalu tunggu persetujuan.
+
+    on_send(nickname) dipanggil di thread utama saat tombol kirim
+    ditekan; pemanggil meneruskannya ke thread jaringan. Thread itu
+    kemudian memanggil d.set_status()/d.finish() lewat _ui_queue.
+    """
+    d = _Dialog(induk, "Aktivasi Online",
+                "Komputer ini menunggu persetujuan pemilik aplikasi.",
+                ikon="🌐", warna=GREEN)
+    fase1 = tk.Frame(d.body, bg=PANEL)
+    fase1.pack(fill="x")
+    tk.Label(fase1, text="Kode mesin:", font=("Segoe UI", 9), fg=DIM,
+             bg=PANEL).pack(anchor="w")
+    tk.Label(fase1, text=kode, font=("Consolas", 13, "bold"), fg=FG,
+             bg=PANEL).pack(anchor="w", pady=(2, 8))
+    tk.Label(fase1, text="Siapa nama kamu? (supaya dikenali pemilik)",
+             font=("Segoe UI", 9), fg=DIM, bg=PANEL).pack(anchor="w")
+    var = tk.StringVar(value=nickname or "")
+    ent = tk.Entry(fase1, textvariable=var, font=("Segoe UI", 11), bg=CARD,
+                   fg=FG, insertbackground=FG, relief="flat",
+                   highlightthickness=1, highlightbackground=EDGE,
+                   highlightcolor=ACCENT)
+    ent.pack(fill="x", ipady=6, pady=(2, 6))
+
+    fase2 = tk.Frame(d.body, bg=PANEL)
+    status_lbl = tk.Label(fase2, text="Mengirim permintaan...",
+                          font=("Segoe UI", 11, "bold"), fg=FG, bg=PANEL,
+                          wraplength=420, justify="left")
+    status_lbl.pack(anchor="w", pady=4)
+    sub_lbl = tk.Label(fase2, text="", font=("Segoe UI", 9), fg=DIM,
+                       bg=PANEL, wraplength=420, justify="left")
+    sub_lbl.pack(anchor="w")
+
+    def kirim():
+        nick = var.get().strip() or "Tanpa-nama"
+        fase1.pack_forget()
+        fase2.pack(fill="x")
+        try:
+            on_send(nick)
+        except Exception:
+            pass
+
+    def set_status(txt, sub=""):
+        try:
+            status_lbl.configure(text=txt)
+            if sub:
+                sub_lbl.configure(text=sub)
+        except Exception:
+            pass
+
+    def finish(ok):
+        try:
+            d.done(ok)
+        except Exception:
+            pass
+
+    d.set_status = set_status
+    d.finish = finish
+    d.button("Batalkan", None, primer=False,
+             cmd=lambda: (on_cancel(), d.done(False)))
+    d.button("Kirim Permintaan", None, cmd=kirim)
+    ent.bind("<Return>", lambda e: kirim())
+    return d.show()

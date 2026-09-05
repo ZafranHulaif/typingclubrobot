@@ -4,8 +4,8 @@
 # Tampil di Properties -> Details pada exe: pembuat, produk, versi.
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(2, 6, 0, 0),
-    prodvers=(2, 6, 0, 0),
+    filevers=(2, 7, 0, 0),
+    prodvers=(2, 7, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -18,12 +18,12 @@ VSVersionInfo(
       StringTable('040904B0', [
         StringStruct('CompanyName', 'ZafranHulaif'),
         StringStruct('FileDescription', 'TypingBot - asisten belajar mengetik TypingClub'),
-        StringStruct('FileVersion', '2.6'),
+        StringStruct('FileVersion', '2.7'),
         StringStruct('InternalName', 'TypingBot'),
         StringStruct('LegalCopyright', '(c) 2026 ZafranHulaif. All rights reserved.'),
         StringStruct('OriginalFilename', 'TypingBot.exe'),
         StringStruct('ProductName', 'TypingBot'),
-        StringStruct('ProductVersion', '2.6'),
+        StringStruct('ProductVersion', '2.7'),
       ]),
     ]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])]),
