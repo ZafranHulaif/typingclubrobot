@@ -608,24 +608,21 @@ def dialog_done(induk, akhir):
 
 
 
-def dialog_online_activation(induk, kode, nickname, on_send, on_cancel):
+def dialog_online_activation(induk, nickname, on_send, on_cancel):
     """Aktivasi online: isi nickname, kirim, lalu tunggu persetujuan.
 
     on_send(nickname) dipanggil di thread utama saat tombol kirim
     ditekan; pemanggil meneruskannya ke thread jaringan. Thread itu
     kemudian memanggil d.set_status()/d.finish() lewat _ui_queue.
     """
-    d = _Dialog(induk, "Aktivasi Online",
-                "Komputer ini menunggu persetujuan pemilik aplikasi.",
+    d = _Dialog(induk, "Aktivasi",
+                "Sebutkan namamu supaya dikenali pemilik aplikasi.",
                 ikon="🌐", warna=GREEN)
     fase1 = tk.Frame(d.body, bg=PANEL)
     fase1.pack(fill="x")
-    tk.Label(fase1, text="Kode mesin:", font=("Segoe UI", 9), fg=DIM,
-             bg=PANEL).pack(anchor="w")
-    tk.Label(fase1, text=kode, font=("Consolas", 13, "bold"), fg=FG,
-             bg=PANEL).pack(anchor="w", pady=(2, 8))
-    tk.Label(fase1, text="Siapa nama kamu? (supaya dikenali pemilik)",
-             font=("Segoe UI", 9), fg=DIM, bg=PANEL).pack(anchor="w")
+    tk.Label(fase1, text="Siapa nama kamu?",
+             font=("Segoe UI", 11, "bold"), fg=FG,
+             bg=PANEL).pack(anchor="w", pady=(0, 6))
     var = tk.StringVar(value=nickname or "")
     ent = tk.Entry(fase1, textvariable=var, font=("Segoe UI", 11), bg=CARD,
                    fg=FG, insertbackground=FG, relief="flat",
