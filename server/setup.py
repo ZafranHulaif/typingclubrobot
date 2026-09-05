@@ -110,7 +110,10 @@ def tes_sambungan(base, timeout=10):
     import urllib.error
     import urllib.request
     try:
-        with urllib.request.urlopen(base + "/api/latest", timeout=timeout) as r:
+        req = urllib.request.Request(
+            base + "/api/latest",
+            headers={"User-Agent": "TypingBot-setup/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return True, f"terhubung (status {r.status})"
     except urllib.error.HTTPError as e:
         return True, (f"terhubung (server menjawab {e.code}; "

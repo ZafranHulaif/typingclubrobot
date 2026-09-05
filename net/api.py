@@ -14,6 +14,9 @@ import urllib.request
 
 DEFAULT_BASE_URL = ""
 
+# Cloudflare menolak (error 1010) permintaan tanpa User-Agent - wajib ada.
+USER_AGENT = "TypingBot/2.7 (+github.com/ZafranHulaif/typingclubrobot)"
+
 
 def _program_dir():
     if getattr(sys, "frozen", False):
@@ -48,6 +51,7 @@ def http_json(method, path, body=None, timeout=6):
     url = BASE_URL + path
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("User-Agent", USER_AGENT)
     if data is not None:
         req.add_header("Content-Type", "application/json; charset=utf-8")
     try:
@@ -75,7 +79,8 @@ def http_download(path_or_url, dest_path, progress_cb=None, timeout=60):
     h = hashlib.sha256()
     got = 0
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             total = r.headers.get("Content-Length")
             total = int(total) if total else None
             with open(part, "wb") as f:

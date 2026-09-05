@@ -18,6 +18,8 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+UA = "TypingBot-publisher/1.0"
+
 
 def _conf(args):
     url = args.url or os.environ.get("TYPINGBOT_SERVER_URL") or ""
@@ -46,7 +48,8 @@ def publish(exe_path, version, notes, url, key, timeout=600):
         url + "/api/publish", method="POST",
         data=open(exe_path, "rb").read(),
         headers={"X-Admin-Key": key, "X-Version": version,
-                 "X-Notes": notes, "Content-Type": "application/octet-stream"})
+                 "X-Notes": notes, "Content-Type": "application/octet-stream",
+                 "User-Agent": UA})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         resp = json.loads(r.read().decode("utf-8"))
     return {"sha256": h.hexdigest(), "size": size, "resp": resp}
