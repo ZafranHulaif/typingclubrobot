@@ -207,7 +207,10 @@ async function handle(request) {
     if (!machines[mc]) return json({ error: "unknown_mc" }, 404);
     machines[mc].status = peta[act];
     await writeMachines(machines);
-    return Response.redirect(`${env.BASE || u.origin}/admin?key=${encodeURIComponent(key)}`, 302);
+    // BASE kadang diisi tanpa https:// -> redirect rusak; pakai origin
+    // permintaan sebagai jatuhnya.
+    const base = (env.BASE && env.BASE.includes("://")) ? env.BASE : u.origin;
+    return Response.redirect(`${base}/admin?key=${encodeURIComponent(key)}`, 302);
   }
 
   if (u.pathname === "/api/publish" && request.method === "POST") {

@@ -47,9 +47,18 @@ def check(app_version):
 
 
 def download(info, tok, new_path, progress_cb=None):
-    """Unduh rilis ke new_path (bukan exe aktif!); raise bila hash beda."""
+    """Unduh rilis ke new_path (bukan exe aktif!); raise bila hash beda.
+
+    Workers menghapus Content-Length pada respons stream -> total dari
+    info['size'] dipakai sebagai cadangan supaya % tetap tampil.
+    """
     url = "/api/download?t=" + download_param(tok)
-    digest = api.http_download(url, new_path, progress_cb)
+
+    def prog(got, total, _cb=progress_cb):
+        if _cb:
+            _cb(got, total or info.get("size"))
+
+    digest = api.http_download(url, new_path, prog)
     if info.get("sha256") and digest != info["sha256"]:
         try:
             os.remove(new_path)
