@@ -110,54 +110,87 @@ class _Store:
 
 def _admin_page(store, key):
     machines = store.machines()
-    rows = sorted(machines.values(),
-                  key=lambda m: (m.get("status") != "pending",
-                                 -m.get("last_seen", 0)))
-    menunggu = sum(1 for m in rows if m.get("status") == "pending")
-    tr = []
-    for m in rows:
-        st = m.get("status", "?")
-        warna = {"approved": "#3fb950", "pending": "#d29922",
-                 "denied": "#f85149", "revoked": "#f85149"}.get(st, "#9aa0ab")
-        btn = []
-        if st != "approved":
-            btn.append(("Setujui", "approve", "#238636"))
-        if st != "pending":
-            btn.append(("Tunggu", "pending", "#9e6a03"))
-        if st != "denied":
-            btn.append(("Tolak", "deny", "#b62324"))
-        if st not in ("revoked", "denied"):
-            btn.append(("Cabut", "revoke", "#b62324"))
-        tombol = "".join(
+
+    def baris(m):
+        tombol = []
+        st = m.get("status")
+        if st == "pending":
+            tombol = [("Setujui", "approve", "#238636"),
+                      ("Tolak", "deny", "#b62324")]
+        elif st == "approved":
+            tombol = [("Cabut akses", "revoke", "#b62324"),
+                      ("Hapus", "delete", "#444a56")]
+        else:
+            tombol = [("Setujui ulang", "approve", "#238636"),
+                      ("Hapus", "delete", "#444a56")]
+        t = "".join(
             f'<form method="post" action="/admin/action" class="inl">'
             f'<input type="hidden" name="key" value="{html.escape(key)}">'
             f'<input type="hidden" name="mc" value="{html.escape(m["mc"])}">'
             f'<input type="hidden" name="act" value="{act}">'
-            f'<button class="b" style="background:{col}">{html.escape(txt)}</button></form>'
-            for txt, act, col in btn)
-        tr.append(
-            "<tr><td>" + html.escape(m.get("nickname", "?"))
-            + f'<div class="dim">{html.escape(m["mc"])}</div></td>'
-            + f'<td><span class="chip" style="background:{warna}22;color:{warna}">{st}</span></td>'
-            + f'<td class="dim">{time.strftime("%d-%m %H:%M", time.localtime(m.get("last_seen", 0)))}</td>'
-            + f'<td class="dim">{html.escape(str(m.get("app_version", "")))}</td>'
-            + f"<td>{tombol}</td></tr>")
+            f'<button class="b" style="background:{col}">{txt}</button></form>'
+            for txt, act, col in tombol)
+        return ("<tr><td><b>" + html.escape(m.get("nickname", "?")) + "</b>"
+                + f'<div class="dim">{html.escape(m["mc"])}</div></td>'
+                + f'<td class="dim">{html.escape(str(m.get("app_version", "") or "-"))}</td>'
+                + f'<td class="dim">{time.strftime("%d-%m-%Y %H:%M", time.localtime(m.get("last_seen", 0)))}</td>'
+                + f"<td>{t}</td></tr>")
+
+    def tabel(daftar):
+        if not daftar:
+            return '<div class="dim kosong">tidak ada</div>'
+        return ('<table><tr><th>Mesin</th><th>Versi</th><th>Terakhir</th>'
+                '<th>Aksi</th></tr>' + "".join(baris(m) for m in daftar)
+                + "</table>")
+
+    per_status = {}
+    for m in machines.values():
+        per_status.setdefault(m.get("status", "?"), []).append(m)
+    for v in per_status.values():
+        v.sort(key=lambda m: -m.get("last_seen", 0))
+    menunggu = per_status.get("pending", [])
+    oke = per_status.get("approved", [])
+    buruk = per_status.get("denied", []) + per_status.get("revoked", [])
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>TypingBot Admin</title><style>
 body{{background:#141519;color:#e9eaee;font:14px/1.5 system-ui;margin:0;padding:20px}}
-h1{{font-size:20px}} table{{border-collapse:collapse;width:100%}}
+h1{{font-size:20px;margin:0 0 10px}}
+.atas{{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}}
+.chip{{border-radius:12px;padding:3px 12px;font-size:12px;font-weight:600}}
+.k{{background:#d2992222;color:#d29922}} .h{{background:#3fb95022;color:#3fb950}}
+.x{{background:#f8514922;color:#f85149}}
+.muat{{color:#e9eaee;background:#20232b;border:1px solid #2c303b;border-radius:8px;
+padding:5px 12px;font-size:12px;cursor:pointer;text-decoration:none}}
+.dim{{color:#9aa0ab;font-size:12px}} .kosong{{padding:10px 2px}}
+.judul{{margin:18px 0 4px;font-weight:700;font-size:15px}}
+table{{border-collapse:collapse;width:100%}}
 td,th{{padding:8px 10px;border-bottom:1px solid #2c303b;text-align:left;vertical-align:top}}
-.dim{{color:#9aa0ab;font-size:12px}}
-.chip{{border-radius:10px;padding:2px 10px;font-size:12px}}
 .inl{{display:inline-block;margin:1px}} .b{{color:#fff;border:0;border-radius:6px;
 padding:5px 10px;font-size:12px;cursor:pointer}}
 </style></head><body>
-<h1>TypingBot Admin</h1>
-<p>{menunggu} mesin menunggu persetujuan &bull; total {len(rows)}</p>
-<table><tr><th>Mesin</th><th>Status</th><th>Terpakhir</th><th>Versi</th><th>Aksi</th></tr>
-{''.join(tr) or '<tr><td colspan="5" class="dim">belum ada mesin</td></tr>'}
-</table></body></html>"""
+<h1>⚡ TypingBot Admin</h1>
+<div class="atas">
+<span class="chip k">⏳ {len(menunggu)} menunggu</span>
+<span class="chip h">✅ {len(oke)} disetujui</span>
+<span class="chip x">⛔ {len(buruk)} ditolak/dicabut</span>
+<a class="muat" href="/admin?key={html.escape(key)}">↻ Muat ulang</a>
+<span class="dim">otomatis setiap 8 detik</span>
+</div>
+<div id="isi">
+<div class="judul">⏳ Menunggu persetujuan</div>{tabel(menunggu)}
+<div class="judul">✅ Disetujui</div>{tabel(oke)}
+<div class="judul">⛔ Ditolak / dicabut</div>{tabel(buruk)}
+</div>
+<script>
+setInterval(async()=>{{try{{
+const r=await fetch(location.href);
+const t=await r.text();
+const d=new DOMParser().parseFromString(t,'text/html');
+const n=d.getElementById('isi');
+if(n)document.getElementById('isi').replaceWith(n);
+}}catch(e){{}}}},8000);
+</script></body></html>"""
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -314,15 +347,18 @@ class Handler(BaseHTTPRequestHandler):
             if data["key"] != _admin_key:
                 return self._json(403, {"error": "bad_admin_key"})
             mc, act = data["mc"], data["act"]
-            if act not in ("approve", "deny", "revoke", "pending"):
+            if act not in ("approve", "deny", "revoke", "pending", "delete"):
                 return self._json(400, {"error": "bad_action"})
             with _lock:
                 machines = self.store.machines()
                 m = machines.get(mc)
                 if not m:
                     return self._json(404, {"error": "unknown_mc"})
-                m["status"] = {"approve": "approved", "deny": "denied",
-                               "revoke": "revoked", "pending": "pending"}[act]
+                if act == "delete":
+                    machines.pop(mc, None)
+                else:
+                    m["status"] = {"approve": "approved", "deny": "denied",
+                                    "revoke": "revoked", "pending": "pending"}[act]
                 self.store.save_machines(machines)
             return self._redirect_admin(data["key"])
         self._json(404, {"error": "not_found"})

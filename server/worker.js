@@ -67,18 +67,16 @@ const esc = (s) =>
   }[c]));
 
 function adminPage(machines, key) {
-  const rows = Object.values(machines).sort((a, b) =>
-    (a.status === "pending" ? 0 : 1) - (b.status === "pending" ? 0 : 1) ||
-    (b.last_seen || 0) - (a.last_seen || 0));
-  const menunggu = rows.filter((m) => m.status === "pending").length;
-  const warna = { approved: "#3fb950", pending: "#d29922", denied: "#f85149", revoked: "#f85149" };
-  const tr = rows.map((m) => {
-    const st = m.status || "?";
-    const btn = [];
-    if (st !== "approved") btn.push(["Setujui", "approve", "#238636"]);
-    if (st !== "pending") btn.push(["Tunggu", "pending", "#9e6a03"]);
-    if (st !== "denied") btn.push(["Tolak", "deny", "#b62324"]);
-    if (st !== "revoked" && st !== "denied") btn.push(["Cabut", "revoke", "#b62324"]);
+  const baris = (m) => {
+    const st = m.status;
+    let btn;
+    if (st === "pending") {
+      btn = [["Setujui", "approve", "#238636"], ["Tolak", "deny", "#b62324"]];
+    } else if (st === "approved") {
+      btn = [["Cabut akses", "revoke", "#b62324"], ["Hapus", "delete", "#444a56"]];
+    } else {
+      btn = [["Setujui ulang", "approve", "#238636"], ["Hapus", "delete", "#444a56"]];
+    }
     const tombol = btn.map(([txt, act, col]) =>
       `<form method="post" action="/admin/action" class="inl">
 <input type="hidden" name="key" value="${esc(key)}">
@@ -86,29 +84,63 @@ function adminPage(machines, key) {
 <input type="hidden" name="act" value="${act}">
 <button class="b" style="background:${col}">${txt}</button></form>`).join("");
     const kapan = m.last_seen
-      ? new Date(m.last_seen * 1000).toISOString().slice(0, 16).replace("T", " ") : "";
-    return `<tr><td>${esc(m.nickname || "?")}
+      ? new Date(m.last_seen * 1000).toLocaleString("id-ID",
+          { day: "2-digit", month: "2-digit", year: "numeric",
+            hour: "2-digit", minute: "2-digit" }) : "-";
+    return `<tr><td><b>${esc(m.nickname || "?")}</b>
 <div class="dim">${esc(m.mc)}</div></td>
-<td><span class="chip" style="background:${warna[st] || "#9aa0ab"}22;color:${warna[st] || "#9aa0ab"}">${st}</span></td>
-<td class="dim">${kapan}</td><td class="dim">${esc(m.app_version || "")}</td>
-<td>${tombol}</td></tr>`;
-  }).join("");
+<td class="dim">${esc(m.app_version || "-")}</td>
+<td class="dim">${kapan}</td><td>${tombol}</td></tr>`;
+  };
+  const tabel = (daftar) => daftar.length
+    ? `<table><tr><th>Mesin</th><th>Versi</th><th>Terakhir</th><th>Aksi</th></tr>`
+      + daftar.map(baris).join("") + "</table>"
+    : '<div class="dim kosong">tidak ada</div>';
+  const semua = Object.values(machines).sort((a, b) =>
+    (b.last_seen || 0) - (a.last_seen || 0));
+  const menunggu = semua.filter((m) => m.status === "pending");
+  const oke = semua.filter((m) => m.status === "approved");
+  const buruk = semua.filter((m) => m.status === "denied" || m.status === "revoked");
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>TypingBot Admin</title><style>
 body{background:#141519;color:#e9eaee;font:14px/1.5 system-ui;margin:0;padding:20px}
-h1{font-size:20px} table{border-collapse:collapse;width:100%}
+h1{font-size:20px;margin:0 0 10px}
+.atas{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.chip{border-radius:12px;padding:3px 12px;font-size:12px;font-weight:600}
+.k{background:#d2992222;color:#d29922} .h{background:#3fb95022;color:#3fb950}
+.x{background:#f8514922;color:#f85149}
+.muat{color:#e9eaee;background:#20232b;border:1px solid #2c303b;border-radius:8px;
+padding:5px 12px;font-size:12px;cursor:pointer;text-decoration:none}
+.dim{color:#9aa0ab;font-size:12px} .kosong{padding:10px 2px}
+.judul{margin:18px 0 4px;font-weight:700;font-size:15px}
+table{border-collapse:collapse;width:100%}
 td,th{padding:8px 10px;border-bottom:1px solid #2c303b;text-align:left;vertical-align:top}
-.dim{color:#9aa0ab;font-size:12px}
-.chip{border-radius:10px;padding:2px 10px;font-size:12px}
 .inl{display:inline-block;margin:1px} .b{color:#fff;border:0;border-radius:6px;
 padding:5px 10px;font-size:12px;cursor:pointer}
 </style></head><body>
-<h1>TypingBot Admin</h1>
-<p>${menunggu} mesin menunggu persetujuan &bull; total ${rows.length}</p>
-<table><tr><th>Mesin</th><th>Status</th><th>Terpakhir</th><th>Versi</th><th>Aksi</th></tr>
-${tr || '<tr><td colspan="5" class="dim">belum ada mesin</td></tr>'}
-</table></body></html>`;
+<h1>⚡ TypingBot Admin</h1>
+<div class="atas">
+<span class="chip k">⏳ ${menunggu.length} menunggu</span>
+<span class="chip h">✅ ${oke.length} disetujui</span>
+<span class="chip x">⛔ ${buruk.length} ditolak/dicabut</span>
+<a class="muat" href="/admin?key=${encodeURIComponent(key)}">↻ Muat ulang</a>
+<span class="dim">otomatis setiap 8 detik</span>
+</div>
+<div id="isi">
+<div class="judul">⏳ Menunggu persetujuan</div>${tabel(menunggu)}
+<div class="judul">✅ Disetujui</div>${tabel(oke)}
+<div class="judul">⛔ Ditolak / dicabut</div>${tabel(buruk)}
+</div>
+<script>
+setInterval(async()=>{try{
+const r=await fetch(location.href);
+const t=await r.text();
+const d=new DOMParser().parseFromString(t,'text/html');
+const n=d.getElementById('isi');
+if(n)document.getElementById('isi').replaceWith(n);
+}catch(e){}},8000);
+</script></body></html>`;
 }
 
 async function readMachines() {
@@ -202,10 +234,14 @@ async function handle(request) {
     const mc = fd.get("mc");
     const act = fd.get("act");
     const peta = { approve: "approved", deny: "denied", revoke: "revoked", pending: "pending" };
-    if (!peta[act]) return json({ error: "bad_action" }, 400);
+    if (!peta[act] && act !== "delete") return json({ error: "bad_action" }, 400);
     const machines = await readMachines();
     if (!machines[mc]) return json({ error: "unknown_mc" }, 404);
-    machines[mc].status = peta[act];
+    if (act === "delete") {
+      delete machines[mc];
+    } else {
+      machines[mc].status = peta[act];
+    }
     await writeMachines(machines);
     // BASE kadang diisi tanpa https:// -> redirect rusak; pakai origin
     // permintaan sebagai jatuhnya.
