@@ -5,10 +5,10 @@ Ada 3 kata Cloudflare yang akan kamu lihat, artinya cuma ini:
 | Istilah       | Artinya sebenarnya                                          |
 | ------------- | ----------------------------------------------------------- |
 | Worker        | kode server kecil kamu, tinggal tempel-tempel               |
-| KV            | "buku tulis" kecil untuk menyimpan daftar komputer temanmu |
-| R2            | "flashdisk online" untuk menyimpan file TypingBot.exe      |
+| KV            | "buku tulis" online: daftar teman + file TypingBot.exe     |
 
-Semua gratis, tanpa kartu kredit. Kamu cuma buat akun sekali.
+Semua gratis, **tanpa kartu kredit**. Kamu cuma buat akun sekali.
+(R2 tidak dipakai - exe disimpan berkeping-keping di KV.)
 
 ---
 
@@ -44,7 +44,7 @@ persetujuanmu. Layar itu tetap buka / foto dulu, langkah 2 pakai itu.
    (terlihat di halaman Worker, bagian preview/URL, atau Settings ->
    Domains & Routes)
 
-## LANGKAH 3 - isi 4 nilai dari LANGKAH 0 (5 menit)
+## LANGKAH 3 - isi 4 nilai dari LANGKAH 0 + 2 KV (5 menit)
 
 Masih di halaman Worker, tab **Settings**:
 
@@ -53,11 +53,11 @@ Masih di halaman Worker, tab **Settings**:
    - Type **Secret**, name `SIGN_PRIV`, value = nilai (2)
    - Type **Secret**, name `ADMIN_KEY`, value = nilai (3)
    - Type **Variable**, name `BASE`, value = URL Workermu dari LANGKAH 2
-2. **Bindings** -> **Add** (tiga kali):
-   - KV Namespace, variable name `MACHINES`,
-     create namespace `typingbot-machines`
-   - KV Namespace, variable name `META`, create namespace `typingbot-meta`
-   - R2 Bucket, variable name `BUCKET`, create bucket `typingbot-releases`
+2. **Bindings** -> **Add** -> pilih **KV namespace** (dua kali):
+   - Variable name `MACHINES` -> namespace `typingbot-machines`
+   - Variable name `META` -> namespace `typingbot-meta`
+   (Namespace dibuat dulu di halaman Workers KV - tombol
+   **Create instance**. Link: dashboard -> cari "KV" di kolom kiri.)
 3. Klik **Save and Deploy** sekali lagi.
 
 ## LANGKAH 4 - tes sambungan
@@ -107,6 +107,7 @@ Untuk mencobanya dari aplikasi: tulis `http://127.0.0.1:8788` ke file
 | App bilang "server tidak dikonfigurasi" | `server_url.txt` ada di sebelah exe, isinya URL Worker |
 | App bilang "belum disetujui" | mesinmu belum di-Setujui di halaman admin |
 | Unduh pembaruan 403 | itu mesin belum pernah kamu setujui (token kedaluwarsa 30 hari) |
+| Publish gagal / terputus | exe tidak boleh > 95 MB (batas body Worker free plan) |
 | Teman pindah laptop | statusnya di admin masih pakai kode mesin lama; mesin baru = minta setuju lagi |
 
 ## Catatan keamanan

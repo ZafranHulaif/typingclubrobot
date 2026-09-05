@@ -33,7 +33,9 @@ The real interpreter is the manager shim:
 - Local dev backend: `"$PY" -X utf8 server/local_server.py` (auto-generates
   server/_signing.json Ed25519 keypair; pub key picked up by net.license
   when TYPINGBOT_SERVER_PUBKEY unset and not frozen).
-- Production deploy guide: server/DEPLOY.md (Cloudflare Worker + KV + R2).
+- Production deploy guide: server/DEPLOY.md (Cloudflare Worker + KV only,
+  no R2 and no credit card: the exe is stored as 20 MiB KV chunks in
+  META; Worker free plan body limit means exe must stay under ~95 MB).
 - Release flow: build exe -> `"$PY" server/publish.py dist/TypingBot.exe
   --version X.Y --notes "..."` (url/admin key from server/_admin.json).
 - Old manual HMAC keys stay valid; token files are one-line JSON in

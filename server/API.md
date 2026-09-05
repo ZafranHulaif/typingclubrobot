@@ -61,10 +61,14 @@ Unggah rilis baru. Respons: `{"ok": true, "sha256": "...", "size": N}`.
 
 ## Penyimpanan
 
-| Data              | local_server        | Worker        |
-| ----------------- | ------------------- | ------------- |
-| mesin (status dsb)| `_store/machines.json` | KV `MACHINES` |
-| metadata rilis    | `_store/release.json`  | KV `META`     |
-| binary exe        | `_store/TypingBot.exe` | R2 `TypingBot.exe` |
+| Data              | local_server        | Worker                     |
+| ----------------- | ------------------- | -------------------------- |
+| mesin (status dsb)| `_store/machines.json` | KV `MACHINES`           |
+| metadata rilis    | `_store/release.json`  | KV `META` (key `release`) |
+| binary exe        | `_store/TypingBot.exe` | KV `META` chunks `exe:<ver>:<i>` (20 MiB/potong) |
 | private key       | `_signing.json` (gitignore) | secret `SIGN_PRIV` (PKCS8 b64) |
-| public key        | idem                | var `SIGN_PUB` (hex) |
+| public key        | idem                | var `SIGN_PUB` (hex)       |
+
+Tanpa R2/kartu kredit: free plan KV (1 GB) menampung satu versi exe
+(~73 MB, potongan versi lama dihapus saat publish baru). Batas body
+Worker free plan 100 MB -> exe tidak boleh > ~95 MB.

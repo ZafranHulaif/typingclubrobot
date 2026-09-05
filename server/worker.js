@@ -1,20 +1,24 @@
 // Cloudflare Worker TypingBot - implementasi API.md (produksi).
 //
-// Setup (sekali, lihat server/DEPLOY.md):
-//   KV namespace MACHINES, KV META, R2 bucket, secrets SIGN_PRIV
-//   (PKCS8 base64) + SIGN_PUB (hex) + ADMIN_KEY, var BASE (URL publik).
+// DESAIN TANPA KARTU KREDIT: tidak memakai R2. Binary exe disimpan
+// sebagai potongan 20 MiB di KV (batas nilai KV 25 MiB; free tier 1 GB).
+// Unggah: body satu permintaan (<100 MB, batas free plan) di-tee ke
+// DigestStream (hash asli server) + loop potongan -> KV put per 20 MiB.
+// Unduh: ReadableStream generator menarik potongan satu per satu
+// (memori tetap kecil), Content-Length dari metadata.
 //
-// Rute: /api/latest /api/license/request /api/license/status
-//       /api/download?t=  /admin  /admin/action  /api/publish
+// Setup (lihat server/DEPLOY.md): KV namespace MACHINES + META saja,
+// secrets SIGN_PRIV (PKCS8 base64) + ADMIN_KEY, vars SIGN_PUB (hex)
+// + BASE (URL publik).
 
 const TOKEN_TTL = 30 * 86400;
-const EXE_NAME = "TypingBot.exe";
-
-let env = null;
+const CHUNK = 20 * 1024 * 1024;
 
 const hexToBytes = (h) => new Uint8Array(h.match(/.{2}/g).map((c) => parseInt(c, 16)));
 const b64ToBytes = (b) => Uint8Array.from(atob(b), (c) => c.charCodeAt(0));
 const bytesToHex = (b) => [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+
+let env = null;
 
 let signKeyCache = null;
 async function signKey() {
@@ -115,6 +119,10 @@ async function writeMachines(m) {
   await env.MACHINES.put("machines", JSON.stringify(m));
 }
 
+function chunkKey(ver, i) {
+  return `exe:${ver}:${i}`;
+}
+
 async function handle(request) {
   const u = new URL(request.url);
   const q = u.searchParams;
@@ -158,12 +166,22 @@ async function handle(request) {
     let tok = null;
     try { tok = JSON.parse(atob(q.get("t") || "")); } catch (e) {}
     if (!(await tokenOk(tok))) return json({ error: "bad_token" }, 403);
-    const obj = await env.BUCKET.get(EXE_NAME);
-    if (!obj) return json({ error: "no_release_yet" }, 404);
-    return new Response(obj.body, {
+    const raw = await env.META.get("release");
+    if (!raw) return json({ error: "no_release_yet" }, 404);
+    const rel = JSON.parse(raw);
+    const n = Math.max(1, Math.ceil((rel.size || 1) / CHUNK));
+    async function* potongan() {
+      for (let i = 0; i < n; i++) {
+        const b = await env.META.get(chunkKey(rel.version, i), "arrayBuffer");
+        if (b === null) throw new Error("chunk_missing");
+        yield b;
+      }
+    }
+    return new Response(ReadableStream.from(potongan()), {
       headers: {
         "content-type": "application/octet-stream",
-        "content-disposition": `attachment; filename="${EXE_NAME}"`,
+        "content-disposition": 'attachment; filename="TypingBot.exe"',
+        "content-length": String(rel.size || 0),
       },
     });
   }
@@ -198,18 +216,58 @@ async function handle(request) {
     }
     const ver = request.headers.get("X-Version") || "";
     if (!ver) return json({ error: "version_required" }, 400);
-    const buf = new Uint8Array(await request.arrayBuffer());
-    const dig = await crypto.subtle.digest("SHA-256", buf);
-    await env.BUCKET.put(EXE_NAME, buf);
+
+    const lama = JSON.parse((await env.META.get("release")) || "null");
+    const [buatHash, utkPotong] = request.body.tee();
+    const diges = new crypto.DigestStream("SHA-256");
+    const selesaiHash = buatHash.pipeTo(diges);
+
+    const reader = utkPotong.getReader();
+    let buf = new Uint8Array(CHUNK);
+    let terisi = 0;
+    let idx = 0;
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      let dari = 0;
+      while (dari < value.length) {
+        const ambil = Math.min(CHUNK - terisi, value.length - dari);
+        buf.set(value.subarray(dari, dari + ambil), terisi);
+        terisi += ambil;
+        dari += ambil;
+        if (terisi === CHUNK) {
+          await env.META.put(chunkKey(ver, idx), buf.slice().buffer);
+          idx += 1;
+          terisi = 0;
+        }
+      }
+    }
+    if (terisi > 0) {
+      await env.META.put(chunkKey(ver, idx), buf.slice(0, terisi).buffer);
+      idx += 1;
+    }
+    await selesaiHash;
+    if (total === 0 || idx === 0) return json({ error: "empty_body" }, 400);
+
     const rel = {
       version: ver,
-      sha256: bytesToHex(new Uint8Array(dig)),
-      size: buf.length,
+      sha256: bytesToHex(new Uint8Array(await diges.digest)),
+      size: total,
+      chunks: idx,
       notes: request.headers.get("X-Notes") || "",
       released: new Date().toISOString(),
     };
     await env.META.put("release", JSON.stringify(rel));
-    return json({ ok: true, sha256: rel.sha256, size: rel.size });
+
+    if (lama && lama.version && lama.version !== ver) {
+      const nLama = lama.chunks || Math.max(1, Math.ceil((lama.size || 1) / CHUNK));
+      for (let i = 0; i < nLama; i++) {
+        await env.META.delete(chunkKey(lama.version, i));
+      }
+    }
+    return json({ ok: true, sha256: rel.sha256, size: rel.size, chunks: idx });
   }
 
   return json({ error: "not_found" }, 404);

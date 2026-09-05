@@ -99,10 +99,11 @@ https://typingbot-api.SUBDOMAIN-KAMU.workers.dev
    (URL Workermu sendiri; terlihat di halaman Worker ->
     Permissions/Domain atau setelah Deploy)
 
-Juga butuh (tombol + Add di Settings):
-- KV binding  MACHINES -> namespace baru "typingbot-machines"
-- KV binding  META     -> namespace baru "typingbot-meta"
-- R2 binding  BUCKET   -> bucket baru "typingbot-releases" """)
+Juga butuh (Worker -> Settings -> Bindings -> Add -> KV namespace):
+- KV binding  MACHINES -> namespace "typingbot-machines"
+- KV binding  META     -> namespace "typingbot-meta"
+(Namespace dibuat di halaman Workers KV -> tombol "Create instance".
+R2/kartu kredit tidak diperlukan - exe disimpan di KV.)""")
 
 
 def tes_sambungan(base, timeout=10):
