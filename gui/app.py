@@ -194,6 +194,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             self._log(f"Lisensi belum aktif - kode mesin: {_machine_code()}")
         threading.Thread(target=self._load_bot, daemon=True).start()
         threading.Thread(target=self._net_worker, daemon=True).start()
+        self.root.after(20 * 60 * 1000, self._net_periodic)
         self.root.after(150, self._poll)
 
 

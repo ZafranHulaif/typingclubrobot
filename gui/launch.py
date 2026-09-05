@@ -273,6 +273,14 @@ class LaunchMixin:
         self._title_bar()
         self._log(f"[net] akses komputer ini dicabut/ditolak server ({st}) - "
                   "token lokal dihapus")
+        try:
+            if self.bot_thread and self.bot_thread.is_alive():
+                self._log("[net] sesi bot dihentikan karena akses dicabut")
+                if self.bot:
+                    self.bot.STOP = True
+                self.on_stop()
+        except Exception:
+            pass
         d = _Dialog(self.root, "Lisensi dicabut",
                     "Pemilik aplikasi mencabut akses komputer ini.",
                     ikon="⛔", warna=RED)
@@ -281,6 +289,33 @@ class LaunchMixin:
                  wraplength=420, justify="left").pack(anchor="w", pady=(4, 0))
         d.button("Oke")
         d.show()
+
+    def _net_license_recheck(self):
+        """Cek ulang status lisensi ke server (saat Start + berkala)
+        supaya pencabutan akses mendarat TANPA perlu restart aplikasi
+        (dulu: token offline 30 hari membuat revoke hanya efektif
+        setelah aplikasi dibuka ulang)."""
+        from net import license as netlic
+        from .licensing import _load_online_token, _save_online_token
+        if not self.lisensi_ok:
+            return
+        try:
+            data = netlic.fetch_status(_machine_code())
+        except Exception:
+            return
+        st = data.get("status")
+        if st in ("revoked", "denied"):
+            self._ui_queue.put(lambda: self._on_license_revoked(st))
+        elif st == "approved" and data.get("token"):
+            _save_online_token(data["token"])
+            self._tok_cache = data["token"]
+
+    def _net_periodic(self):
+        threading.Thread(target=self._net_license_recheck, daemon=True).start()
+        try:
+            self.root.after(20 * 60 * 1000, self._net_periodic)
+        except Exception:
+            pass
 
     def _net_update_check(self):
         from net import license as netlic
@@ -586,6 +621,9 @@ class LaunchMixin:
         if not self.lisensi_ok:
             self._ask_online()
             return
+        # gerbang Start: jangan percaya token offline saja - cek server
+        # (pencabutan akses mendarat di sini juga, bukan cuma saat start)
+        threading.Thread(target=self._net_license_recheck, daemon=True).start()
         # Rentang level ditanyakan setelah tersambung & login diketahui
         # (bukan sebelum Start) - lihat _poll.
         self._tanya_rentang = True
