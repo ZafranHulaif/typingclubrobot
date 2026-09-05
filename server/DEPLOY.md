@@ -1,79 +1,112 @@
-# Panduan deploy backend TypingBot (sekali saja, ~15 menit)
+# Cara pasang backend TypingBot (panduan santai, ~15 menit)
 
-Semua tier gratis Cloudflare: Worker + KV + R2. Tanpa kartu kredit.
+Ada 3 kata Cloudflare yang akan kamu lihat, artinya cuma ini:
 
-## 0. Punya akun Cloudflare
-Daftar di https://dash.cloudflare.com (gratis).
+| Istilah       | Artinya sebenarnya                                          |
+| ------------- | ----------------------------------------------------------- |
+| Worker        | kode server kecil kamu, tinggal tempel-tempel               |
+| KV            | "buku tulis" kecil untuk menyimpan daftar komputer temanmu |
+| R2            | "flashdisk online" untuk menyimpan file TypingBot.exe      |
 
-## 1. Generate kunci
+Semua gratis, tanpa kartu kredit. Kamu cuma buat akun sekali.
+
+---
+
+## LANGKAH 0 - jalankan penuntun (dia yang kasih nilai yang harus ditempel)
+
 ```
-python server/gen_keys.py
-```
-Output `server/_signing.json` (JANGAN di-commit; salin ke vault privat).
-Catat `pub_hex` - nanti ditanam ke aplikasi (langkah 4) dan var Worker.
-
-## 2. Buat KV, R2, dan Worker
-Dashboard Cloudflare:
-- **Workers & Pages -> KV -> Create namespace** -> nama `typingbot-machines`
-  (nanti di-bind sebagai `MACHINES`), buat satu lagi `typingbot-meta`
-  (bind `META`).
-- **R2 -> Create bucket** -> nama `typingbot-releases` (bind `BUCKET`).
-- **Workers & Pages -> Create -> Worker** -> nama `typingbot-api`, Deploy,
-  lalu Edit code: tempel isi `server/worker.js`, Save and Deploy.
-
-Cara cepat lewat wrangler (opsional):
-```
-npm install -g wrangler && wrangler login
-wrangler kv namespace create MACHINES
-wrangler kv namespace create META
-wrangler r2 bucket create typingbot-releases
-wrangler deploy
+python server/setup.py
 ```
 
-## 3. Set binding + secrets Worker
-Settings Worker:
-- Binding KV: `MACHINES`, `META` (pilih namespace dari langkah 2).
-- Binding R2: `BUCKET` (pilih bucket).
-- Variabel `SIGN_PUB` = nilai `pub_hex` dari langkah 1.
-- Variabel `BASE` = `https://typingbot-api.<subdomain-mu>.workers.dev`
-  (URL Worker; terlihat setelah deploy).
-- Secret `SIGN_PRIV` = nilai `priv_pkcs8_b64` dari langkah 1.
-- Secret `ADMIN_KEY` = hasil
-  `python -c "import secrets;print(secrets.token_hex(16))"`.
+Dia akan buat kunci-kunci, lalu mencetak **4 nilai** + URL halaman
+persetujuanmu. Layar itu tetap buka / foto dulu, langkah 2 pakai itu.
 
-Simpan URL + ADMIN_KEY ke `server/_admin.json` (gitignore):
-```json
-{"url": "https://typingbot-api.xxx.workers.dev", "admin_key": "..."}
+## LANGKAH 1 - bikin akun Cloudflare (2 menit)
+
+1. Buka https://dash.cloudflare.com
+2. Sign up (email + password). Pilih plan **Free** kalau ditanya.
+
+## LANGKAH 2 - bikin Workernya (5 menit)
+
+1. Menu kiri: **Workers & Pages** -> tombol **Create**
+2. Pilih **Create Worker** -> nama: `typingbot-api` -> **Deploy**
+3. Setelah jadi, klik **Edit code**
+4. Hapus SEMUA kode bawaan di editor, tempel seluruh isi file
+   `server/worker.js` (dari repo ini)
+5. Klik **Save and Deploy** (kanan atas)
+6. Catat URL Workermu, bentuknya:
+   `https://typingbot-api.nama-kamu.workers.dev`
+
+## LANGKAH 3 - isi 4 nilai dari LANGKAH 0 (5 menit)
+
+Masih di halaman Worker, tab **Settings**:
+
+1. **Variables and Secrets** -> **Add**:
+   - Type **Variable**, name `SIGN_PUB`, value = nilai (1) dari LANGKAH 0
+   - Type **Secret**, name `SIGN_PRIV`, value = nilai (2)
+   - Type **Secret**, name `ADMIN_KEY`, value = nilai (3)
+   - Type **Variable**, name `BASE`, value = URL Workermu dari LANGKAH 2
+2. **Bindings** -> **Add** (tiga kali):
+   - KV Namespace, variable name `MACHINES`,
+     create namespace `typingbot-machines`
+   - KV Namespace, variable name `META`, create namespace `typingbot-meta`
+   - R2 Bucket, variable name `BUCKET`, create bucket `typingbot-releases`
+3. Klik **Save and Deploy** sekali lagi.
+
+## LANGKAH 4 - tes sambungan
+
+Jalankan lagi `python server/setup.py`, tempel URL Worker saat ditanya.
+Kalau tertulis **SAMBUTAN BERHASIL** (menjawab 404 = normal, belum ada
+rilis), lanjut. Penuntun juga otomatis menanam kunci publik ke
+`net/license.py` - **setelah itu build ulang TypingBot.exe** biar kuncinya
+ikut:
+
 ```
-Bookmark di HP: `https://.../admin?key=<ADMIN_KEY>` <- halaman persetujuan.
-
-## 4. Arahkan aplikasi ke Worker
-Dua cara (salah satu):
-- Tulis file `server_url.txt` berisi URL Worker, taruh di sebelah TypingBot.exe
-  (bisa diganti tanpa build ulang), atau
-- Ubah `DEFAULT_BASE_URL` di `net/api.py` lalu build ulang (lebih rapi).
-Untuk verifikasi offline: tanam `pub_hex` di `SERVER_PUBLIC_KEY_HEX`
-(`net/license.py`). Selama masih kosong, klien dev otomatis memakai
-`server/_signing.json` lokal.
-
-## 5. Unggah rilis pertama
-```
-python -m PyInstaller --onefile --windowed --name TypingBot \
+python -m PyInstaller --onefile --windowed --name TypingBot ^
     --version-file version_info.txt --clean --noconfirm bot_gui.py
+```
+
+## LANGKAH 5 - unggah rilis pertama + bagikan
+
+```
 python server/publish.py dist/TypingBot.exe --version 2.7 --notes "awal"
 ```
 
-## 6. Ujicoba
-- Jalankan exe di komputer lain -> muncul dialog nickname -> kirim.
-- Buka bookmark admin di HP -> mesin muncul "pending" -> Setujui.
-- Dialog berubah "disetujui", tombol Start hidup.
-- Publish versi 2.8 -> start aplikasi -> muncul tombol perbarui -> tap.
+Kirim `TypingBot.exe` ini ke temanmu **terakhir kalinya**. Mulai versi
+berikutnya cukup `publish.py`, aplikasi mereka nawarin tombol perbarui.
 
-## Catatan
-- Lisensi lama (kunci manual) tetap valid - mesin lama hanya perlu
-  disetujui sekali bila ingin bisa mengunduh pembaruan (server memberi
-  token hanya ke mesin yang disetujui).
-- Bila Worker mati: aplikasi tetap jalan offline sampai 30 hari.
-- Semua operasi pemilik: halaman /admin + `server/publish.py`.
-- Server lokal (`server/local_server.py`) memakai kontrak yang sama -
-  berguna untuk tes tanpa Cloudflare.
+**Bookmark di HP**: `{URL-Worker}/admin?key={ADMIN_KEY}`
+Ini halaman persetujuanmu - teman buka app -> kamu buka bookmark ->
+tap **Setujui**. Selesai.
+
+---
+
+## Uji sendiri tanpa Cloudflare
+
+```
+python server/local_server.py
+```
+
+Server yang sama persis jalan di laptopmu (http://127.0.0.1:8788).
+Untuk mencobanya dari aplikasi: tulis `http://127.0.0.1:8788` ke file
+`server_url.txt` di sebelah TypingBot.exe.
+
+## Kalau macet
+
+| Gejala | Cek |
+| ------ | --- |
+| "BELUM TERHUBUNG" saat tes | URL lengkap dengan `https://`? Worker sudah Save and Deploy? |
+| Halaman admin "kunci admin salah" | `?key=...` di URL sama persis dengan ADMIN_KEY? |
+| App bilang "server tidak dikonfigurasi" | `server_url.txt` ada di sebelah exe, isinya URL Worker |
+| App bilang "belum disetujui" | mesinmu belum di-Setujui di halaman admin |
+| Unduh pembaruan 403 | itu mesin belum pernah kamu setujui (token kedaluwarsa 30 hari) |
+| Teman pindah laptop | statusnya di admin masih pakai kode mesin lama; mesin baru = minta setuju lagi |
+
+## Catatan keamanan
+
+- `server/_signing.json` dan `server/_admin.json` sudah di-gitignore.
+  Salin keduanya ke vault privat (`typingclubrobot-secrets`).
+- Lisensi lama (kunci manual WhatsApp) tetap jalan; mesin lama akan
+  minta persetujuan sekali supaya bisa ikut pembaruan otomatis.
+- Kalau Workermu mati/tak diisi kuota: app tetap jalan offline sampai
+  30 hari sebelum koneksi sukses terakhir.
