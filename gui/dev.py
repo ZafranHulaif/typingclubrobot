@@ -23,7 +23,7 @@ from .dialogs import dialog_open_browser, dialog_pick_browser
 from .licensing import _machine_code, _load_online_token
 from net import api as netapi
 from net import license as netlic
-from .theme import (APP_VERSION, BASE_DIR, BG, CARD, EDGE, FG, LICENSE_FILE, LOG_FILE, PANEL, CREATOR, PROGRAM_PATH, SETTINGS_FILE, _build_stamp)
+from .theme import (ACCENT, APP_VERSION, BASE_DIR, BG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, LICENSE_FILE, LOG_FILE, PANEL, CREATOR, PROGRAM_PATH, SETTINGS_FILE, _build_stamp)
 
 
 class DevMixin:
@@ -45,10 +45,31 @@ class DevMixin:
 
 
     def on_dev(self):
-        """Jendela developer: identitas build, diagnosis, uji dialog."""
+        """Gerbang kode dulu (nama pembuat aplikasi), baru jendela
+        developer - user yang tak sengaja klik 5x tidak melihat hal
+        teknis apa pun."""
+        if not self._dev_gate():
+            return
+        self._dev_buka_jendela()
+
+    def _dev_gate(self):
+        if getattr(self, "_dev_unlocked", False):
+            return True
+        from .dialogs import dialog_dev_code
+        try:
+            ok = bool(dialog_dev_code(self.root))
+        except Exception:
+            ok = False
+        if ok:
+            self._dev_unlocked = True
+            self._log("[Dev] kode diterima - area developer terbuka.")
+        return ok
+
+    def _dev_buka_jendela(self):
         win = tk.Toplevel(self.root)
         win.title(f"TypingBot {APP_VERSION} - Developer")
-        win.geometry("700x560")
+        win.geometry("620x680")
+        win.minsize(480, 460)
         win.configure(bg=PANEL)
         try:
             win.attributes("-topmost", True)
@@ -57,42 +78,142 @@ class DevMixin:
         from .widgets import _gelap_titlebar
         win.after(150, lambda: _gelap_titlebar(win))
         info = self._dev_info()
-        txt = ScrolledText(win, bg=BG, fg="#c7cbd4", relief="flat",
-                           font=("Consolas", 9), state="normal", wrap="word",
-                           borderwidth=0, highlightthickness=0)
-        txt.pack(fill="both", expand=True, padx=8, pady=(8, 4))
-        txt.insert("1.0", info)
-        txt.configure(state="disabled")
 
-        baris1 = tk.Frame(win, bg=PANEL)
-        baris1.pack(fill="x", padx=8, pady=(2, 2))
-        baris2 = tk.Frame(win, bg=PANEL)
-        baris2.pack(fill="x", padx=8, pady=(2, 2))
-        baris3 = tk.Frame(win, bg=PANEL)
-        baris3.pack(fill="x", padx=8, pady=(2, 2))
-        baris4 = tk.Frame(win, bg=PANEL)
-        baris4.pack(fill="x", padx=8, pady=(2, 8))
+        kepala = tk.Frame(win, bg=PANEL)
+        kepala.pack(fill="x", padx=18, pady=(16, 0))
+        tk.Label(kepala, text="Developer",
+                 font=("Segoe UI", 15, "bold"), fg=FG, bg=PANEL).pack(
+                     side="left")
+        tk.Label(kepala, text=f"oleh {CREATOR}   •   {_build_stamp()}",
+                 font=("Segoe UI", 9), fg=DIM, bg=PANEL).pack(
+                     side="left", padx=(10, 0), pady=(8, 0))
 
-        def button(induk, nama, cmd):
-            b = tk.Label(induk, text=nama, font=("Segoe UI", 9, "bold"),
-                         fg=FG, bg=CARD, padx=10, pady=4, cursor="hand2",
-                         highlightthickness=1, highlightbackground=EDGE)
-            b.pack(side="left", padx=(0, 6))
-            b.bind("<Button-1>", lambda e: self._safe(cmd))
+        # panel gulir: tombol tidak pernah terpotong saat jendela
+        # dikecilkan (dulu: baris tombol fixed terpotong di sisi kanan)
+        kanvas = tk.Canvas(win, bg=PANEL, highlightthickness=0)
+        gulir = tk.Scrollbar(win, orient="vertical", command=kanvas.yview)
+        kanvas.configure(yscrollcommand=gulir.set)
+        gulir.pack(side="right", fill="y")
+        kanvas.pack(side="left", fill="both", expand=True)
+        dalam = tk.Frame(kanvas, bg=PANEL)
+        id_dalam = kanvas.create_window((0, 0), window=dalam, anchor="nw")
+        dalam.bind("<Configure>", lambda e: kanvas.configure(
+            scrollregion=kanvas.bbox("all")))
+        kanvas.bind("<Configure>", lambda e: kanvas.itemconfigure(
+            id_dalam, width=e.width))
 
-        button(baris1, "Salin info", lambda: self._dev_salin(info))
-        button(baris1, "Uji: pilih browser", self._dev_uji_pilih)
-        button(baris1, "Uji: buka browser", self._dev_uji_buka)
-        button(baris2, "Minta persetujuan", self._ask_online)
-        button(baris2, "Reset pengaturan", self._dev_reset)
-        button(baris2, "Buka bot.log", lambda: self._dev_buka(LOG_FILE))
-        button(baris2, "Buka folder", lambda: self._dev_buka(BASE_DIR))
-        # --- uji fitur online (v2.7): lisensi + pembaruan ---
-        button(baris3, "Cek lisensi+update", self._dev_net_check)
-        button(baris3, "Hapus lisensi (uji fresh)", self._dev_hapus_lisensi)
-        button(baris3, "Cek pembaruan", self._dev_cek_update)
-        button(baris4, "Versi 0.0.1: ON/OFF", self._dev_toggle_fake_version)
-        button(baris4, "Buka halaman admin", self._dev_buka_admin)
+        def _roda(e):
+            kanvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        kanvas.bind("<Enter>",
+                    lambda e: kanvas.bind_all("<MouseWheel>", _roda))
+        kanvas.bind("<Leave>",
+                    lambda e: kanvas.unbind_all("<MouseWheel>"))
+
+        def seksi(judul):
+            tk.Label(dalam, text=judul.upper(),
+                     font=("Segoe UI", 9, "bold"), fg=ACCENT,
+                     bg=PANEL).pack(anchor="w", padx=18, pady=(14, 4))
+
+        def baris(ikon, judul, desk, cmd):
+            w = tk.Frame(dalam, bg=CARD, highlightthickness=1,
+                         highlightbackground=EDGE, cursor="hand2")
+            w.pack(fill="x", padx=18, pady=3)
+            ic = tk.Label(w, text=ikon, font=("Segoe UI Emoji", 14),
+                          bg=CARD, width=3, cursor="hand2")
+            ic.pack(side="left", padx=(8, 0), pady=8)
+            kotak = tk.Frame(w, bg=CARD)
+            kotak.pack(side="left", fill="x", expand=True, pady=7)
+            anaka = [tk.Label(kotak, text=judul,
+                              font=("Segoe UI", 10, "bold"), fg=FG,
+                              bg=CARD, cursor="hand2")]
+            anaka[0].pack(anchor="w")
+            desk_lbl = tk.Label(kotak, text=desk, font=("Segoe UI", 8.5),
+                                fg=DIM, bg=CARD, wraplength=440,
+                                justify="left", cursor="hand2")
+            desk_lbl.pack(anchor="w")
+            semua = (w, ic, kotak, anaka[0], desk_lbl)
+
+            def masuk(_e):
+                for x in semua:
+                    x.configure(bg=CARD_HOVER)
+                w.configure(highlightbackground=ACCENT)
+
+            def keluar(_e):
+                for x in semua:
+                    x.configure(bg=CARD)
+                w.configure(highlightbackground=EDGE)
+
+            for x in semua:
+                x.bind("<Button-1>", lambda e: self._safe(cmd))
+                x.bind("<Enter>", masuk)
+                x.bind("<Leave>", keluar)
+
+        seksi("Diagnosis")
+        baris("📋", "Salin info",
+              "Seluruh diagnosis build ini (versi, lisensi, browser) ke clipboard.",
+              lambda: self._dev_salin(info))
+        baris("📝", "Buka bot.log",
+              "Catatan jalannya aplikasi - tempat pertama mencari masalah.",
+              lambda: self._dev_buka(LOG_FILE))
+        baris("📂", "Buka folder data",
+              "Folder pengaturan, lisensi, dan log aplikasi.",
+              lambda: self._dev_buka(BASE_DIR))
+        baris("♻", "Reset pengaturan",
+              "Hapus pengaturan tersimpan; popup pilih browser aktif lagi. "
+              "(Lisensi tidak ikut terhapus.)", self._dev_reset)
+
+        seksi("Uji dialog")
+        baris("🧪", "Dialog pilih browser",
+              "Buka kartu pilihan browser + profil seperti saat Start.",
+              self._dev_uji_pilih)
+        baris("🚀", "Dialog buka browser",
+              "Uji konfirmasi membuka browser untuk bot.",
+              self._dev_uji_buka)
+
+        seksi("Lisensi & pembaruan")
+        baris("📨", "Minta persetujuan",
+              "Alur lengkap: nickname -> menunggu admin menyetujui.",
+              self._ask_online)
+        baris("🗑", "Hapus lisensi (uji fresh)",
+              "Hapus token lokal supaya alur persetujuan bisa diuji ulang.",
+              self._dev_hapus_lisensi)
+        baris("🔄", "Cek lisensi + pembaruan",
+              "Jalankan alur start-up net (perpanjang token + cek versi).",
+              self._dev_net_check)
+        baris("⬇", "Cek pembaruan",
+              "Hanya /api/latest: tombol unduh muncul bila ada versi baru.",
+              self._dev_cek_update)
+        baris("#️⃣", "Versi 0.0.1 ON/OFF",
+              "Tipu versi lokal supaya alur pembaruan bisa diuji.",
+              self._dev_toggle_fake_version)
+        baris("🌐", "Buka halaman admin",
+              "Kelola persetujuan mesin pemakai di server.",
+              self._dev_buka_admin)
+
+        seksi("Info lengkap")
+        teks_info = ScrolledText(dalam, bg=BG, fg="#c7cbd4", relief="flat",
+                                 font=("Consolas", 9), state="normal",
+                                 wrap="word", borderwidth=0,
+                                 highlightthickness=0, height=16)
+        teks_info.insert("1.0", info)
+        teks_info.configure(state="disabled")
+
+        def _toggle_info():
+            if teks_info.winfo_ismapped():
+                teks_info.pack_forget()
+                togg.configure(text="▸ Tampilkan info lengkap")
+            else:
+                teks_info.pack(fill="x", padx=18, pady=(0, 8))
+                teks_info.see("1.0")
+                togg.configure(text="▾ Sembunyikan info lengkap")
+
+        togg = tk.Label(dalam, text="▸ Tampilkan info lengkap",
+                        font=("Segoe UI", 9, "bold"), fg=FG, bg=CARD,
+                        padx=10, pady=6, cursor="hand2", highlightthickness=1,
+                        highlightbackground=EDGE)
+        togg.pack(fill="x", padx=18, pady=(2, 4))
+        togg.bind("<Button-1>", lambda e: self._safe(_toggle_info))
 
 
     def _dev_info(self):

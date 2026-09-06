@@ -4,6 +4,8 @@ Tukar exe hanya berlaku untuk hasil build PyInstaller (frozen); saat
 dijalankan dari sumber, file baru diunduh dan user mengganti manual.
 """
 
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -13,6 +15,11 @@ from .license import download_param
 
 NEW_SUFFIX = ".new.exe"
 CMD_NAME = "_update.cmd"
+PENDING_NAME = "update_pending.json"
+
+
+class UpdateCancelled(Exception):
+    """Unduhan pembaruan dibatalkan user dari dialog."""
 
 
 def parse_version(s):
@@ -51,14 +58,20 @@ def download(info, tok, new_path, progress_cb=None):
 
     Workers menghapus Content-Length pada respons stream -> total dari
     info['size'] dipakai sebagai cadangan supaya % tetap tampil.
+    progress_cb yang mengembalikan False membatalkan unduh
+    (raise UpdateCancelled, file .part dibersihkan).
     """
     url = "/api/download?t=" + download_param(tok)
 
     def prog(got, total, _cb=progress_cb):
         if _cb:
-            _cb(got, total or info.get("size"))
+            if _cb(got, total or info.get("size")) is False:
+                raise api.Cancelled()
 
-    digest = api.http_download(url, new_path, prog)
+    try:
+        digest = api.http_download(url, new_path, prog)
+    except api.Cancelled:
+        raise UpdateCancelled() from None
     if info.get("sha256") and digest != info["sha256"]:
         try:
             os.remove(new_path)
@@ -108,3 +121,69 @@ def apply_update_and_restart(program_path):
     subprocess.Popen(["cmd", "/c", CMD_NAME], cwd=folder,
                      creationflags=flags, close_fds=True)
     return True
+
+
+# -------------------------------------------------- terpasang saat mulai
+# User boleh menolak mulai ulang: unduhan yang sudah sah dicatat di
+# update_pending.json; saat aplikasi DIBUKA LAGI, exe lama ditukar
+# sebelum GUI muncul lalu versi baru dijalankan.
+
+
+def _pending_path(program_path):
+    return os.path.join(os.path.dirname(os.path.abspath(program_path)),
+                        PENDING_NAME)
+
+
+def stage_pending(program_path, info):
+    """Catat unduhan .new.exe yang sudah terverifikasi siap dipasang."""
+    with open(_pending_path(program_path), "w", encoding="utf-8") as f:
+        json.dump({"version": info.get("version"),
+                   "sha256": info.get("sha256")}, f)
+
+
+def pending_info(program_path):
+    try:
+        with open(_pending_path(program_path), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def clear_pending(program_path):
+    for p in (_pending_path(program_path), program_path + NEW_SUFFIX):
+        try:
+            os.remove(p)
+        except Exception:
+            pass
+
+
+def pop_pending(program_path):
+    """Dipanggil SEBELUM GUI saat aplikasi mulai.
+
+    True = proses tukar sedang berjalan (pemanggil wajib keluar segera;
+    script kemudian menjalankan versi baru). Marker/unduhan basi
+    (hilang atau hash tidak cocok) dibersihkan diam-diam.
+    """
+    info = pending_info(program_path)
+    if not info:
+        return False
+    baru = program_path + NEW_SUFFIX
+    if not os.path.exists(baru):
+        try:
+            os.remove(_pending_path(program_path))
+        except Exception:
+            pass
+        return False
+    try:
+        h = hashlib.sha256()
+        with open(baru, "rb") as f:
+            for blok in iter(lambda: f.read(1 << 20), b""):
+                h.update(blok)
+        sah = (not info.get("sha256")) or h.hexdigest() == info["sha256"]
+    except Exception:
+        sah = False
+    if not sah:
+        clear_pending(program_path)
+        return False
+    return apply_update_and_restart(program_path)

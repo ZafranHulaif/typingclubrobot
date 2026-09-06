@@ -373,11 +373,14 @@ class LaunchMixin:
     def _show_update_button(self, info):
         try:
             ver = info.get("version", "?")
+            teks = ("\u21bb v{ver} siap"
+                    if getattr(self, "_update_ready", False)
+                    else "\u2b07 v{ver}").format(ver=ver)
             if self._update_btn is None:
-                self._update_btn = self._btn(self.kanan, f"⬇ v{ver}",
+                self._update_btn = self._btn(self.kanan, teks,
                                              GREEN, self.on_update, kecil=True)
             else:
-                self._update_btn.configure(text=f"⬇ v{ver}")
+                self._update_btn.configure(text=teks)
             self._log(f"[net] pembaruan tersedia: v{ver} "
                       f"({info.get('notes') or '-'})")
         except Exception:
@@ -390,46 +393,73 @@ class LaunchMixin:
         tok = getattr(self, "_tok_cache", None)
         if not info or not tok:
             return
-        self._updating = True
-        self._set_state("⬇ Mengunduh pembaruan...", ACCENT)
-        try:
-            self._update_btn.configure(state="disabled")
-        except Exception:
-            pass
+        from .dialogs import dialog_update
+        ver = getattr(self, "_ver_override", None) or APP_VERSION
 
-        def maju(persen):
+        def siap(d):
+            d.on_start = lambda: self._update_mulai(d, info, tok)
+
+        tahap = "siap" if getattr(self, "_update_ready", False) else "awal"
+        hasil = dialog_update(self.root, info, ver, tahap=tahap, on_ready=siap)
+        if hasil == "restart":
+            self._update_apply_now(info)
+        elif hasil == "later":
+            self._update_nanti(info)
+
+    def _update_mulai(self, d, info, tok):
+        """Dipanggil dialog saat user menyetujui unduh (thread utama)."""
+        if getattr(self, "_updating", False):
+            return
+        self._updating = True
+        self._set_state("\u2b07 Mengunduh pembaruan...", ACCENT)
+
+        def prog(got, total):
             self._ui_queue.put(
-                lambda p=persen: self._set_state(f"⬇ Mengunduh {p}%", ACCENT))
+                lambda g=got, t=total: d.set_progress(g, t))
+            return not getattr(d, "batal", False)
 
         def kerja():
             from net import updater as netupd
             try:
-                def prog(got, total):
-                    if total:
-                        maju(int(got * 100 / total))
-
-                netupd.download(info, tok, PROGRAM_PATH + netupd.NEW_SUFFIX, prog)
-                if netupd.apply_update_and_restart(PROGRAM_PATH):
-                    self._ui_queue.put(self._update_restart)
-                else:
-                    self._ui_queue.put(lambda: self._set_state("⏻ Siap", FG))
-                    self._log("[net] unduhan tersimpan di folder aplikasi - "
-                              "ganti file lama secara manual")
-                    self._updating = False
+                netupd.download(info, tok,
+                                PROGRAM_PATH + netupd.NEW_SUFFIX, prog)
+                # user boleh menolak mulai ulang: tandai siap, saat
+                # aplikasi dibuka lagi exe ditukar sebelum GUI muncul
+                netupd.stage_pending(PROGRAM_PATH, info)
+                self._update_ready = True
+                self._ui_queue.put(
+                    lambda: (self._show_update_button(info),
+                             d.stage_ready()))
+            except netupd.UpdateCancelled:
+                self._log("[net] unduhan dibatalkan pengguna.")
+                self._ui_queue.put(lambda: d.done("cancelled"))
             except Exception as ex:
                 self._log(f"[net] pembaruan gagal: {ex}")
-                self._ui_queue.put(lambda: self._set_state("⏻ Siap", FG))
+                self._ui_queue.put(lambda: d.stage_error(str(ex)))
+            finally:
                 self._updating = False
 
         threading.Thread(target=kerja, daemon=True).start()
 
-    def _update_restart(self):
-        self._log("Pembaruan siap - aplikasi dimulai ulang...")
-        self._set_state("✓ Diperbarui", FG)
+    def _update_apply_now(self, info):
+        from net import updater as netupd
+        self._log(f"Pembaruan v{info.get('version')} dipasang - "
+                  "aplikasi dimulai ulang...")
+        self._set_state("\u2713 Memasang pembaruan...", ACCENT)
+        if not netupd.apply_update_and_restart(PROGRAM_PATH):
+            self._set_state("\u23fb Siap", FG)
+            self._log("[net] mode skrip: ganti exe manual "
+                      "(TypingBot.exe.new.exe)")
+            return
         try:
-            self.root.after(1200, self.on_close)
+            self.root.after(700, self.on_close)
         except Exception:
             self.on_close()
+
+    def _update_nanti(self, info):
+        self._set_state("\u23fb Siap", FG)
+        self._log(f"[net] v{info.get('version')} terpasang otomatis saat "
+                  "aplikasi dibuka lagi (unduhan selesai & terverifikasi).")
 
 
     # ------------------------------------------------------ lisensi & browser

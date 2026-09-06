@@ -60,6 +60,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self._online_cancel = False    # user menutup dialog aktivasi online
         self._online_dlg = None        # dialog aktivasi online aktif
         self._update_btn = None        # tombol perbarui (muncul bila ada rilis)
+        self._update_ready = False     # unduhan sah menunggu dipasang saat mulai
         self.lisensi_ok = _license_valid()
 
         root.title("TypingBot")

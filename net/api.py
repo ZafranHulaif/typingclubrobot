@@ -15,7 +15,7 @@ import urllib.request
 DEFAULT_BASE_URL = "https://typingbot-api.zafranhulaif.workers.dev"
 
 # Cloudflare menolak (error 1010) permintaan tanpa User-Agent - wajib ada.
-USER_AGENT = "TypingBot/2.7 (+github.com/ZafranHulaif/typingclubrobot)"
+USER_AGENT = "TypingBot/2.8 (+github.com/ZafranHulaif/typingclubrobot)"
 
 
 def _program_dir():
@@ -44,6 +44,10 @@ BASE_URL = _resolve_base()
 
 class Unreachable(Exception):
     """Server tidak bisa dihubungi (offline / URL salah)."""
+
+
+class Cancelled(Exception):
+    """Unduhan dibatalkan: progress_cb mengembalikan False."""
 
 
 def http_json(method, path, body=None, timeout=6):
@@ -93,9 +97,18 @@ def http_download(path_or_url, dest_path, progress_cb=None, timeout=60):
                     f.write(b)
                     if progress_cb:
                         try:
-                            progress_cb(got, total)
+                            if progress_cb(got, total) is False:
+                                raise Cancelled()
+                        except Cancelled:
+                            raise
                         except Exception:
                             pass
+    except Cancelled:
+        try:
+            os.remove(part)
+        except Exception:
+            pass
+        raise
     except Exception as e:
         try:
             os.remove(part)

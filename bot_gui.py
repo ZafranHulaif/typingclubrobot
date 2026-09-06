@@ -107,6 +107,13 @@ if __name__ == "__main__":
             ctypes.windll.user32.SetProcessDPIAware()
         except Exception:
             pass
+    # pembaruan yang user tunda kemarin: tukar exe SEBELUM GUI muncul
+    # (script menunggu aplikasi keluar lalu menjalankan versi baru)
+    import sys as _sys
+    if getattr(_sys, "frozen", False):
+        from net import updater as _netupd
+        if _netupd.pop_pending(_sys.executable):
+            raise SystemExit(0)
     import tkinter as tk
     from gui import app as gui_app
     root = tk.Tk()

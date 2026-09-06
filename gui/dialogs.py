@@ -20,7 +20,7 @@ from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
 from .icons import _icon_widget, user32
-from .theme import (ACCENT, BROWSER_COLORS, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, ORANGE, PANEL, RED, YELLOW)
+from .theme import (ACCENT, BROWSER_COLORS, CARD, CARD_HOVER, CREATOR, DIM, EDGE, FAINT, FG, GREEN, ORANGE, PANEL, RED, YELLOW)
 from .translator import _display_name
 from .widgets import _Dialog
 
@@ -621,4 +621,255 @@ def dialog_online_activation(induk, nickname, on_send, on_cancel, on_ready=None)
             on_ready(d)
         except Exception:
             pass
+    return d.show()
+
+
+def _mb(n):
+    """Format megabita gaya Indonesia (koma desimal)."""
+    return f"{n / (1 << 20):.1f}".replace(".", ",") + " MB"
+
+
+def dialog_update(induk, info, versi_kini, tahap="awal", on_ready=None):
+    """Pembaruan sebelum unduh: persetujuan + catatan rilis, lalu bilah
+    kemajuan saat mengunduh, lalu pilihan pasang.
+
+    Thread jaringan mengemudikan tampilan lewat metode objek dialog:
+      d.stage_download()        tampil fase unduh
+      d.set_progress(got,total) perbarui bilah + MB + kecepatan
+      d.stage_ready()           unduhan selesai & terverifikasi
+      d.stage_error(pesan)      gagal (tawaran coba lagi)
+    Tombol mulai memanggil hook d.on_start() (dipasang pemanggil di
+    on_ready); thread membaca atribut d.batal untuk batalkan unduh.
+    show() -> "restart" / "later" / "cancelled" / None.
+    """
+    versi = info.get("version", "?")
+    d = _Dialog(induk, f"Pembaruan v{versi}",
+                "Versi baru tersedia untuk aplikasi ini.",
+                ikon="⬇", warna=GREEN)
+    d.batal = False
+    d.on_start = lambda: None
+
+    # ---------------- fase 1: persetujuan + catatan rilis
+    fase1 = tk.Frame(d.body, bg=PANEL)
+    bvr = tk.Frame(fase1, bg=PANEL)
+    bvr.pack(fill="x", pady=(0, 8))
+    tk.Label(bvr, text=f"v{versi_kini}", font=("Segoe UI", 12), fg=DIM,
+             bg=PANEL).pack(side="left")
+    tk.Label(bvr, text="  \u2192  ", font=("Segoe UI", 12, "bold"),
+             fg=GREEN, bg=PANEL).pack(side="left")
+    tk.Label(bvr, text=f"v{versi}", font=("Segoe UI", 13, "bold"),
+             fg=FG, bg=PANEL).pack(side="left")
+    if info.get("size"):
+        tk.Label(bvr, text=f"\u2248 {_mb(info['size'])}",
+                 font=("Segoe UI", 10), fg=DIM, bg=PANEL).pack(side="right")
+    tk.Label(fase1, text="Apa yang baru:", font=("Segoe UI", 10, "bold"),
+             fg=FG, bg=PANEL).pack(anchor="w")
+    catatan = ScrolledText(fase1, height=6, bg=CARD, fg=FG, relief="flat",
+                           font=("Segoe UI", 10), wrap="word", borderwidth=0,
+                           highlightthickness=1, highlightbackground=EDGE)
+    catatan.pack(fill="x", pady=(4, 0))
+    catatan.insert("1.0", info.get("notes")
+                   or "Pembaruan umum dan perbaikan kecil.")
+    catatan.configure(state="disabled")
+
+    # ---------------- fase 2: unduh (bilah kemajuan)
+    fase2 = tk.Frame(d.body, bg=PANEL)
+    tk.Label(fase2, text="Mengunduh pembaruan...",
+             font=("Segoe UI", 12, "bold"), fg=FG,
+             bg=PANEL).pack(anchor="w", pady=(0, 10))
+    bar = tk.Canvas(fase2, height=22, bg=PANEL, highlightthickness=0)
+    bar.pack(anchor="w", fill="x")
+    ket_lbl = tk.Label(fase2, text="Menyambung ke server...",
+                       font=("Segoe UI", 9), fg=DIM, bg=PANEL)
+    ket_lbl.pack(anchor="w", pady=(6, 0))
+    tk.Label(fase2, text="File diverifikasi SHA-256 sebelum dipasang.",
+             font=("Segoe UI", 9), fg=FAINT, bg=PANEL).pack(anchor="w")
+
+    # ---------------- fase 3: siap dipasang
+    fase3 = tk.Frame(d.body, bg=PANEL)
+    tk.Label(fase3, text=f"\u2713 v{versi} siap dipasang",
+             font=("Segoe UI", 13, "bold"), fg=GREEN,
+             bg=PANEL).pack(anchor="w")
+    teks_siap = ("Mulai ulang sekarang untuk langsung memakainya, atau "
+                 "lanjutkan memakai versi ini - pembaruan terpasang "
+                 "otomatis saat aplikasi dibuka lagi.")
+    if not getattr(sys, "frozen", False):
+        teks_siap = ("Mode skrip (bukan EXE): unduhan tersimpan sebagai "
+                     "TypingBot.exe.new.exe di samping program - ganti "
+                     "file exe secara manual.")
+    tk.Label(fase3, text=teks_siap, font=("Segoe UI", 10), fg=DIM,
+             bg=PANEL, wraplength=420, justify="left").pack(
+                 anchor="w", pady=(6, 0))
+
+    # ---------------- fase 4: gagal
+    fase4 = tk.Frame(d.body, bg=PANEL)
+    err_lbl = tk.Label(fase4, text="", font=("Segoe UI", 12, "bold"),
+                       fg=RED, bg=PANEL, wraplength=420, justify="left")
+    err_lbl.pack(anchor="w")
+    tk.Label(fase4, text="Unduhan bisa dicoba lagi - data lama tetap aman.",
+             font=("Segoe UI", 9), fg=DIM, bg=PANEL).pack(anchor="w",
+                                                          pady=(4, 0))
+
+    def _gambar(persen):
+        bar.delete("all")
+        w = max(bar.winfo_width(), 320)
+        bar.configure(width=w)
+        bar.create_rectangle(0, 6, w, 16, fill=CARD, width=0)
+        isi = max(3, int(w * persen / 100.0))
+        bar.create_rectangle(1, 7, isi, 15, fill=GREEN, width=0)
+        bar.create_text(w - 2, 11, anchor="e", text=f"{persen:.0f}%",
+                        font=("Segoe UI", 9, "bold"), fill=FG)
+
+    _spd = {"t": 0.0, "got": 0, "v": 0.0}
+
+    def set_progress(got, total):
+        try:
+            persen = (min(100.0, got * 100.0 / total)) if total else 0.0
+            _gambar(persen)
+            kini = time.time()
+            if kini - _spd["t"] >= 0.5:
+                if kini > _spd["t"] and got >= _spd["got"]:
+                    _spd["v"] = ((got - _spd["got"])
+                                 / (kini - _spd["t"]) / (1 << 20))
+                _spd.update(t=kini, got=got)
+            ket = _mb(got)
+            if total:
+                ket += f"  dari  {_mb(total)}"
+            if _spd["v"] > 0.05:
+                ket += f"  \u2022  {_mb(_spd['v'])}/dtk"
+            ket_lbl.configure(text=ket)
+        except Exception:
+            pass
+
+    # ---------------- tombol per fase
+    tombol = {}
+
+    def _tahap_tombol(*nama):
+        for k, b in tombol.items():
+            if k in nama:
+                b.pack(side="right", padx=(8, 0))
+            else:
+                b.pack_forget()
+
+    def _mulai():
+        for f in (fase1, fase3, fase4):
+            f.pack_forget()
+        fase2.pack(fill="x")
+        _gambar(0)
+        _tahap_tombol("batal")
+        d.bind("<Return>", lambda e: None)
+        try:
+            d.on_start()
+        except Exception:
+            pass
+
+    tombol["mulai"] = d.button("\u2b07  Perbarui sekarang", None,
+                               warna_btn=GREEN, cmd=_mulai)
+    tombol["nanti"] = d.button("Nanti", None, primer=False,
+                               cmd=lambda: d.done(None))
+    tombol["batal"] = d.button("Batalkan", None, primer=False,
+                               cmd=lambda: _membatalkan())
+    tombol["coba"] = d.button("Coba lagi", None, warna_btn=GREEN,
+                              cmd=_mulai)
+    tombol["pasang"] = d.button("\u21bb  Mulai ulang sekarang", None,
+                                warna_btn=GREEN,
+                                cmd=lambda: d.done("restart"))
+    tombol["tutup"] = d.button("Tutup", None, primer=False,
+                               cmd=lambda: d.done(None))
+
+    def _membatalkan():
+        d.batal = True
+        try:
+            tombol["batal"].configure(text="Membatalkan...", fg=DIM,
+                                      bg=CARD, cursor="arrow")
+            tombol["batal"].unbind("<Button-1>")
+        except Exception:
+            pass
+
+    def _tutup(_e=None):
+        # saat mengunduh, [X]/Esc = batalkan; dialog ditutup thread
+        # setelah unduh benar-benar berhenti (d.done("cancelled"))
+        if fase2.winfo_ismapped():
+            _membatalkan()
+            return
+        d.done(None)
+
+    def stage_download():
+        _mulai()
+
+    def stage_ready():
+        for f in (fase1, fase2, fase4):
+            f.pack_forget()
+        fase3.pack(fill="x")
+        if getattr(sys, "frozen", False):
+            _tahap_tombol("pasang", "nanti")
+            d.bind("<Return>", lambda e: tombol["pasang"]._klik())
+        else:
+            _tahap_tombol("tutup")
+            d.bind("<Return>", lambda e: None)
+
+    def stage_error(pesan):
+        for f in (fase1, fase2, fase3):
+            f.pack_forget()
+        fase4.pack(fill="x")
+        err_lbl.configure(text=str(pesan))
+        _tahap_tombol("coba", "tutup")
+        d.bind("<Return>", lambda e: None)
+
+    d.set_progress = set_progress
+    d.stage_download = stage_download
+    d.stage_ready = stage_ready
+    d.stage_error = stage_error
+    d.protocol("WM_DELETE_WINDOW", _tutup)
+    d.bind("<Escape>", _tutup)
+
+    if tahap == "siap":
+        stage_ready()
+    else:
+        fase1.pack(fill="x")
+        _tahap_tombol("mulai", "nanti")
+    if on_ready:
+        try:
+            on_ready(d)
+        except Exception:
+            pass
+    return d.show()
+
+
+def dialog_dev_code(induk):
+    """Gerbang kecil area developer (bukan pengaman keras): kodenya
+    nama pembuat aplikasi - huruf kecil, tanpa spasi - yang memang
+    terpajang di kaki jendela utama. Cukup menyaring klik tidak sengaja."""
+    d = _Dialog(induk, "Area developer",
+                "Area ini teknis, dipakai untuk diagnosis dan pengujian.",
+                ikon="\U0001f510", warna=ORANGE)
+    var = tk.StringVar(value="")
+    ent = tk.Entry(d.body, textvariable=var, font=("Segoe UI", 13),
+                   bg=CARD, fg=FG, insertbackground=FG, relief="flat",
+                   justify="center", show="\u2022",
+                   highlightthickness=1, highlightbackground=EDGE,
+                   highlightcolor=ACCENT)
+    ent.pack(fill="x", ipady=7, pady=(4, 8))
+    salah = tk.Label(d.body, text="", font=("Segoe UI", 9), fg=RED,
+                     bg=PANEL)
+    salah.pack(anchor="w")
+    tk.Label(d.body,
+             text="Petunjuk: siapa pembuat aplikasi ini? (huruf kecil "
+                  "semua - jawabannya ada di kaki jendela utama)",
+             font=("Segoe UI", 9), fg=FAINT, bg=PANEL, wraplength=420,
+             justify="left").pack(anchor="w", pady=(6, 0))
+
+    def cek():
+        jawab = "".join(var.get().lower().split())
+        if jawab == CREATOR.lower():
+            d.done(True)
+        else:
+            salah.configure(text="Kode belum cocok.")
+            var.set("")
+            ent.focus_set()
+
+    d.button("Buka", None, warna_btn=ORANGE, cmd=cek)
+    d.button("Batal", None, primer=False)
+    ent.bind("<Return>", lambda e: cek())
+    ent.focus_set()
     return d.show()
