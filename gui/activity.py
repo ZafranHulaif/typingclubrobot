@@ -27,6 +27,18 @@ from .translator import _friendly_text
 class ActivityMixin:
     """Mixin: dipadukan di gui/app.py."""
 
+    def _app_depan(self):
+        """Angkat jendela app ke depan sekali (topmost sekejap lalu lepas).
+        Dipakai saat bot selesai tersambung: browser merebut fokus saat
+        dibuka, user tidak perlu alt-tab hanya untuk membaca status bot."""
+        try:
+            self.root.attributes("-topmost", True)
+            self.root.lift()
+            self.root.focus_force()
+            self.root.after(400,
+                            lambda: self.root.attributes("-topmost", False))
+        except Exception:
+            pass
 
     def _poll(self):
         # pasang timer BERIKUTNYA di awal, bukan di akhir: callback antrean
@@ -52,6 +64,22 @@ class ActivityMixin:
 
         bot = self.bot
         bot_thread_hidup = bool(self.bot_thread and self.bot_thread.is_alive())
+        # app kembali ke depan 1x saat bot selesai tersambung: browser
+        # selalu merebut fokus saat dibuka - tanpa ini user harus alt-tab
+        # sendiri hanya untuk melihat status bot (live: terasa 'bot hilang')
+        if bot_thread_hidup and getattr(bot, "PAGE", None) is not None:
+            if not self._fokus_sambung:
+                self._fokus_sambung = True
+                self._app_depan()
+        elif not bot_thread_hidup:
+            self._fokus_sambung = False
+        # engine selesai memuat halaman login -> angkat jendela BROWSER
+        # (bukan saat masih blank: dulu user menatap layar kosong dan
+        # ragu bot hidup atau tidak)
+        _fokus_at = getattr(bot, "FOCUS_BROWSER_AT", 0.0) if bot else 0.0
+        if _fokus_at and _fokus_at > self._fokus_browser_at:
+            self._fokus_browser_at = _fokus_at
+            self.root.after(150, _focus_browser_window)
         nama_level = ""
         if bot:
             url = getattr(bot, "STATUS_URL", "")
@@ -605,10 +633,10 @@ class ActivityMixin:
                 bot.ASK_LOGIN_URL = url
                 bot.ASK_LOGIN_NAV = True
                 self._log(f"Membuka halaman login di jendela browser bot: {url}")
-                # angkat jendela browser ke depan setelah navigasi bot
-                # dimulai (delay pendek); GUI baru menerima klik = punya
-                # izin foreground di Windows.
-                self.root.after(1200, _focus_browser_window)
+                # fokus browser kini dipegang engine: begitu halaman login
+                # BENAR-BENAR selesai dimuat (bukan blank), engine mengibarkan
+                # FOCUS_BROWSER_AT dan poll loop mengangkat jendelanya.
+                # (dulu: fokus di 1,2 dtk -> user menatap layar blank.)
             # Popup ditutup: user sudah memilih pergi ke halaman login.
             # Kalau login tidak dilakukan, popup muncul lagi setelah 3
             # menit (selama user masih di halaman login, tidak muncul).

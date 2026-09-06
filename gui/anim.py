@@ -81,22 +81,37 @@ class TimedLoop:
 # ------------------------------------------------- gelombang ketikan
 
 N_KUNCI = 7
-KADENSI = 0.34          # detik antar ketikan
-JEDA_AKHIR = 0.62       # jeda sebelum mengulang
-NAIK = 0.10             # detik menyala penuh
-LUNTUR = 0.30           # konstanta pelunturan cahaya
+# jeda antar ketukan TIDAK seragam - seperti jari sungguhan: ada
+# ketukan cepat beruntun, ada yang ragu-ragu (irama konstan terasa
+# seperti metronom, bukan orang mengetik)
+IRAMA = [0.30, 0.22, 0.36, 0.19, 0.33, 0.24, 0.42]
+JEDA_AKHIR = 0.55       # jeda napas sebelum mengulang
+NAIK = 0.08             # detik menyala penuh
+LUNTUR = 0.26           # konstanta pelunturan cahaya
 SUP = 2                 # supersample
 
 
+def _mulaian():
+    """Waktu mulai ketukan tiap tuts (kumulatif + sedikit goyangan)."""
+    mula = []
+    t = 0.0
+    for k, jeda in enumerate(IRAMA):
+        mula.append(t + 0.03 * math.sin(k * 7.3))
+        t += jeda
+    return mula
+
+
+_MULAI = _mulaian()
+
+
 def _durasi_loop():
-    return N_KUNCI * KADENSI + JEDA_AKHIR
+    return sum(IRAMA) + JEDA_AKHIR
 
 
 def _padam(k, t):
-    """Terang kunci ke-k pada waktu t (0..1) - nyal cepat, luntur
+    """Terang tuts ke-k pada waktu t (0..1) - nyal cepat, luntur
     perlahan seperti tuts piano yang dilepas."""
-    tk_ = k * KADENSI + 0.05 * math.sin(k * 7.3)
-    u = (t - tk_) % _durasi_loop()
+    u = (t - _MULAI[k]) % _durasi_loop()
     naik = min(u / NAIK, 1.0)
     return naik * math.exp(-max(0.0, u - NAIK) / LUNTUR)
 
@@ -146,7 +161,7 @@ def wave_sprite(w, h, t):
     # kursor garis di bawah tuts: melangkah ke tuts yang baru diketuk,
     # berkedip pelan saat semua diam (jeda akhir)
     dur = _durasi_loop()
-    if t % dur > N_KUNCI * KADENSI + 0.05:
+    if t % dur > _MULAI[-1] + 0.06:
         # jeda akhir: kursor berkedip di tuts terakhir
         pos_k = N_KUNCI - 1
         nyala = (t % 0.8) < 0.5

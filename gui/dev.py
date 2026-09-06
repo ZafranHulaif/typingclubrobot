@@ -85,8 +85,9 @@ class DevMixin:
             b = tk.Label(kaki, text=teks, font=("Segoe UI", 10, "bold"),
                          fg="#101116" if primer else FG,
                          bg=warna if primer else CARD, padx=18, pady=7,
-                         cursor="hand2", highlightthickness=1,
-                         highlightbackground=EDGE if not primer else 0)
+                         cursor="hand2",
+                         highlightthickness=0 if primer else 1,
+                         highlightbackground=EDGE)
             b.pack(side="left", padx=(0, 8))
             b.bind("<Button-1>", lambda e: self._safe(cmd))
             return b

@@ -95,6 +95,7 @@ def main_loop():
             # anti-pause ringan tiap iterasi (banner "Start Typing dll.")
             typing_core.keep_alive_frames()
             session._sweep_stripe_tabs()
+            session._sweep_ad_tabs()
 
             url = state.PAGE.url
             # page.url Playwright bisa stale: tab berisi Stripe checkout

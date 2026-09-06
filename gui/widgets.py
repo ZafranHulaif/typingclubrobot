@@ -231,11 +231,14 @@ class _Dialog(tk.Toplevel):
                             fill="white", anchor="center")
         jt = tk.Frame(head, bg=PANEL)
         jt.pack(side="left", padx=(14, 0))
-        tk.Label(jt, text=judul, font=("Segoe UI", 14, "bold"),
-                 fg=FG, bg=PANEL).pack(anchor="w")
+        self._judul_lbl = tk.Label(jt, text=judul, font=("Segoe UI", 14, "bold"),
+                                   fg=FG, bg=PANEL)
+        self._judul_lbl.pack(anchor="w")
+        self._sub_lbl = tk.Label(jt, text=subjudul or "",
+                                 font=("Segoe UI", 9), fg=DIM, bg=PANEL,
+                                 wraplength=380, justify="left")
         if subjudul:
-            tk.Label(jt, text=subjudul, font=("Segoe UI", 9), fg=DIM, bg=PANEL,
-                     wraplength=380, justify="left").pack(anchor="w", pady=(2, 0))
+            self._sub_lbl.pack(anchor="w", pady=(2, 0))
 
         tk.Frame(self, bg=EDGE, height=1).pack(fill="x", padx=24, pady=(14, 0))
         self.body = tk.Frame(self, bg=PANEL)
@@ -247,6 +250,21 @@ class _Dialog(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", lambda: self.done(None))
         self.bind("<Escape>", lambda e: self.done(None))
         self.bind("<Return>", self._enter)
+
+    def set_header(self, judul=None, subjudul=None):
+        """Ubah judul/subjudul header sesudah dialog tampil (dipakai
+        dialog aktivasi: saat menunggu, header dipangkas minimal -
+        tanpa subjudul, biar fokus ke animasi)."""
+        try:
+            if judul is not None:
+                self._judul_lbl.configure(text=judul)
+            if subjudul:                       # '' / None -> sembunyikan
+                self._sub_lbl.configure(text=subjudul)
+                self._sub_lbl.pack(anchor="w", pady=(2, 0))
+            else:
+                self._sub_lbl.pack_forget()
+        except Exception:
+            pass
 
     def _enter(self, _e):
         if self._primer:

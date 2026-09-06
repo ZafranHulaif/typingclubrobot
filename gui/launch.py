@@ -268,13 +268,9 @@ class LaunchMixin:
                     lambda: self._online_dlg
                     and self._online_dlg.set_status("❌ Permintaan ditolak pemilik."))
                 return
-            info = f"⏳ Menunggu persetujuan pemilik... ({(i + 1) * 5}s)"
-
-            def status(t=info):
+            def status():
                 try:
-                    self._online_dlg.set_status(t,
-                                                "Pemilik menyetujui lewat "
-                                                "halaman admin-nya.")
+                    self._online_dlg.set_status("Menunggu persetujuan pemilik…")
                 except Exception:
                     pass
 

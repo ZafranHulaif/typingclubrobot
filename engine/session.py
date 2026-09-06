@@ -73,6 +73,13 @@ def _install_login_sentinel():
             pg.on("response", on_response)
         except Exception:
             pass
+        # catat tab/jendela baru: iklan (window.open) di Chrome/Edge
+        # membuka tab liar yang mengunci bot sampai recovery - sweeper
+        # akan menutupnya begitu jelas bukan tab edclub
+        try:
+            state._adtab_watch.append([pg, time.time()])
+        except Exception:
+            pass
 
     for ctx in state.browser.contexts:
         try:
@@ -81,6 +88,39 @@ def _install_login_sentinel():
                 on_page(pg)
         except Exception:
             pass
+
+
+def _sweep_ad_tabs():
+    """Tutup tab/jendela IKLAN yang menyusup ke browser bot. Tab baru
+    diberi ~2,5 detik sampai URL-nya jelas (tab gubris engine sendiri
+    sebentar about:blank); yang bukan edclub ditutup. Dipanggil tiap
+    iterasi main loop - dulu iklan mengunci bot sampai recovery
+    lambat, sekarang tertutup dalam 1-2 detik."""
+    if not state._adtab_watch:
+        return
+    sisa = []
+    for item in state._adtab_watch:
+        pg, lahir = item
+        try:
+            if pg.is_closed():
+                continue
+            url = (pg.url or "").lower()
+            belum_jelas = (time.time() - lahir < 2.5 or not url
+                           or url.startswith(("about:", "data:"))
+                           or url.startswith(("chrome://", "edge://",
+                                              "brave://")))
+            if belum_jelas:
+                if time.time() - lahir < 30:
+                    sisa.append(item)
+                continue
+            if pg is state.PAGE:
+                continue
+            if not any(h in url for h in ("edclub.com", "typingclub.com")):
+                pg.close()
+                print(f"[TAB] tab iklan/liar ditutup otomatis: {url[:70]}")
+        except Exception:
+            pass
+    state._adtab_watch[:] = sisa
 
 
 def _login_profile():
@@ -241,11 +281,15 @@ def _login_patrol(url):
         try:
             state.PAGE.goto(tujuan, timeout=25000)
             # fokus ke jendela browser: user baru memilih 'buka halaman
-            # login' - jangan biarkan popup bot yang tetap memegang fokus
+            # login' - jangan biarkan popup bot yang tetap memegang fokus.
+            # bring_to_front CDP sering tidak menaikkan jendela OS -> minta
+            # GUI (yang baru saja menerima klik = punya izin fokus) lewat
+            # flag; GUI mengangkat SETELAH halaman termuat, bukan blank
             try:
                 state.PAGE.bring_to_front()
             except Exception:
                 pass
+            state.FOCUS_BROWSER_AT = time.time()
             print(f"[LOGIN] Halaman login dibuka: {tujuan}")
         except Exception as e:
             print(f"[LOGIN] Gagal membuka halaman login: {str(e)[:60]}")

@@ -50,6 +50,8 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self._rentang_terbuka = False   # dialog rentang sedang tampil (state label)
         self._tunggu_pilih_halaman = False  # user memilih level awal di browser
         self._login_grace = 0        # jeda re-popup login setelah tombol buka login
+        self._fokus_sambung = False  # app diangkat ke depan 1x setelah bot tersambung
+        self._fokus_browser_at = 0.0 # FOCUS_BROWSER_AT engine terakhir yang ditanggapi
         self._profile = "bot"        # 'bot' khusus | 'saya' profil browser user
         self._profile_dir = ""       # 'Default' / 'Profile 1' ... (mode saya)
         self._profile_label = ""     # nama tampilan profil (mis. 'Student')

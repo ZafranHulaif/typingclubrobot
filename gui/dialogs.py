@@ -598,10 +598,12 @@ def dialog_online_activation(induk, nickname, on_send, on_cancel, on_ready=None)
         nick = var.get().strip() or "Tanpa-nama"
         fase1.pack_forget()
         fase2.pack(fill="x")
+        # layar tunggu minimal: header dipangkas, satu baris status,
+        # sisanya biarkan animasi gelombang ketikan yang bicara
+        d.set_header("Menunggu persetujuan", "")
+        status_lbl.configure(text="Menunggu persetujuan pemilik…")
         try:
-            btn_kirim.configure(text="⏳  Terkirim — menunggu...",
-                                bg=CARD, fg=DIM, cursor="arrow")
-            btn_kirim.unbind("<Button-1>")
+            btn_kirim.pack_forget()      # cukup 'Batalkan' - minimal
         except Exception:
             pass
         try:
@@ -629,6 +631,7 @@ def dialog_online_activation(induk, nickname, on_send, on_cancel, on_ready=None)
         terasa."""
         try:
             _stop_anim()
+            d.set_header("Disetujui", "")
             fase2.pack_forget()
             fase3.pack(fill="x")
             d._cek = anim.PlayCheck(kan_cek, done=lambda: d.done(True))

@@ -36,6 +36,10 @@ ASK_LOGIN_NAV = False   # GUI meminta bot membuka halaman login edclub
 
 ASK_LOGIN_URL = ""      # URL login pilihan GUI (individu / sekolah)
 
+FOCUS_BROWSER_AT = 0.0   # engine meminta GUI mengangkat jendela browser ke
+                         # depan SETELAH halaman selesai dimuat (bukan saat
+                         # masih blank - user sempat ragu bot hidup/tidak)
+
 LOGIN_DICEK = False       # True setelah patroli login berjalan minimal 1x
 
 AWAIT_RANGE = False    # True = GUI sedang menanya rentang; bot menunggu
@@ -270,6 +274,11 @@ _login_ck = {"terakhir": 0.0}
 _probe_tab_ck = {"terakhir": 0.0}
 
 _stripe_sweep_last = 0.0
+
+# tab/jendela baru yang muncul sendiri (iklan window.open, popup):
+# dicatat oleh sentinel login, ditutup sweeper kalau ternyata bukan
+# tab edclub (Brave memblokir iklan; Chrome/Edge tidak)
+_adtab_watch = []
 
 _nav_try = 0.0
 

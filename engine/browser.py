@@ -726,10 +726,27 @@ def ensure_browser():
             print(f"{len(others)} tab edclub lain ditutup otomatis "
                   "(dipilih 1 tab terbaik)")
     if page is None:
-        # Kalau tidak ada tab edclub: buka tab baru. pernah gagal live:
-        # menutup tab Stripe sisa = satu-satunya tab di jendelanya ->
-        # Brave membongkar jendela itu -> Target.createTarget gagal sesaat.
-        # Solusi: retry + fallback ke tab yang ada / context baru.
+        # Kalau tidak ada tab edclub: PAKAI tab kosong yang sudah ada
+        # (tab pertama browser baru selalu newtab/blank) daripada membuat
+        # tab lagi - live: tab menumpuk dan membebani perangkat lambat.
+        for c2 in browser.contexts:
+            try:
+                for pg in (c2.pages or []):
+                    u = (_real_url(pg) or "").strip().lower()
+                    if (not u or u in ("about:blank", "about:newtab")
+                            or "newtab" in u
+                            or u.startswith(("chrome://", "edge://",
+                                             "brave://"))):
+                        page = pg
+                        break
+            except Exception:
+                continue
+            if page is not None:
+                break
+        # Tab baru dibuat hanya bila tidak ada yang bisa dipakai.
+        # pernah gagal live: menutup tab Stripe sisa = satu-satunya tab di
+        # jendelanya -> Brave membongkar jendela itu -> Target.createTarget
+        # gagal sesaat. Solusi: retry + fallback ke tab yang ada / context baru.
         for attempt in range(4):
             try:
                 page = ctx.new_page()
