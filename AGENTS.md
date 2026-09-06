@@ -27,6 +27,10 @@ The real interpreter is the manager shim:
 - Facades autopilot_pw.py / bot_gui.py must keep old import paths working
   (test suites + monkeypatching depend on owner-routing shim).
 - Commit trailer: `Assisted-by: Crush (AI agents)` (neutral, no model).
+- Release notes (GitHub `gh release` AND worker publish --notes) are
+  ENGLISH, format "## Fixes in X.Y.Z" with bold bullet leads - even
+  though code comments/UI are Indonesian (drifted to Indonesian in
+  2.8.4; owner noticed, fixed).
 - Never push without explicit user ask; never commit gitignored `_*.py`.
 
 ## Online features (v2.7)
