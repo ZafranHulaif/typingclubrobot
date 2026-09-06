@@ -205,6 +205,11 @@ class _Dialog(tk.Toplevel):
         self.configure(bg=PANEL)
         self.transient(induk)
         self.resizable(False, False)
+        # sembunyikan sampai show() selesai memosisikan: tanpa ini dialog
+        # sempat terlihat sekejap di posisi default WM, dan -topmost yang
+        # dipasang saat jendela belum terpetakan MEMAKSA posisi (0,0)
+        # (bug Windows: popup menumpuk di pojok kiri atas).
+        self.withdraw()
         gelap_titlebar_berulang(self)
 
         head = tk.Frame(self, bg=PANEL)
@@ -288,7 +293,12 @@ class _Dialog(tk.Toplevel):
             sh = self.winfo_screenheight()
         except Exception:
             sw, sh = 1920, 1080
+        # urutan PENTING di Windows: posisi diterapkan saat jendela masih
+        # disembunyikan, baru deiconify - topmost/lift/focus SETELAH posisi
+        # melekat (topmost pada jendela yang belum terpetakan menimpa
+        # permintaan +x+y dan memindahkan dialog ke 0,0).
         self.geometry(f"+{max((sw - w) // 2, 8)}+{max((sh - h) // 3, 40)}")
+        self.deiconify()
         # angkat dialog ke depan meski user sedang fokus di browser
         # (live: dialog rentang muncul tersembunyi di belakang jendela lain)
         try:
