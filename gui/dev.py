@@ -75,8 +75,8 @@ class DevMixin:
             win.attributes("-topmost", True)
         except Exception:
             pass
-        from .widgets import _gelap_titlebar
-        win.after(150, lambda: _gelap_titlebar(win))
+        from .widgets import ScrollbarGelap, gelap_titlebar_berulang
+        gelap_titlebar_berulang(win)
         info = self._dev_info()
 
         kepala = tk.Frame(win, bg=PANEL)
@@ -91,7 +91,7 @@ class DevMixin:
         # panel gulir: tombol tidak pernah terpotong saat jendela
         # dikecilkan (dulu: baris tombol fixed terpotong di sisi kanan)
         kanvas = tk.Canvas(win, bg=PANEL, highlightthickness=0)
-        gulir = tk.Scrollbar(win, orient="vertical", command=kanvas.yview)
+        gulir = ScrollbarGelap(win, kanvas.yview)
         kanvas.configure(yscrollcommand=gulir.set)
         gulir.pack(side="right", fill="y")
         kanvas.pack(side="left", fill="both", expand=True)
@@ -124,15 +124,15 @@ class DevMixin:
             ic.pack(side="left", padx=(8, 0), pady=8)
             kotak = tk.Frame(w, bg=CARD)
             kotak.pack(side="left", fill="x", expand=True, pady=7)
-            anaka = [tk.Label(kotak, text=judul,
-                              font=("Segoe UI", 10, "bold"), fg=FG,
-                              bg=CARD, cursor="hand2")]
-            anaka[0].pack(anchor="w")
-            desk_lbl = tk.Label(kotak, text=desk, font=("Segoe UI", 8.5),
+            judul_lbl = tk.Label(kotak, text=judul,
+                                 font=("Segoe UI", 10, "bold"), fg=FG,
+                                 bg=CARD, cursor="hand2")
+            judul_lbl.pack(anchor="w")
+            desk_lbl = tk.Label(kotak, text=desk, font=("Segoe UI", 9),
                                 fg=DIM, bg=CARD, wraplength=440,
                                 justify="left", cursor="hand2")
             desk_lbl.pack(anchor="w")
-            semua = (w, ic, kotak, anaka[0], desk_lbl)
+            semua = (w, ic, kotak, judul_lbl, desk_lbl)
 
             def masuk(_e):
                 for x in semua:
@@ -144,8 +144,16 @@ class DevMixin:
                     x.configure(bg=CARD)
                 w.configure(highlightbackground=EDGE)
 
+            def klik(_e=None):
+                # umpan balik kilat: log utama sering tertutup jendela
+                # dev yang topmost, tanpa ini klik terasa tidak bekerja
+                for x in semua:
+                    x.configure(bg=ACCENT)
+                w.after(140, keluar, None)
+                self._safe(cmd)
+
             for x in semua:
-                x.bind("<Button-1>", lambda e: self._safe(cmd))
+                x.bind("<Button-1>", klik)
                 x.bind("<Enter>", masuk)
                 x.bind("<Leave>", keluar)
 

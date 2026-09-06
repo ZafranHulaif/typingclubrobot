@@ -120,6 +120,79 @@ def _gelap_titlebar(jendela):
         pass
 
 
+def gelap_titlebar_berulang(jendela, jeda=(150, 600, 1500)):
+    """Terapkan gelap title bar beberapa kali: penerapan tunggal di
+    150ms kadang tidak melekat (jendela dev pernah tetap putih padahal
+    hwnd sudah ada) - frame DWM baru siap setelah paint pertama."""
+    def coba(i=0):
+        _gelap_titlebar(jendela)
+        if i + 1 < len(jeda):
+            try:
+                jendela.after(jeda[i + 1], lambda: coba(i + 1))
+            except Exception:
+                pass
+    try:
+        jendela.after(jeda[0], lambda: coba(0))
+    except Exception:
+        pass
+
+
+class ScrollbarGelap(tk.Canvas):
+    """Scrollbar gelap buatan sendiri - tk.Scrollbar bawaan selalu
+    putih di Windows dan tidak bisa diwarnai.
+    Pakai: sb = ScrollbarGelap(induk, kanvas.yview); lalu
+    kanvas.configure(yscrollcommand=sb.set)."""
+
+    def __init__(self, induk, perintah, lebar=12, **kw):
+        super().__init__(induk, width=lebar, bg=PANEL,
+                         highlightthickness=0, **kw)
+        self._cmd = perintah
+        self._lebar = lebar
+        self._awal = 0.0
+        self._akhir = 1.0
+        self._pinned = None
+        self._thumb = self.create_rectangle(2, 2, lebar - 2, 60,
+                                            fill=CARD, width=0)
+        self.bind("<Button-1>", self._klik)
+        self.bind("<B1-Motion>", self._seret)
+        self.bind("<Configure>", lambda e: self._posisi())
+
+    def set(self, awal, akhir):
+        try:
+            self._awal, self._akhir = float(awal), float(akhir)
+            self._posisi()
+        except Exception:
+            pass
+
+    def _posisi(self):
+        h = self.winfo_height()
+        if h < 24:
+            return
+        rentang = self._akhir - self._awal
+        if rentang <= 0.0001:      # seluruh konten terlihat: sembunyikan
+            self.coords(self._thumb, 2, -10, self._lebar - 2, -2)
+            return
+        tinggi = max(28, rentang * h)
+        y0 = self._awal / (1.0 - rentang) * (h - tinggi)
+        self.coords(self._thumb, 2, y0, self._lebar - 2, y0 + tinggi)
+
+    def _klik(self, e):
+        self._pinned = e.y
+        h = self.winfo_height()
+        if h > 1:
+            self._cmd(("moveto", str(max(
+                0.0, e.y / h - (self._akhir - self._awal) / 2))))
+
+    def _seret(self, e):
+        h = self.winfo_height()
+        if h <= 1 or self._pinned is None:
+            return
+        awal = self._awal + (e.y - self._pinned) / h * (
+            1.0 - (self._akhir - self._awal))
+        self._pinned = e.y
+        self._cmd(("moveto", str(max(0.0, awal))))
+
+
 
 
 class _Dialog(tk.Toplevel):
@@ -132,7 +205,7 @@ class _Dialog(tk.Toplevel):
         self.configure(bg=PANEL)
         self.transient(induk)
         self.resizable(False, False)
-        self.after(150, lambda: _gelap_titlebar(self))
+        gelap_titlebar_berulang(self)
 
         head = tk.Frame(self, bg=PANEL)
         head.pack(fill="x", padx=24, pady=(22, 4))
