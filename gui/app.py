@@ -21,7 +21,7 @@ from tkinter.scrolledtext import ScrolledText
 
 from .licensing import _machine_code, _license_valid
 from .theme import (APP_VERSION, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, PANEL, CREATOR, RED, SETTINGS_FILE, YELLOW, _asset_path, _build_stamp)
-from .widgets import Dropdown
+from .widgets import Dropdown, _gelap_titlebar
 
 
 from .activity import ActivityMixin
@@ -75,13 +75,25 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # kecil - footer hotkey tetap tampak, hanya log yang menyusut
         root.minsize(int(700 * k), int(330 * k))
         root.configure(bg=BG)
+        # ikon jendela: iconbitmap = jalur asli Windows (paling andal;
+        # iconphoto di beberapa build Tk malah tidak tampil sama sekali)
+        ico = _asset_path("logo.ico")
+        if ico:
+            try:
+                root.iconbitmap(default=ico)
+            except Exception:
+                pass
         logo = _asset_path("logo.png")
         if logo:
             try:
                 self._logo_img = tk.PhotoImage(file=logo)
-                root.iconphoto(True, self._logo_img)
             except Exception:
-                pass
+                self._logo_img = None
+        # title bar gelap ala Windows 11 - harus SETELAH jendela benar2
+        # wujud (120ms sempat terlalu cepat -> hwnd belum siap, bar tetap
+        # putih; 300ms + ulang 1200ms = aman)
+        root.after(300, lambda: _gelap_titlebar(root))
+        root.after(1200, lambda: _gelap_titlebar(root))
         self._title_bar()
 
         try:
@@ -208,9 +220,6 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
     def _title_bar(self):
         ekstra = "" if self.lisensi_ok else "  •  PERLU AKTIVASI"
         self.root.title(f"TypingBot{ekstra}")
-
-
-    # ------------------------------------------------------------------ UI util
 
     def _btn(self, parent, text, color, cmd, besar=False, kecil=False):
         if besar:

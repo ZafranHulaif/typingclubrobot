@@ -102,6 +102,26 @@ class Dropdown(tk.Frame):
 
 
 
+def _gelap_titlebar(jendela):
+    """Title bar gelap ala Windows 11 untuk Toplevel apa pun (jendela
+    utama, dialog, jendela dev). Dipanggil delayed - hwnd baru siap
+    setelah jendela wujud."""
+    try:
+        u = ctypes.windll.user32
+        dwm = ctypes.windll.dwmapi
+        anak = jendela.winfo_id()
+        hwnd = u.GetParent(anak) or anak
+        n = ctypes.c_int(1)
+        if dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(n), 4) != 0:
+            dwm.DwmSetWindowAttribute(hwnd, 19, ctypes.byref(n), 4)
+        u.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
+                       0x0001 | 0x0002 | 0x0020 | 0x0040)
+    except Exception:
+        pass
+
+
+
+
 class _Dialog(tk.Toplevel):
     """Kerangka dialog gelap: ikon bulat + judul + subjudul, body, tombol."""
 
@@ -112,6 +132,7 @@ class _Dialog(tk.Toplevel):
         self.configure(bg=PANEL)
         self.transient(induk)
         self.resizable(False, False)
+        self.after(150, lambda: _gelap_titlebar(self))
 
         head = tk.Frame(self, bg=PANEL)
         head.pack(fill="x", padx=24, pady=(22, 4))
@@ -124,6 +145,8 @@ class _Dialog(tk.Toplevel):
             _draw_vector_icon(box, "bola", 23, 23, 21)
         elif ikon == "⚠":
             _draw_vector_icon(box, "warning", 23, 23, 20)
+        elif ikon == "⛔":
+            _draw_vector_icon(box, "stop", 23, 23, 21)
         else:
             box.create_text(23, 23, text=ikon,
                             font=("Segoe UI Emoji", 16, "bold"),

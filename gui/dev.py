@@ -54,6 +54,8 @@ class DevMixin:
             win.attributes("-topmost", True)
         except Exception:
             pass
+        from .widgets import _gelap_titlebar
+        win.after(150, lambda: _gelap_titlebar(win))
         info = self._dev_info()
         txt = ScrolledText(win, bg=BG, fg="#c7cbd4", relief="flat",
                            font=("Consolas", 9), state="normal", wrap="word",
