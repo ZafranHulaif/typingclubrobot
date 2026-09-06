@@ -23,7 +23,7 @@ from .dialogs import dialog_open_browser, dialog_pick_browser
 from .licensing import _machine_code, _load_online_token
 from net import api as netapi
 from net import license as netlic
-from .theme import (ACCENT, APP_VERSION, BASE_DIR, BG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, LICENSE_FILE, LOG_FILE, PANEL, CREATOR, PROGRAM_PATH, SETTINGS_FILE, _build_stamp)
+from .theme import (ACCENT, APP_VERSION, BASE_DIR, BG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, LICENSE_FILE, LOG_FILE, PANEL, CREATOR, PROGRAM_PATH, SETTINGS_FILE, _build_stamp)
 
 
 class DevMixin:
@@ -64,6 +64,71 @@ class DevMixin:
             self._dev_unlocked = True
             self._log("[Dev] kode diterima - area developer terbuka.")
         return ok
+
+    def _dev_uji_anim(self):
+        """Pratinjau animasi UI: orb melayang (menunggu persetujuan)
+        dan centang yang menggambar sendiri (saat disetujui)."""
+        from . import anim
+        from .widgets import gelap_titlebar_berulang
+        win = tk.Toplevel(self.root)
+        win.title("Pratinjau animasi")
+        win.withdraw()
+        win.configure(bg=PANEL)
+        kan = tk.Canvas(win, bg=PANEL, highlightthickness=0,
+                        width=430, height=300)
+        kan.pack(fill="both", expand=True)
+        kaki = tk.Frame(win, bg=PANEL)
+        kaki.pack(fill="x", padx=18, pady=(10, 16))
+        stan = {"orbs": None, "cek": None}
+
+        def _tombol(teks, cmd, warna, primer=True):
+            b = tk.Label(kaki, text=teks, font=("Segoe UI", 10, "bold"),
+                         fg="#101116" if primer else FG,
+                         bg=warna if primer else CARD, padx=18, pady=7,
+                         cursor="hand2", highlightthickness=1,
+                         highlightbackground=EDGE if not primer else 0)
+            b.pack(side="left", padx=(0, 8))
+            b.bind("<Button-1>", lambda e: self._safe(cmd))
+            return b
+
+        def _orbs_mulai():
+            try:
+                kan.delete("all")
+            except Exception:
+                pass
+            stan["orbs"] = anim.attach_orbs(kan, tinggi=None)
+
+        def _cek_mulai():
+            if stan["orbs"]:
+                try:
+                    stan["orbs"].stop()
+                except Exception:
+                    pass
+            try:
+                kan.delete("all")
+            except Exception:
+                pass
+            stan["cek"] = anim.PlayCheck(kan, durasi=1.1)
+            stan["cek"].start()
+
+        _tombol("✓  Disetujui", _cek_mulai, GREEN)
+        _tombol("↻  Orb menunggu", _orbs_mulai, ACCENT, primer=False)
+
+        _orbs_mulai()
+        gelap_titlebar_berulang(win)
+        win.update_idletasks()
+        try:
+            sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+            win.geometry(f"+{max((sw - 430) // 2, 8)}"
+                         f"+{max((sh - 380) // 3, 40)}")
+        except Exception:
+            pass
+        win.deiconify()
+        try:
+            win.attributes("-topmost", True)
+            win.lift()
+        except Exception:
+            pass
 
     def _dev_buka_jendela(self):
         win = tk.Toplevel(self.root)
@@ -261,6 +326,13 @@ class DevMixin:
         baris("🚀", "Dialog buka browser",
               "Uji konfirmasi membuka browser untuk bot.",
               self._dev_uji_buka)
+
+        seksi("Animasi")
+        baris("✨", "Pratinjau animasi",
+              "Orb melayang halus saat menunggu persetujuan + centang "
+              "menggambar sendiri saat disetujui. Gerak berbasis jam "
+              "(bukan hitungan frame) - mulus di refresh rate apa pun.",
+              self._dev_uji_anim)
 
         seksi("Lisensi & pembaruan")
         baris("📨", "Minta persetujuan",

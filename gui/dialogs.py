@@ -20,6 +20,7 @@ from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
 from .icons import _icon_widget, user32
+from . import anim
 from .theme import (ACCENT, BROWSER_COLORS, CARD, CARD_HOVER, CREATOR, DIM, EDGE, FAINT, FG, GREEN, ORANGE, PANEL, RED, YELLOW)
 from .translator import _display_name
 from .widgets import _Dialog
@@ -569,6 +570,11 @@ def dialog_online_activation(induk, nickname, on_send, on_cancel, on_ready=None)
     ent.pack(fill="x", ipady=6, pady=(2, 6))
 
     fase2 = tk.Frame(d.body, bg=PANEL)
+    # orb melayang lembut selama menunggu jawaban server - geraknya
+    # berbasis jam dinding jadi mulus di refresh rate berapa pun
+    kan_orbs = tk.Canvas(fase2, height=76, bg=PANEL, highlightthickness=0)
+    kan_orbs.pack(fill="x", pady=(0, 10))
+    d._orbs = anim.attach_orbs(kan_orbs)
     status_lbl = tk.Label(fase2, text="Mengirim permintaan...",
                           font=("Segoe UI", 11, "bold"), fg=FG, bg=PANEL,
                           wraplength=420, justify="left")
@@ -576,6 +582,14 @@ def dialog_online_activation(induk, nickname, on_send, on_cancel, on_ready=None)
     sub_lbl = tk.Label(fase2, text="", font=("Segoe UI", 9), fg=DIM,
                        bg=PANEL, wraplength=420, justify="left")
     sub_lbl.pack(anchor="w")
+
+    # fase sukses: centang menggambar sendiri sebelum dialog ditutup
+    fase3 = tk.Frame(d.body, bg=PANEL)
+    kan_cek = tk.Canvas(fase3, height=132, bg=PANEL, highlightthickness=0)
+    kan_cek.pack(fill="x")
+    tk.Label(fase3, text="Disetujui! Menyiapkan aplikasi...",
+             font=("Segoe UI", 11, "bold"), fg=GREEN,
+             bg=PANEL).pack(pady=(0, 2))
 
     def kirim():
         if terkirim["ok"]:
@@ -603,17 +617,40 @@ def dialog_online_activation(induk, nickname, on_send, on_cancel, on_ready=None)
         except Exception:
             pass
 
-    def finish(ok):
+    def _stop_anim():
         try:
-            d.done(ok)
+            d._orbs.stop()
         except Exception:
             pass
+
+    def _rayakan():
+        """Ganti fase tunggu -> animasi centang, TUTUP dialog setelah
+        animasinya selesai (bukan seketika) supaya momen 'disetujui'
+        terasa."""
+        try:
+            _stop_anim()
+            fase2.pack_forget()
+            fase3.pack(fill="x")
+            d._cek = anim.PlayCheck(kan_cek, done=lambda: d.done(True))
+            d._cek.start()
+        except Exception:
+            d.done(True)
+
+    def finish(ok):
+        try:
+            if ok:
+                _rayakan()
+                return
+            _stop_anim()
+            d.done(ok)
+        except Exception:
+            d.done(ok)
 
     terkirim = {"ok": False}
     d.set_status = set_status
     d.finish = finish
     d.button("Batalkan", None, primer=False,
-             cmd=lambda: (on_cancel(), d.done(False)))
+             cmd=lambda: (_stop_anim(), on_cancel(), d.done(False)))
     btn_kirim = d.button("Kirim Permintaan", None, cmd=kirim)
     ent.bind("<Return>", lambda e: kirim())
     if on_ready:
