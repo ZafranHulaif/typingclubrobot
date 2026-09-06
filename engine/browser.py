@@ -638,11 +638,24 @@ def ensure_browser():
         sys.exit(1)
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
 
+    def _hidup(pg, t=2500):
+        """Renderer masih menjawab? evaluate/_real_url di renderer yang
+        di-suspend Windows MENGHANG TANPA timeout (bug live dua kali:
+        bot mati diam saat menyentuh tab lama). wait_for_load_state
+        menerima timeout -> gerbang aman sebelum menyentuh tab mana pun."""
+        try:
+            pg.wait_for_load_state("domcontentloaded", timeout=t)
+            return True
+        except Exception:
+            return False
+
     page = None
     # Tutup sisa tab Stripe/checkout dari sesi sebelumnya (dibuat saat bot
     # pernah salah klik CTA premium). Tab ini tidak berguna, dan pernah
     # menipu deteksi tab edclub.
     for pg in list(ctx.pages):
+        if not _hidup(pg):
+            continue
         try:
             h = (urlparse(_real_url(pg)).hostname or "").lower()
         except Exception:
@@ -659,6 +672,8 @@ def ensure_browser():
     # kesehatan tiap tab, ambil satu terbaik, tutup sisanya otomatis.
     edclub_tabs = []
     for pg in ctx.pages:
+        if not _hidup(pg):
+            continue
         try:
             if _is_edclub_url(_real_url(pg)):
                 edclub_tabs.append(pg)
@@ -676,9 +691,7 @@ def ensure_browser():
         # replay redirect Stripe (hijack sisa sesi lama) - jangan dipakai.
         if u1 != u2 or not _is_edclub_url(u2):
             continue
-        try:
-            pg.evaluate("() => 1")   # renderer kritis -> raise di sini
-        except Exception:
+        if not _hidup(pg):     # renderer kritis -> lewati
             continue
         healthy.append(pg)
     # Tutup tab edclub yang tidak sehat supaya tidak menumpuk.

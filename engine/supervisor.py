@@ -55,7 +55,13 @@ def main_loop():
     # hanya kalau saat mulai tidak sedang berada di lesson (user yang membuka
     # level sendiri = kerjakan saja level itu, jangan paksa lompat)
     try:
-        state._range_jump_done = ".play" in (browser._real_url(state.PAGE) or "")
+        # PENTING: baca URL lewat properti (lokal, instan), BUKAN
+        # _real_url (round-trip JS ke renderer). Bug live: renderer yang
+        # di-suspend Windows (tab lama dibuang) menggantungkan evaluate
+        # TANPA timeout -> bot mati diam total tepat setelah 'Terhubung!'
+        # sebelum sempat masuk loop (gerbang _page_alive belum jalan).
+        state._range_jump_done = ".play" in ((state.PAGE.url or "")
+                                             if state.PAGE else "")
         if state._range_jump_done and state.LEVEL_START > 1:
             print(f"[RENTANG] sudah ada lesson terbuka - kerjakan ini dulu "
                   f"(lompatan ke level {state.LEVEL_START} dilewati).")

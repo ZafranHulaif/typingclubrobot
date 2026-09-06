@@ -282,6 +282,11 @@ class ActivityMixin:
                 self._set_state("⏹ Berhenti", RED)
             elif bot.PAUSED:
                 self._set_state("⏸ Jeda", YELLOW)
+            elif ".play" not in url:
+                # user membuka halaman lain (daftar level dsb.) saat bot
+                # jalan: bot menunggu - dulu pill tetap 'Berjalan' hijau,
+                # terasa seperti bot masih sibuk mengetik padahal diam
+                self._set_state("⏳ Menunggu kamu", YELLOW)
             else:
                 self._set_state("● Berjalan", GREEN)
 

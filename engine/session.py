@@ -143,6 +143,66 @@ def _fetch_login():
     return None
 
 
+def _probe_redirect_login(timeout_s=14.0):
+    """Cek status login PERTAMA lewat TAB AKTIF saja - tanpa membuka tab
+    baru (dulu: 'tab cadangan' muncul-sekejap tiap start, terlihat seperti
+    bot membuat tab liar). Baca penanda di halaman sekarang; kalau tidak
+    kunjung ada (lesson .play tidak punya navbar), REDIRECT sementara ke
+    dashboard seperti user mengetik alamat, baca, lalu kembali ke URL
+    semula. Hanya dipanggil gerbang start (sebelum bot mulai mengetik).
+    Return 'in'/'out'/None."""
+    if not _page_alive(state.PAGE):
+        return None
+    try:
+        asal = state.PAGE.url or ""
+    except Exception:
+        return None
+    mulai = time.time()
+    batas = mulai + timeout_s
+    hasil = None
+    out_hitung = 0
+    pindah = False
+    while time.time() < batas:
+        try:
+            r = state.PAGE.evaluate("() => {" + PROFILE_CHECK_JS + "}")
+        except Exception:
+            r = None
+        if r == "in":
+            hasil = "in"
+            break
+        if r == "out":
+            out_hitung += 1     # 'out' harus stabil 2x (hydration race)
+            if out_hitung >= 2:
+                hasil = "out"
+                break
+        else:
+            out_hitung = 0
+        try:
+            low = (state.PAGE.url or "").lower()
+            if any(k in low for k in ("signin", "login", "signup")):
+                hasil = "out"
+                break
+        except Exception:
+            pass
+        if (not pindah and not hasil
+                and time.time() - mulai > 3.5):
+            print("[LOGIN] penanda login tak ada di halaman ini - "
+                  "pinjam tab sebentar ke dashboard...")
+            try:
+                state.PAGE.goto("https://www.edclub.com/sportal/",
+                                timeout=20000)
+                pindah = True
+            except Exception:
+                break
+        time.sleep(0.8)
+    if pindah:
+        try:
+            state.PAGE.goto(asal, timeout=20000)
+        except Exception:
+            pass
+    return hasil
+
+
 def _probe_tab_login(timeout_s=15.0):
     """Buka tab CADANGAN ke dashboard edclub, baca penanda login di sana,
     lalu tutup. Status sesi berlaku untuk AKUN secara keseluruhan (token
@@ -227,9 +287,17 @@ def _login_patrol(url):
             and now - state._probe_tab_ck["terakhir"]
                 > (60.0 if state.NEEDS_LOGIN else 30.0)):
         state._probe_tab_ck["terakhir"] = now
-        print("[LOGIN] Halaman ini tanpa penanda login - cek sesi lewat "
-              "tab cadangan...")
-        profil = _probe_tab_login()
+        if state.NEEDS_LOGIN:
+            # sesi mati saat bot sedang berjalan: jangan ganggu tab yang
+            # sedang dipakai user - tetap pakai tab cadangan
+            print("[LOGIN] Halaman ini tanpa penanda login - cek sesi lewat "
+                  "tab cadangan...")
+            profil = _probe_tab_login()
+        else:
+            # gerbang start: cek lewat TAB AKTIF (redirect dashboard
+            # pulang-pergi) - nol tab baru; kasus paling sering sekaligus
+            # yang paling terlihat user (dulu: tab kedua muncul-sekejap)
+            profil = _probe_redirect_login()
     # pemulihan instan: profil bernama = pasti login (menimpa sentinel)
     if profil == "in":
         state._login_sentinel["pernah_in"] = True

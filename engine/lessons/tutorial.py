@@ -52,6 +52,14 @@ def handle_tutorial(frame, data):
     # = duplikat = flash merah).
     rem = text
     res = _tut_read(frame)
+    # level mengulang = percobaan sebelumnya selesai TAPI edclub tidak
+    # mencatat (kecepatan penuh memicu sistem anti-buru-buru: tanpa layar
+    # skor, level dimulai ulang). Turunkan ke cadence aman (slow) di
+    # percobaan kedua dst agar penyelesaian benar-benar terdaftar.
+    pelan = state._tut_attempts >= 2
+    if pelan:
+        print("[Tutorial] level ini mengulang - kecepatan diturunkan "
+              "(edclub menolak penyelesaian yang terlalu cepat)")
     stable = 0
     for _ in range(8):
         time.sleep(0.25)
@@ -77,7 +85,7 @@ def handle_tutorial(frame, data):
         while state.PAUSED and not state.STOP:
             time.sleep(0.15)
         n = min(CH, len(rem))
-        if not typing_core.type_chars(rem[:n]):
+        if not typing_core.type_chars(rem[:n], slow=pelan):
             break
         typing_core.keep_alive_quiet(frame)
         rem = rem[n:]
