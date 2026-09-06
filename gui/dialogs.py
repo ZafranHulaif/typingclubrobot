@@ -570,11 +570,11 @@ def dialog_online_activation(induk, nickname, on_send, on_cancel, on_ready=None)
     ent.pack(fill="x", ipady=6, pady=(2, 6))
 
     fase2 = tk.Frame(d.body, bg=PANEL)
-    # orb melayang lembut selama menunggu jawaban server - geraknya
-    # berbasis jam dinding jadi mulus di refresh rate berapa pun
-    kan_orbs = tk.Canvas(fase2, height=76, bg=PANEL, highlightthickness=0)
-    kan_orbs.pack(fill="x", pady=(0, 10))
-    d._orbs = anim.attach_orbs(kan_orbs)
+    # gelombang ketikan selama menunggu jawaban server - frame dirender
+    # pada resolusi native kanvas & gerak berbasis jam dinding
+    kan_wave = tk.Canvas(fase2, height=64, bg=PANEL, highlightthickness=0)
+    kan_wave.pack(fill="x", pady=(0, 10))
+    d._anim_tunggu = anim.attach_wave(kan_wave)
     status_lbl = tk.Label(fase2, text="Mengirim permintaan...",
                           font=("Segoe UI", 11, "bold"), fg=FG, bg=PANEL,
                           wraplength=420, justify="left")
@@ -619,7 +619,7 @@ def dialog_online_activation(induk, nickname, on_send, on_cancel, on_ready=None)
 
     def _stop_anim():
         try:
-            d._orbs.stop()
+            d._anim_tunggu.stop()
         except Exception:
             pass
 

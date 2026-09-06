@@ -117,6 +117,25 @@ if __name__ == "__main__":
     import tkinter as tk
     from gui import app as gui_app
     root = tk.Tk()
+
+    # error callback Tk & crash tak tertangani -> bot.log. Dulu error
+    # di callback hanya memunculkan popup yang hilang begitu ditutup;
+    # mustahil didiagnosis dari log.
+    import traceback as _tb
+    from gui.theme import LOG_FILE as _LOG_FILE
+
+    def _catat_error(_jns, nilai, tb):
+        try:
+            with open(_LOG_FILE, "a", encoding="utf-8") as f:
+                f.write("[GUI] error tak tertangani: %r\n%s\n" % (
+                    nilai, "".join(_tb.format_exception(type(nilai),
+                                                        nilai, tb))))
+        except Exception:
+            pass
+
+    root.report_callback_exception = _catat_error
+    _sys.excepthook = _catat_error
+
     gui_app.App(root)
 
     def _angkat():

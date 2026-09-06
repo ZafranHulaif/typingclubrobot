@@ -79,7 +79,7 @@ class DevMixin:
         kan.pack(fill="both", expand=True)
         kaki = tk.Frame(win, bg=PANEL)
         kaki.pack(fill="x", padx=18, pady=(10, 16))
-        stan = {"orbs": None, "cek": None}
+        stan = {"wave": None, "cek": None}
 
         def _tombol(teks, cmd, warna, primer=True):
             b = tk.Label(kaki, text=teks, font=("Segoe UI", 10, "bold"),
@@ -91,17 +91,17 @@ class DevMixin:
             b.bind("<Button-1>", lambda e: self._safe(cmd))
             return b
 
-        def _orbs_mulai():
+        def _wave_mulai():
             try:
                 kan.delete("all")
             except Exception:
                 pass
-            stan["orbs"] = anim.attach_orbs(kan, tinggi=None)
+            stan["wave"] = anim.attach_wave(kan)
 
         def _cek_mulai():
-            if stan["orbs"]:
+            if stan["wave"]:
                 try:
-                    stan["orbs"].stop()
+                    stan["wave"].stop()
                 except Exception:
                     pass
             try:
@@ -112,9 +112,9 @@ class DevMixin:
             stan["cek"].start()
 
         _tombol("✓  Disetujui", _cek_mulai, GREEN)
-        _tombol("↻  Orb menunggu", _orbs_mulai, ACCENT, primer=False)
+        _tombol("↻  Gelombang ketikan", _wave_mulai, ACCENT, primer=False)
 
-        _orbs_mulai()
+        _wave_mulai()
         gelap_titlebar_berulang(win)
         win.update_idletasks()
         try:
