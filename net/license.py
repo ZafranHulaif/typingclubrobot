@@ -13,7 +13,7 @@ import time
 
 from . import api
 
-SERVER_PUBLIC_KEY_HEX = ""
+SERVER_PUBLIC_KEY_HEX = "0e93efe0f59f9af8dd1bf514aac9cec553aa02d4c2b8ca7da5688b1936ab48a2"
 
 _pub_cache = None
 

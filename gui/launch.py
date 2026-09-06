@@ -180,6 +180,28 @@ class LaunchMixin:
         from net import api
         from net import license as netlic
         from .licensing import _save_online_token
+        # pintu pulih: token lokal bisa hilang (dicabut lalu disetujui
+        # lagi di admin, dihapus saat uji) padahal server SUDAH menyetujui
+        # mesin ini - tanya status dulu; approved berarti token keluar
+        # langsung TANPA dialog nickname (dulu: mesin yang sudah
+        # disetujui tetap ditanya nama lagi setiap kali tokennya hilang)
+        try:
+            awal = netlic.fetch_status(mc)
+            if awal.get("status") == "approved" and awal.get("token"):
+                _save_online_token(awal["token"])
+                self._tok_cache = awal["token"]
+
+                def aktif():
+                    self.lisensi_ok = True
+                    self._title_bar()
+                    self._log("Lisensi AKTIF (disetujui pemilik). "
+                              "Terima kasih!")
+                    self._set_state("⏻ Siap", FG)
+
+                self._ui_queue.put(aktif)
+                return
+        except Exception as ex:
+            self._log(f"[net] cek status awal gagal: {ex}")
         self._online_cancel = False
         self._online_dlg = None
 
@@ -636,9 +658,31 @@ class LaunchMixin:
         if not self.lisensi_ok:
             self._ask_online()
             return
-        # gerbang Start: jangan percaya token offline saja - cek server
-        # (pencabutan akses mendarat di sini juga, bukan cuma saat start)
-        threading.Thread(target=self._net_license_recheck, daemon=True).start()
+        # gerbang Start: tunggu putusan server SEBENTAR sebelum lanjut
+        # (dulu: dialog browser terbuka duluan, verdict revoke menyusul ->
+        # dua popup bertumpuk)
+        kotak = {"tolak": False}
+
+        def cek_gerbang():
+            from net import api
+            from net import license as netlic
+            try:
+                st, data = api.http_json(
+                    "GET", "/api/license/status?mc=" + _machine_code(),
+                    timeout=3)
+            except Exception:
+                return
+            if data.get("status") not in ("approved", None):
+                kotak["tolak"] = True
+                stn = data.get("status") or "unknown"
+                self._ui_queue.put(lambda: self._on_license_revoked(stn))
+
+        self._set_state("🔎 Cek lisensi...", ACCENT)
+        t_cek = threading.Thread(target=cek_gerbang, daemon=True)
+        t_cek.start()
+        t_cek.join(timeout=3.4)
+        if kotak["tolak"]:
+            return
         # Rentang level ditanyakan setelah tersambung & login diketahui
         # (bukan sebelum Start) - lihat _poll.
         self._tanya_rentang = True

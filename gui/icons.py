@@ -248,6 +248,16 @@ def _draw_vector_icon(c, nama, cx, cy, r, warna="white"):
         c.create_line(cx - d, cy, cx + d, cy, fill=warna, width=tebal)
         c.create_oval(cx - d * 0.45, cy - d, cx + d * 0.45, cy + d,
                       outline=warna, width=tebal)
+    elif nama == "stop":
+        # lingkaran + garis miring (emoji ⛔ duduk rendah/miring dalam
+        # kotak em-nya - vektor selalu presisi di tengah)
+        tebal = max(3, int(r * 0.16))
+        d = r * 0.60
+        c.create_oval(cx - d, cy - d, cx + d, cy + d,
+                      outline=warna, width=tebal)
+        c.create_line(cx - d * 0.72, cy - d * 0.72,
+                      cx + d * 0.72, cy + d * 0.72,
+                      fill=warna, width=tebal, capstyle="round")
     elif nama == "warning":
         # segitiga + tanda seru, semua dipusatkan matematis (emoji ⚠
         # glyph-nya duduk miring di kotak em -)
