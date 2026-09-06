@@ -88,6 +88,63 @@ class DevMixin:
                  font=("Segoe UI", 9), fg=DIM, bg=PANEL).pack(
                      side="left", padx=(10, 0), pady=(8, 0))
 
+        # "Hasil aksi": cermin log aplikasi yang SELALU terlihat di
+        # jendela dev (log utama sering tertutup jendela dev yang
+        # topmost - dulu tombol terasa tidak melakukan apa-apa)
+        kaki = tk.Frame(win, bg=PANEL)
+        kaki.pack(side="bottom", fill="x")
+        tk.Frame(kaki, bg=EDGE, height=1).pack(fill="x", padx=18)
+        tk.Label(kaki, text="HASIL AKSI (log aplikasi)",
+                 font=("Segoe UI", 8, "bold"), fg=DIM,
+                 bg=PANEL).pack(anchor="w", padx=18, pady=(6, 2))
+        hasil_txt = ScrolledText(kaki, bg=BG, fg="#c7cbd4", relief="flat",
+                                 font=("Consolas", 9),
+                                 height=7, state="disabled", wrap="none",
+                                 borderwidth=0, highlightthickness=0)
+        hasil_txt.pack(fill="x", padx=18, pady=(0, 10))
+        log_q_dev = queue.Queue()
+        asli_log = self._log
+        mirror_terpasang = getattr(self, "_dev_log_pasang", False)
+
+        def _log_mirror(line):
+            asli_log(line)
+            log_q_dev.put(line)
+
+        if not mirror_terpasang:
+            self._log = _log_mirror
+            self._dev_log_pasang = True
+
+        def _kuras():
+            try:
+                while True:
+                    ln = log_q_dev.get_nowait()
+                    hasil_txt.configure(state="normal")
+                    hasil_txt.insert("end", ln + "\n")
+                    if int(hasil_txt.index("end-1c").split(".")[0]) > 120:
+                        hasil_txt.delete("1.0", "40.0")
+                    hasil_txt.see("end")
+                    hasil_txt.configure(state="disabled")
+            except queue.Empty:
+                pass
+            except Exception:
+                pass
+            try:
+                win.after(250, _kuras)
+            except Exception:
+                pass
+
+        win.after(250, _kuras)
+
+        def _tutup_dev():
+            self._log = asli_log
+            self._dev_log_pasang = False
+            try:
+                win.destroy()
+            except Exception:
+                pass
+
+        win.protocol("WM_DELETE_WINDOW", _tutup_dev)
+
         # panel gulir: tombol tidak pernah terpotong saat jendela
         # dikecilkan (dulu: baris tombol fixed terpotong di sisi kanan)
         kanvas = tk.Canvas(win, bg=PANEL, highlightthickness=0)
@@ -168,8 +225,9 @@ class DevMixin:
               "Folder pengaturan, lisensi, dan log aplikasi.",
               lambda: self._dev_buka(BASE_DIR))
         baris("♻", "Reset pengaturan",
-              "Hapus pengaturan tersimpan; popup pilih browser aktif lagi. "
-              "(Lisensi tidak ikut terhapus.)", self._dev_reset)
+              "Hapus pengaturan tersimpan; popup pilih browser aktif lagi "
+              "(lisensi tidak ikut terhapus). Hasilnya lihat di 'Hasil aksi'.",
+              self._dev_reset)
 
         seksi("Uji dialog")
         baris("🧪", "Dialog pilih browser",
@@ -181,16 +239,22 @@ class DevMixin:
 
         seksi("Lisensi & pembaruan")
         baris("📨", "Minta persetujuan",
-              "Alur lengkap: nickname -> menunggu admin menyetujui.",
+              "Uji alur aktivasi penuh: nickname -> menunggu pemilik "
+              "menyetujui di halaman admin-nya. Persetujuan yang sama "
+              "juga membuka fitur pembaruan.",
               self._ask_online)
         baris("🗑", "Hapus lisensi (uji fresh)",
-              "Hapus token lokal supaya alur persetujuan bisa diuji ulang.",
+              "Hapus token LOKAL saja - status di server TIDAK ikut "
+              "berubah; kalau mesin masih disetujui, lisensi pulih "
+              "sendiri di cek berikutnya.",
               self._dev_hapus_lisensi)
         baris("🔄", "Cek lisensi + pembaruan",
-              "Jalankan alur start-up net (perpanjang token + cek versi).",
+              "Ulangi start-up net: perpanjang token + cek versi baru "
+              "(hasilnya di 'Hasil aksi' di bawah).",
               self._dev_net_check)
         baris("⬇", "Cek pembaruan",
-              "Hanya /api/latest: tombol unduh muncul bila ada versi baru.",
+              "Hanya cek /api/latest: bila versi sama, memang tidak ada "
+              "apa-apa; tombol ⬇ muncul bila ada rilis baru.",
               self._dev_cek_update)
         baris("#️⃣", "Versi 0.0.1 ON/OFF",
               "Tipu versi lokal supaya alur pembaruan bisa diuji.",

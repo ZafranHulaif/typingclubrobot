@@ -108,7 +108,10 @@ def apply_update_and_restart(program_path):
         ":moved\r\n"
         'if not exist "%NEW%" exit /b 1\r\n'
         'move /y "%NEW%" "%EXE%" >nul 2>&1\r\n'
-        'if exist "%EXE%" start "" "%EXE%"\r\n'
+        # luncurkan lewat explorer = seperti klik ganda user; 'start'
+        # dari cmd menjadikan cmd orang tua proses dan ditolak lapisan
+        # keamanan Windows ("security validation failure")
+        'if exist "%EXE%" explorer "%EXE%"\r\n'
         'del /f /q "%~f0" >nul 2>&1\r\n'
     )
     with open(cmd, "w", encoding="ascii", newline="") as f:

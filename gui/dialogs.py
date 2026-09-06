@@ -677,7 +677,7 @@ def dialog_update(induk, info, versi_kini, tahap="awal", on_ready=None):
     tk.Label(fase2, text="Mengunduh pembaruan...",
              font=("Segoe UI", 12, "bold"), fg=FG,
              bg=PANEL).pack(anchor="w", pady=(0, 10))
-    bar = tk.Canvas(fase2, height=22, bg=PANEL, highlightthickness=0)
+    bar = tk.Canvas(fase2, height=26, bg=PANEL, highlightthickness=0)
     bar.pack(anchor="w", fill="x")
     ket_lbl = tk.Label(fase2, text="Menyambung ke server...",
                        font=("Segoe UI", 9), fg=DIM, bg=PANEL)
@@ -714,10 +714,12 @@ def dialog_update(induk, info, versi_kini, tahap="awal", on_ready=None):
         bar.delete("all")
         w = max(bar.winfo_width(), 320)
         bar.configure(width=w)
-        bar.create_rectangle(0, 6, w, 16, fill=CARD, width=0)
+        # jalur 18px tinggi supaya teks % (font 9 ≈ 14px) benar-benar
+        # DI DALAM bilah, bukan menjulur keluar atas-bawah (dulu 10px)
+        bar.create_rectangle(0, 4, w, 22, fill=CARD, width=0)
         isi = max(3, int(w * persen / 100.0))
-        bar.create_rectangle(1, 7, isi, 15, fill=GREEN, width=0)
-        bar.create_text(w - 2, 11, anchor="e", text=f"{persen:.0f}%",
+        bar.create_rectangle(1, 5, isi, 21, fill=GREEN, width=0)
+        bar.create_text(w - 8, 13, anchor="e", text=f"{persen:.0f}%",
                         font=("Segoe UI", 9, "bold"), fill=FG)
 
     _spd = {"t": 0.0, "got": 0, "v": 0.0}

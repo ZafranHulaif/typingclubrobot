@@ -316,14 +316,6 @@ class LaunchMixin:
         d.button("Minta persetujuan", None,
                  cmd=lambda: (d.done(None), self._ask_online()))
         d.show()
-        d = _Dialog(self.root, "Lisensi dicabut",
-                    "Pemilik aplikasi mencabut akses komputer ini.",
-                    ikon="⛔", warna=RED)
-        tk.Label(d.body, text="Aplikasi tidak bisa dipakai lagi di sini.",
-                 font=("Segoe UI", 10), fg=FG, bg=PANEL,
-                 wraplength=420, justify="left").pack(anchor="w", pady=(4, 0))
-        d.button("Oke")
-        d.show()
 
     def _net_license_recheck(self):
         """Cek ulang status lisensi ke server (saat Start + berkala)
