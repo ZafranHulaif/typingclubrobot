@@ -281,9 +281,14 @@ class _Dialog(tk.Toplevel):
     def show(self):
         self.update_idletasks()
         w, h = self.winfo_reqwidth(), self.winfo_reqheight()
-        ix, iy = self.master.winfo_rootx(), self.master.winfo_rooty()
-        iw, ih = self.master.winfo_width(), self.master.winfo_height()
-        self.geometry(f"+{max(ix + (iw - w) // 2, 40)}+{max(iy + (ih - h) // 2, 40)}")
+        # tengah layar (dulu: tengah jendela induk - saat induk belum
+        # terpetakan atau di posisi pojok, popup menumpuk di kiri atas)
+        try:
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+        except Exception:
+            sw, sh = 1920, 1080
+        self.geometry(f"+{max((sw - w) // 2, 8)}+{max((sh - h) // 3, 40)}")
         # angkat dialog ke depan meski user sedang fokus di browser
         # (live: dialog rentang muncul tersembunyi di belakang jendela lain)
         try:

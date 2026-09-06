@@ -118,4 +118,18 @@ if __name__ == "__main__":
     from gui import app as gui_app
     root = tk.Tk()
     gui_app.App(root)
+
+    def _angkat():
+        # angkat jendela ke depan + fokus - penting saat aplikasi
+        # diluncurkan ulang otomatis usai pembaruan (instance baru
+        # tadinya muncul di belakang, tidak aktif)
+        try:
+            root.attributes("-topmost", True)
+            root.lift()
+            root.focus_force()
+            root.after(150, lambda: root.attributes("-topmost", False))
+        except Exception:
+            pass
+
+    root.after(400, _angkat)
     root.mainloop()

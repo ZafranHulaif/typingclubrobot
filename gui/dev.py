@@ -94,14 +94,39 @@ class DevMixin:
         kaki = tk.Frame(win, bg=PANEL)
         kaki.pack(side="bottom", fill="x")
         tk.Frame(kaki, bg=EDGE, height=1).pack(fill="x", padx=18)
-        tk.Label(kaki, text="HASIL AKSI (log aplikasi)",
-                 font=("Segoe UI", 8, "bold"), fg=DIM,
-                 bg=PANEL).pack(anchor="w", padx=18, pady=(6, 2))
-        hasil_txt = ScrolledText(kaki, bg=BG, fg="#c7cbd4", relief="flat",
-                                 font=("Consolas", 9),
-                                 height=7, state="disabled", wrap="none",
-                                 borderwidth=0, highlightthickness=0)
-        hasil_txt.pack(fill="x", padx=18, pady=(0, 10))
+
+        # "Hasil aksi": cermin log aplikasi yang bisa dilipat -
+        # tertutup secara default, dibuka hanya saat ingin memeriksa
+        # (log utama sering tertutup jendela dev yang topmost - dulu
+        # tombol terasa tidak melakukan apa-apa)
+        badan_hasil = tk.Frame(kaki, bg=PANEL)
+        kotak_txt = tk.Frame(badan_hasil, bg=BG)
+        hasil_txt = tk.Text(kotak_txt, bg=BG, fg="#c7cbd4", relief="flat",
+                            font=("Consolas", 9), height=8,
+                            state="disabled", wrap="word",
+                            borderwidth=0, highlightthickness=0)
+        hasil_txt.pack(side="left", fill="both", expand=True)
+        gulir_hasil = ScrollbarGelap(kotak_txt, hasil_txt.yview)
+        hasil_txt.configure(yscrollcommand=gulir_hasil.set)
+        gulir_hasil.pack(side="right", fill="y")
+        kotak_txt.pack(fill="x", padx=18, pady=(0, 10))
+        hasil_buka = {"ok": False}
+
+        def _toggle_hasil(_e=None):
+            hasil_buka["ok"] = not hasil_buka["ok"]
+            if hasil_buka["ok"]:
+                badan_hasil.pack(fill="x")
+                hasil_kepala.configure(text="▾ Hasil aksi (log aplikasi)")
+                hasil_txt.see("end")
+            else:
+                badan_hasil.pack_forget()
+                hasil_kepala.configure(text="▸ Hasil aksi (log aplikasi)")
+
+        hasil_kepala = tk.Label(kaki, text="▸ Hasil aksi (log aplikasi)",
+                                font=("Segoe UI", 9, "bold"), fg=DIM,
+                                bg=PANEL, cursor="hand2", padx=4, pady=4)
+        hasil_kepala.pack(anchor="w", padx=18)
+        hasil_kepala.bind("<Button-1>", _toggle_hasil)
         log_q_dev = queue.Queue()
         asli_log = self._log
         mirror_terpasang = getattr(self, "_dev_log_pasang", False)
@@ -259,15 +284,12 @@ class DevMixin:
         baris("#️⃣", "Versi 0.0.1 ON/OFF",
               "Tipu versi lokal supaya alur pembaruan bisa diuji.",
               self._dev_toggle_fake_version)
-        baris("🌐", "Buka halaman admin",
-              "Kelola persetujuan mesin pemakai di server.",
-              self._dev_buka_admin)
 
         seksi("Info lengkap")
-        teks_info = ScrolledText(dalam, bg=BG, fg="#c7cbd4", relief="flat",
-                                 font=("Consolas", 9), state="normal",
-                                 wrap="word", borderwidth=0,
-                                 highlightthickness=0, height=16)
+        teks_info = tk.Text(dalam, bg=BG, fg="#c7cbd4", relief="flat",
+                            font=("Consolas", 9), state="normal",
+                            wrap="word", borderwidth=0,
+                            highlightthickness=0, height=16)
         teks_info.insert("1.0", info)
         teks_info.configure(state="disabled")
 
@@ -278,6 +300,10 @@ class DevMixin:
             else:
                 teks_info.pack(fill="x", padx=18, pady=(0, 8))
                 teks_info.see("1.0")
+                # gulir sampai terlihat - dulu teks terpasang DI BAWAH
+                # posisi gulir sehingga seolah tombol tidak melakukan apa-apa
+                kanvas.update_idletasks()
+                kanvas.yview_moveto(1.0)
                 togg.configure(text="▾ Sembunyikan info lengkap")
 
         togg = tk.Label(dalam, text="▸ Tampilkan info lengkap",
@@ -378,6 +404,12 @@ class DevMixin:
                 os.remove(SETTINGS_FILE)
             self._first_run = True
             self.browser_var.set("Otomatis")
+            # segarkan kartu browser di GUI utama saat itu juga (dulu:
+            # chip masih menampilkan pilihan lama sampai ada aksi lain)
+            try:
+                self._update_browser_chip()
+            except Exception:
+                pass
             self._log("Pengaturan dihapus - popup pilih browser aktif lagi. "
                       "(Lisensi tidak ikut terhapus.)")
         except Exception as ex:
@@ -437,19 +469,3 @@ class DevMixin:
                       "akan muncul setelah cek. Tekan tombol hijau itu untuk "
                       "uji unduh+verifikasi hash (swap exe hanya di EXE).")
         threading.Thread(target=self._net_update_check, daemon=True).start()
-
-    def _dev_buka_admin(self):
-        import webbrowser
-        if not netapi.BASE_URL:
-            self._log("[Dev] server tidak dikonfigurasi.")
-            return
-        url = netapi.BASE_URL + "/admin"
-        try:
-            kunci = json.load(open(os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "server", "_admin.json"), encoding="utf-8"))["admin_key"]
-            url += "?key=" + kunci
-        except Exception:
-            pass
-        webbrowser.open(url)
-        self._log("[Dev] halaman admin dibuka di browser.")

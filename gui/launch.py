@@ -459,6 +459,10 @@ class LaunchMixin:
     def _ask_online(self):
         """Satu-satunya jalur aktivasi: minta persetujuan lewat server."""
         if self.lisensi_ok:
+            # dari alat dev: terasa 'tidak melakukan apa-apa' tanpa log
+            self._log("[net] lisensi sudah aktif - tidak perlu meminta "
+                      "persetujuan lagi. (Hapus lisensi dulu untuk uji "
+                      "alur penuh.)")
             return
         if getattr(self, "_online_running", False):
             self._log("[net] permintaan persetujuan sudah berjalan.")

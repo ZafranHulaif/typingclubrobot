@@ -99,7 +99,9 @@ def apply_update_and_restart(program_path):
         'set NEW="%~dp0' + nama + NEW_SUFFIX + '"\r\n'
         "set /a N=0\r\n"
         ":wait\r\n"
-        "timeout /t 1 /nobreak >nul\r\n"
+        # ping, bukan timeout: timeout butuh konsol nyata - dulu cmd
+        # membuka jendela terminal sebentar (membingungkan user awam)
+        "ping -n 2 127.0.0.1 >nul\r\n"
         'del /f /q "%EXE%" >nul 2>&1\r\n'
         'if not exist "%EXE%" goto moved\r\n'
         "set /a N+=1\r\n"
@@ -116,7 +118,10 @@ def apply_update_and_restart(program_path):
     )
     with open(cmd, "w", encoding="ascii", newline="") as f:
         f.write(isi)
-    flags = 0x00000008
+    # CREATE_NO_WINDOW: cmd jalan tersembunyi (dulu DETACHED_PROCESS
+    # malah membuat cmd membuka konsol sendiri -> layar terminal
+    # berkedip saat pembaruan)
+    flags = 0x08000000
     try:
         flags |= 0x00000200
     except Exception:
