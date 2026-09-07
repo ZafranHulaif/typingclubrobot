@@ -398,6 +398,49 @@ def _popen_latar(args):
     subprocess.Popen(args, close_fds=True, startupinfo=si)
 
 
+def _kecilkan_jendela_bot():
+    """Kecilkan jendela browser bot kembali setelah bot membuat tab di
+    latar: Chromium TETAP mengaktifkan dirinya walau Target.createTarget
+    memakai background=True (keluhan live: jendela melompat ke depan
+    sesaat). Judul dinormalisasi tanpa spasi - judul situs bisa
+    'Typing Club' / 'EdClub'. Hanya jendela bot yang disentuh."""
+    try:
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        kandidat = {"brave.exe", "chrome.exe", "msedge.exe"}
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def enum_cb(hwnd, _l):
+            try:
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                h = kernel32.OpenProcess(0x1000, False, pid.value)
+                if not h:
+                    return True
+                buf = ctypes.create_unicode_buffer(512)
+                n = wintypes.DWORD(512)
+                ok = kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n))
+                kernel32.CloseHandle(h)
+                if not ok:
+                    return True
+                exe = buf.value.replace("\\", "/").split("/")[-1].lower()
+                if exe in kandidat:
+                    judul = ctypes.create_unicode_buffer(256)
+                    user32.GetWindowTextW(hwnd, judul, 256)
+                    jl = judul.value.lower().replace(" ", "")
+                    if jl and ("edclub" in jl or "typingclub" in jl):
+                        user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE (tanpa aktivasi)
+            except Exception:
+                pass
+            return True
+
+        user32.EnumWindows(enum_cb, 0)
+    except Exception:
+        pass
+
+
 def _tab_latar(ctx):
     """Tab baru TANPA mengangkat jendela browser. ctx.new_page() Playwright
     membuat tab FOREGROUND - Chromium mengaktifkan dirinya dan menaikkan
@@ -405,7 +448,10 @@ def _tab_latar(ctx):
     bekerja, padahal user sedang tidak perlu melihat apa pun). Lewat CDP
     Target.createTarget(background=True) tab tetap di belakang; kalau CDP
     gagal, jatuh ke new_page() biasa. Hanya untuk context default - context
-    lain butuh browserContextId, pakai jalur lama."""
+    lain butuh browserContextId, pakai jalur lama. Karena Chromium kadang
+    tetap menaikkan jendela walau background=True, jendela bot kembali
+    dikecilkan setelah tab dibuat (kecuali bot sedang menunggu login -
+    jendela memang harus terangkat untuk user)."""
     lama = []
     try:
         lama = list(ctx.pages)
@@ -417,6 +463,7 @@ def _tab_latar(ctx):
     except Exception:
         br = None
     default_ctx = bool(br and br.contexts and ctx is br.contexts[0])
+    baru = None
     if default_ctx:
         try:
             ses = br.new_browser_cdp_session()
@@ -426,13 +473,20 @@ def _tab_latar(ctx):
                 time.sleep(0.1)
                 for pg in ctx.pages:
                     if pg not in lama:
-                        return pg
+                        baru = pg
+                        break
+                if baru is not None:
+                    break
         except Exception:
-            pass
-    try:
-        return ctx.new_page()
-    except Exception:
-        return None
+            baru = None
+    if baru is None:
+        try:
+            baru = ctx.new_page()
+        except Exception:
+            return None
+    if not state.NEEDS_LOGIN:
+        _kecilkan_jendela_bot()
+    return baru
 
 
 def _find_setup_tab(br, pg_utama):

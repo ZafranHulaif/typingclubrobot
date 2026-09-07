@@ -138,8 +138,10 @@ def _minimize_browser_windows():
                 if exe in kandidat:
                     judul = ctypes.create_unicode_buffer(256)
                     user32_.GetWindowTextW(hwnd, judul, 256)
-                    jl = judul.value.lower()
-                    if ("edclub" in jl or "typingclub" in jl) and judul.value:
+                    # normalisasi tanpa spasi: judul situs bisa
+                    # 'EdClub' / 'Typing Club' / 'Level 87 - Typing Club'
+                    jl = judul.value.lower().replace(" ", "")
+                    if jl and ("edclub" in jl or "typingclub" in jl):
                         user32_.ShowWindow(hwnd, 6)  # SW_MINIMIZE (tanpa aktivasi)
             except Exception:
                 pass
