@@ -264,10 +264,27 @@ class LaunchMixin:
                 self._ui_queue.put(sukses)
                 return
             if st in ("denied", "revoked"):
+                # Pemilik bisa berubah pikir: minta ulang (server reset
+                # revoked/denied -> pending tiap permintaan) dan LANJUT
+                # menunggu sampai window habis. Dulu langsung menyerah
+                # dengan 'ditolak' - approve yang diklik beberapa detik
+                # kemudian tak pernah dilihat dialog (keluhan live:
+                # popup bilang ditolak padahal setujui sudah diklik).
                 self._ui_queue.put(
                     lambda: self._online_dlg
-                    and self._online_dlg.set_status("❌ Permintaan ditolak pemilik."))
-                return
+                    and self._online_dlg.set_status(
+                        "❌ Permintaan ditolak pemilik. Menunggu keputusan "
+                        "ulang…"))
+                try:
+                    data = netlic.request_approval(mc, nick, APP_VERSION)
+                except Exception:
+                    pass
+                time.sleep(5)
+                try:
+                    data = netlic.fetch_status(mc)
+                except Exception:
+                    pass
+                continue
             def status():
                 try:
                     self._online_dlg.set_status("Menunggu persetujuan pemilik…")
