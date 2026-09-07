@@ -20,6 +20,7 @@ from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
 from .licensing import _machine_code, _license_valid
+from . import anim
 from .theme import (APP_VERSION, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, PANEL, CREATOR, RED, SETTINGS_FILE, YELLOW, _asset_path, _build_stamp)
 from .widgets import Dropdown, _gelap_titlebar
 
@@ -203,6 +204,12 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         aktiv.pack(fill="both", expand=True, padx=18, pady=(0, 6))
         tengah = tk.Frame(aktiv, bg=PANEL)
         tengah.place(relx=0.5, rely=0.5, anchor="center")
+        # panggung animasi status: sprite per status + crossfade antar status
+        self._stage_kan = tk.Canvas(tengah, width=460, height=56, bg=PANEL,
+                                    highlightthickness=0)
+        self._stage_kan.pack()
+        self._stage = anim.StateStage(self._stage_kan).start()
+        self._stage.set_state("siap")
         self.aktiv_lbl = tk.Label(tengah, text="Siap",
                                   font=("Segoe UI", 16, "bold"), fg=FG,
                                   bg=PANEL, wraplength=560, justify="center")
@@ -263,8 +270,13 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         return f"#{int(r * f):02x}{int(g * f):02x}{int(b * f):02x}"
 
 
-    def _set_state(self, text, color):
+    def _set_state(self, text, color, stage=None):
         self.state_lbl.configure(text=text, fg=color)
+        if stage:
+            try:
+                self._stage.set_state(stage)
+            except Exception:
+                pass
 
 
     def _set_activity(self, utama, sub):

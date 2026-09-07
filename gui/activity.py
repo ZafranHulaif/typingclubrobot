@@ -305,55 +305,55 @@ class ActivityMixin:
             # state 'Membuka' hanya untuk bot sungguhan.
             pg_bot = getattr(bot, "PAGE", "tiada")
             if not self.lisensi_ok:
-                self._set_state("⚠ Perlu aktivasi", ORANGE)
+                self._set_state("⚠ Perlu aktivasi", ORANGE, "aktivasi")
             elif getattr(bot, "RANGE_DONE", False):
-                self._set_state("🏁 Selesai (rentang)", GREEN)
+                self._set_state("🏁 Selesai (rentang)", GREEN, "selesai")
             elif not bot_thread_hidup:
                 # tidak ada sesi bot berjalan: jangan tampilkan 'Berjalan'
                 # (dulu: aplikasi baru dibuka langsung bilang Berjalan).
                 if bot.STOP:
-                    self._set_state("⏹ Berhenti", RED)
+                    self._set_state("⏹ Berhenti", RED, "berhenti")
                 else:
-                    self._set_state("⏻ Siap", FAINT)
+                    self._set_state("⏻ Siap", FAINT, "siap")
             elif getattr(bot, "BROWSER_CLOSED", False):
                 # jendela browser bot ditutup user: URL Playwright stale,
                 # engine sudah menandai state.BROWSER_CLOSED
-                self._set_state("✖ Browser ditutup", RED)
+                self._set_state("✖ Browser ditutup", RED, "tutup")
             elif bot_thread_hidup and pg_bot is None:
                 # browser sedang diluncurkan/di-connect (di belakang)
                 nama_br = ((getattr(bot, "BROWSER", None) or {}).get("name")
                            or "browser")
-                self._set_state(f"🚀 Membuka {nama_br}...", ACCENT)
+                self._set_state(f"🚀 Membuka {nama_br}...", ACCENT, "membuka")
             elif getattr(bot, "WAITING_SETUP", False):
-                self._set_state("🧭 Menunggu set-up browser", YELLOW)
+                self._set_state("🧭 Menunggu set-up browser", YELLOW, "membuka")
             elif self._rentang_terbuka:
                 # dialog rentang terbuka = fokus user ada di situ, bukan login
                 # (dulu label masih 'Menunggu login' saat popup muncul)
-                self._set_state("🎯 Memilih level", ACCENT)
+                self._set_state("🎯 Memilih level", ACCENT, "memilih")
             elif getattr(bot, "NEEDS_LOGIN", False):
-                self._set_state("⚠ Menunggu login", YELLOW)
+                self._set_state("⚠ Menunggu login", YELLOW, "login")
             elif not getattr(bot, "LOGIN_DICEK", True):
                 # antara browser terbuka dan status login terbaca: dulu
                 # jatuh ke 'Menunggu kamu' padahal bot sedang memeriksa
                 # sesi (keluhan live: 'state langsung kamu memakai bot')
-                self._set_state("🔎 Memeriksa login", ACCENT)
+                self._set_state("🔎 Memeriksa login", ACCENT, "memeriksa")
             elif self._tunggu_pilih_halaman:
-                self._set_state("🎯 Memilih level", ACCENT)
+                self._set_state("🎯 Memilih level", ACCENT, "memilih")
             elif bot.STOP:
-                self._set_state("⏹ Berhenti", RED)
+                self._set_state("⏹ Berhenti", RED, "berhenti")
             elif bot.PAUSED:
-                self._set_state("⏸ Jeda", YELLOW)
+                self._set_state("⏸ Jeda", YELLOW, "jeda")
             elif baru_jawab and ".play" not in url:
                 # baru selesai memilih rentang: bot membuka level pilihan -
                 # jangan flash 'Menunggu kamu' di sela-selang detik
-                self._set_state("🎯 Menyiapkan level...", ACCENT)
+                self._set_state("🎯 Menyiapkan level...", ACCENT, "menyiapkan")
             elif ".play" not in url:
                 # user membuka halaman lain (daftar level dsb.) saat bot
                 # jalan: bot menunggu - dulu pill tetap 'Berjalan' hijau,
                 # terasa seperti bot masih sibuk mengetik padahal diam
-                self._set_state("⏳ Menunggu kamu", YELLOW)
+                self._set_state("⏳ Menunggu kamu", YELLOW, "kamu")
             else:
-                self._set_state("● Berjalan", GREEN)
+                self._set_state("● Berjalan", GREEN, "berjalan")
 
             # kartu aktivitas: kalimat besar mengikuti keadaan bot
             if not self.lisensi_ok:

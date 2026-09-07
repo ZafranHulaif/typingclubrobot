@@ -17,7 +17,7 @@ import tkinter as tk
 
 from PIL import Image, ImageDraw
 
-from .theme import ACCENT, CARD, EDGE, GREEN, PANEL
+from .theme import ACCENT, CARD, EDGE, FG, GREEN, ORANGE, PANEL, RED, YELLOW
 
 
 def _rgb(warna):
@@ -71,6 +71,10 @@ class TimedLoop:
             if self._fn is not None and self._w.winfo_ismapped():
                 self._fn(time.perf_counter() - self._t0)
         except tk.TclError:
+            return
+        except Exception:
+            # satu tick salah tidak boleh menjatuhkan pemanggil update()
+            # (dulu TypeError dari tick lolos ke dialog yang sedang dibuka)
             return
         try:
             self._id = self._w.after(self._step, self._tik)
@@ -246,105 +250,373 @@ def attach_wave(kanvas):
     return WaveField(kanvas).start()
 
 
-# ------------------------------------------------------ centang persetujuan
+# ------------------------------------------------------- panggung status
+#
+# Satu kanvas = dua lapis gambar bertumpuk. Ganti status = animasi baru
+# MEMUDAR di atas animasi lama (crossfade per-piksel lewat alpha ramp).
+# Ganti lagi di tengah transisi tinggal menukar isi lapis atas - tanpa
+# patah, tanpa restart. Semua sprite: latar PANEL, bentuk flat tajam,
+# gerak seragam berbasis waktu (tanpa keacakan - irama acak terbaca
+# sebagai tersendat).
 
-def check_sprite(w, h, progres):
-    """Frame centang progres 0..1 - GARIS TIPIS TAJAM (tanpa glow):
-    cincin menyapu, centang menggambar, lalu satu 'ping' cincin tipis
-    mengembang sebagai penutup."""
-    kecil = min(w, h)
-    skala = kecil / 96.0
+STAGE_DURASI = 2.0      # durasi loop default sprite status
+STAGE_FRAME = 40        # frame per loop (cukup halus, hemat memori)
+RAMP = 0.38             # detik crossfade antar status
+
+
+def _sprite_kunci_redam(w, h, t, warna=ACCENT):
+    """Tiga tuts redam bernapas pelan - siap/menganggur."""
     W, H = w * SUP, h * SUP
     im = Image.new("RGB", (W, H), _rgb(PANEL))
     dr = ImageDraw.Draw(im)
-    c, r = W // 2, int(kecil * SUP * 0.30)
-    tebal = max(2, int(round(2.5 * skala * SUP)))
-    p = max(0.0, min(1.0, progres))
-    e = 1 - (1 - p) ** 3                      # ease-out cubic
-    sap = min(e / 0.62, 1.0)
-    if sap > 0.02:
-        dr.arc([c - r, H // 2 - r, c + r, H // 2 + r], -90,
-               -90 + 359 * sap, fill=_rgb(GREEN), width=tebal)
-    ck = max(0.0, (e - 0.48) / 0.40)
-    if ck > 0.02:
-        A = (c - r * 0.46, H / 2 + r * 0.06)
-        B = (c - r * 0.08, H / 2 + r * 0.44)
-        C = (c + r * 0.54, H / 2 - r * 0.34)
-        total = math.dist(A, B) + math.dist(B, C)
-        jalan = total * min(ck, 1.0)
-        if jalan <= math.dist(A, B):
-            k = jalan / math.dist(A, B)
-            ujung = (A[0] + (B[0] - A[0]) * k, A[1] + (B[1] - A[1]) * k)
-            dr.line([A, ujung], fill=_rgb(GREEN), width=tebal)
-        else:
-            k = (jalan - math.dist(A, B)) / math.dist(B, C)
-            ujung = (B[0] + (C[0] - B[0]) * k, B[1] + (C[1] - B[1]) * k)
-            dr.line([A, B, ujung], fill=_rgb(GREEN), width=tebal)
-    ping = max(0.0, (e - 0.80) / 0.20)
-    if 0.02 < ping < 1.0:
-        rp = r * (1.0 + 0.22 * ping)
-        pudar = 1.0 - ping
-        dr.arc([c - rp, H // 2 - rp, c + rp, H // 2 + rp], -90,
-               -90 + 359, fill=_campur(PANEL, GREEN, pudar),
-               width=max(1, tebal // 2))
+    s, gap, x0, y0 = _geometri(w, min(h, 72))
+    y0 += (h - min(h, 72)) / 2
+    s *= SUP
+    gap *= SUP
+    x0 *= SUP
+    y0 *= SUP
+    napas = 0.10 + 0.08 * (0.5 + 0.5 * math.sin(t * 2 * math.pi / 2.4))
+    for k in range(3):
+        x = x0 + k * (s + gap)
+        dr.rounded_rectangle([x, y0, x + s, y0 + s], radius=s * 0.20,
+                             fill=_campur(PANEL, CARD, 0.9),
+                             outline=_campur(EDGE, warna, napas),
+                             width=max(1, SUP))
     return _ke_photo(im, w, h)
 
 
-_cache_cek = {}
+def _sprite_spinner(w, h, t, warna=ACCENT, busur=100, putaran=1.25):
+    """Cincin tipis + busur berputar seragam - sedang membuka/memeriksa."""
+    W, H = w * SUP, h * SUP
+    im = Image.new("RGB", (W, H), _rgb(PANEL))
+    dr = ImageDraw.Draw(im)
+    kecil = min(w * 0.5, h)
+    r = int(kecil * 0.30 * SUP)
+    cx, cy = W // 2, H // 2
+    tebal = max(2, int(round(2.5 * (kecil / 64.0) * SUP)))
+    dr.ellipse([cx - r, cy - r, cx + r, cy + r],
+               outline=_campur(PANEL, warna, 0.22), width=tebal)
+    sudut = (t * putaran * 360.0) % 360
+    dr.arc([cx - r, cy - r, cx + r, cy + r], sudut - 90, sudut - 90 + busur,
+           fill=_rgb(warna), width=tebal)
+    return _ke_photo(im, w, h)
 
 
-def check_photos(w, h, jumlah=30):
-    kunci = (w, h, jumlah)
-    if kunci in _cache_cek:
-        return _cache_cek[kunci]
-    foto = [tk.PhotoImage(data=check_sprite(w, h, i / (jumlah - 1)))
-            for i in range(jumlah)]
-    _cache_cek[kunci] = foto
-    return foto
+def _sprite_kunci_glyph(w, h, t, warna=YELLOW):
+    """Glyph kunci bernapas - menunggu login / perlu aktivasi."""
+    W, H = w * SUP, h * SUP
+    im = Image.new("RGB", (W, H), _rgb(PANEL))
+    dr = ImageDraw.Draw(im)
+    puls = 0.45 + 0.55 * (0.5 + 0.5 * math.sin(t * 2 * math.pi / 2.0))
+    kecil = min(w * 0.5, h)
+    skala = kecil * SUP
+    cx, cy = W // 2, H // 2
+    tebal = max(2, int(round(3.0 * (kecil / 64.0) * SUP)))
+    r = int(skala * 0.16)
+    # kepala kunci (cincin) + batang + dua gigi
+    dr.ellipse([cx - r - int(skala * 0.16), cy - r,
+                cx + r + int(skala * 0.16) - int(skala * 0.32),
+                cy + r], outline=_campur(PANEL, warna, 0.30 + 0.70 * puls),
+               width=tebal)
+    px = cx - int(skala * 0.02)
+    dr.line([px, cy, px, cy + int(skala * 0.22)],
+            fill=_campur(PANEL, warna, 0.30 + 0.70 * puls), width=tebal)
+    dr.line([px, cy + int(skala * 0.22), px + int(skala * 0.10),
+             cy + int(skala * 0.22)],
+            fill=_campur(PANEL, warna, 0.30 + 0.70 * puls), width=tebal)
+    dr.line([px, cy + int(skala * 0.12), px + int(skala * 0.08),
+             cy + int(skala * 0.12)],
+            fill=_campur(PANEL, warna, 0.30 + 0.70 * puls), width=tebal)
+    return _ke_photo(im, w, h)
 
 
-class PlayCheck:
-    """Putar animasi centang di tengah kanvas lalu panggil done().
-    Dirender pada ukuran pixel kanvas saat mulai (resolusi native)."""
+def _sprite_baris(w, h, t, warna=ACCENT):
+    """Daftar pelajaran: sorotan berjalan turun di antara 3 baris."""
+    W, H = w * SUP, h * SUP
+    im = Image.new("RGB", (W, H), _rgb(PANEL))
+    dr = ImageDraw.Draw(im)
+    bw = min(w * 0.46, 260) * SUP
+    bh = max(5, h * 0.11) * SUP
+    jeda_r = bh * 0.9
+    total = 3 * bh + 2 * jeda_r
+    x0 = (W - bw) / 2
+    y0 = (H - total) / 2
+    pos = (t % 1.8) / 1.8 * 3.0
+    for k in range(3):
+        nyala = max(0.0, 1.0 - abs(pos - (k + 0.5)))
+        dr.rounded_rectangle([x0, y0 + k * (bh + jeda_r),
+                              x0 + bw, y0 + k * (bh + jeda_r) + bh],
+                             radius=bh / 2,
+                             fill=_campur(CARD, warna, 0.75 * nyala),
+                             outline=_campur(EDGE, warna, nyala),
+                             width=max(1, SUP))
+    return _ke_photo(im, w, h)
 
-    def __init__(self, kanvas, durasi=1.05, done=None):
+
+def _sprite_bar(w, h, t, warna=ACCENT):
+    """Bar tak pasti: segmen menyapu dalam kapsul - menyiapkan level."""
+    W, H = w * SUP, h * SUP
+    im = Image.new("RGB", (W, H), _rgb(PANEL))
+    dr = ImageDraw.Draw(im)
+    bw = min(w * 0.52, 300) * SUP
+    bh = max(7, h * 0.13) * SUP
+    x0, y0 = (W - bw) / 2, (H - bh) / 2
+    dr.rounded_rectangle([x0, y0, x0 + bw, y0 + bh], radius=bh / 2,
+                         fill=_campur(PANEL, CARD, 0.9),
+                         outline=_rgb(EDGE), width=max(1, SUP))
+    seg = bw * 0.32
+    pos = (t % 1.6) / 1.6 * (bw + seg) - seg
+    kiri = max(x0, pos)
+    kanan = min(x0 + bw, pos + seg)
+    if kanan > kiri + SUP:
+        dr.rounded_rectangle([kiri, y0, kanan, y0 + bh], radius=bh / 2,
+                             fill=_rgb(warna))
+    return _ke_photo(im, w, h)
+
+
+def _sprite_caret(w, h, t, warna=FG):
+    """Kursor teks berkedip - bot menunggu kamu membuka pelajaran."""
+    W, H = w * SUP, h * SUP
+    im = Image.new("RGB", (W, H), _rgb(PANEL))
+    dr = ImageDraw.Draw(im)
+    ch = h * 0.34 * SUP
+    cw = max(2, int(h * 0.055 * SUP))
+    cx, cy = W // 2, H // 2
+    nyala = (t % 1.1) < 0.62
+    if nyala:
+        dr.rounded_rectangle([cx - cw // 2, cy - ch / 2,
+                              cx + cw // 2, cy + ch / 2], radius=cw / 2,
+                             fill=_campur(PANEL, warna, 0.85))
+    dr.line([cx - int(w * 0.05) * SUP // 2, cy + ch / 2 + 4 * SUP,
+             cx + int(w * 0.05) * SUP // 2, cy + ch / 2 + 4 * SUP],
+            fill=_rgb(EDGE), width=max(1, SUP))
+    return _ke_photo(im, w, h)
+
+
+def _sprite_jeda(w, h, t, warna=YELLOW):
+    """Dua bar pause bernapas - bot dijeda."""
+    W, H = w * SUP, h * SUP
+    im = Image.new("RGB", (W, H), _rgb(PANEL))
+    dr = ImageDraw.Draw(im)
+    puls = 0.55 + 0.35 * (0.5 + 0.5 * math.sin(t * 2 * math.pi / 2.2))
+    bh = h * 0.34 * SUP
+    bw = max(3, int(h * 0.10) * SUP)
+    jarak = bw * 1.6
+    cx, cy = W // 2, H // 2
+    warna_n = _campur(PANEL, warna, puls)
+    dr.rounded_rectangle([cx - jarak - bw / 2, cy - bh / 2,
+                          cx - jarak + bw / 2, cy + bh / 2], radius=bw / 2,
+                         fill=warna_n)
+    dr.rounded_rectangle([cx + jarak - bw / 2, cy - bh / 2,
+                          cx + jarak + bw / 2, cy + bh / 2], radius=bw / 2,
+                         fill=warna_n)
+    return _ke_photo(im, w, h)
+
+
+def _sprite_kotak(w, h, t, warna=RED):
+    """Kotak merah bernapas pelan - berhenti."""
+    W, H = w * SUP, h * SUP
+    im = Image.new("RGB", (W, H), _rgb(PANEL))
+    dr = ImageDraw.Draw(im)
+    puls = 0.50 + 0.35 * (0.5 + 0.5 * math.sin(t * 2 * math.pi / 2.4))
+    s = min(w * 0.5, h) * 0.34 * SUP
+    cx, cy = W // 2, H // 2
+    dr.rounded_rectangle([cx - s, cy - s, cx + s, cy + s], radius=s * 0.22,
+                         fill=_campur(PANEL, warna, puls),
+                         outline=_campur(PANEL, warna, min(1.0, puls + 0.3)),
+                         width=max(1, SUP))
+    return _ke_photo(im, w, h)
+
+
+def _sprite_selesai(w, h, t, warna=GREEN):
+    """Cincin hijau + ping mengembang berulang - rentang selesai."""
+    W, H = w * SUP, h * SUP
+    im = Image.new("RGB", (W, H), _rgb(PANEL))
+    dr = ImageDraw.Draw(im)
+    kecil = min(w * 0.5, h)
+    r = int(kecil * 0.28 * SUP)
+    cx, cy = W // 2, H // 2
+    tebal = max(2, int(round(2.5 * (kecil / 64.0) * SUP)))
+    dr.arc([cx - r, cy - r, cx + r, cy + r], 0, 360, fill=_rgb(warna),
+           width=tebal)
+    u = (t % 1.6) / 1.6
+    rp = r * (1.05 + 0.30 * u)
+    dr.arc([cx - rp, cy - rp, cx + rp, cy + rp], 0, 360,
+           fill=_campur(PANEL, warna, 1.0 - u), width=max(1, tebal // 2))
+    return _ke_photo(im, w, h)
+
+
+def _sprite_silang(w, h, t, warna=RED):
+    """X tergambar berulang - jendela browser ditutup."""
+    W, H = w * SUP, h * SUP
+    im = Image.new("RGB", (W, H), _rgb(PANEL))
+    dr = ImageDraw.Draw(im)
+    kecil = min(w * 0.5, h)
+    r = int(kecil * 0.26 * SUP)
+    cx, cy = W // 2, H // 2
+    tebal = max(2, int(round(3.0 * (kecil / 64.0) * SUP)))
+    siklus = (t % 1.8) / 1.8
+    dr.rounded_rectangle([cx - r * 1.25, cy - r * 1.25,
+                          cx + r * 1.25, cy + r * 1.25], radius=int(r * 0.5),
+                         outline=_campur(PANEL, warna, 0.25),
+                         width=max(1, SUP))
+    A = (cx - r * 0.7, cy - r * 0.7)
+    B = (cx + r * 0.7, cy + r * 0.7)
+    C = (cx - r * 0.7, cy + r * 0.7)
+    D = (cx + r * 0.7, cy - r * 0.7)
+    if siklus < 0.5:
+        k = siklus / 0.5
+        ujung = (A[0] + (B[0] - A[0]) * k, A[1] + (B[1] - A[1]) * k)
+        dr.line([A, ujung], fill=_rgb(warna), width=tebal)
+    else:
+        dr.line([A, B], fill=_rgb(warna), width=tebal)
+        k = (siklus - 0.5) / 0.5
+        ujung = (C[0] + (D[0] - C[0]) * k, C[1] + (D[1] - C[1]) * k)
+        dr.line([C, ujung], fill=_rgb(warna), width=tebal)
+    return _ke_photo(im, w, h)
+
+
+# peta status -> (fungsi sprite, durasi loop)
+STAGE_MAP = {
+    "berjalan": (wave_sprite, _durasi_loop()),
+    "siap": (_sprite_kunci_redam, 2.4),
+    "membuka": (lambda w, h, t: _sprite_spinner(w, h, t, ACCENT, 100, 1.25), 1.0),
+    "memeriksa": (lambda w, h, t: _sprite_spinner(w, h, t, YELLOW, 70, 0.9), 1.1),
+    "login": (lambda w, h, t: _sprite_kunci_glyph(w, h, t, YELLOW), 2.0),
+    "aktivasi": (lambda w, h, t: _sprite_kunci_glyph(w, h, t, ORANGE), 2.0),
+    "memilih": (_sprite_baris, 1.8),
+    "menyiapkan": (_sprite_bar, 1.6),
+    "kamu": (_sprite_caret, 1.1),
+    "jeda": (_sprite_jeda, 2.2),
+    "berhenti": (_sprite_kotak, 2.4),
+    "selesai": (_sprite_selesai, 1.6),
+    "tutup": (_sprite_silang, 1.8),
+}
+
+class StateStage:
+    """Panggung animasi status untuk kartu aktivitas. Dua lapis gambar:
+    ganti status = animasi baru memudar penuh di atas yang lama (RAMP);
+    ganti di tengah transisi tinggal menukar lapis atas - mulus, tanpa
+    restart. Memori terjaga: frame PIL (untuk ramp alpha) hanya disimpan
+    untuk status yang sedang terlibat transisi."""
+
+    def __init__(self, kanvas):
         self.kanvas = kanvas
-        self._durasi = durasi
-        self._done = done
-        self._item = None
-        self.loop = TimedLoop(kanvas)
+        self._bawah = kanvas.create_image(0, 0, anchor="nw")
+        self._atas = kanvas.create_image(0, 0, anchor="nw")
+        self.kanvas.itemconfigure(self._bawah, state="hidden")
+        self._kunci = None
+        self._kunci_lama = None
+        self._t_kunci = 0.0
+        self._t_lama = 0.0
+        self._ramp0 = None
+        self._ukuran = (0, 0)
+        self._png = {}            # kunci -> [PhotoImage] (kecil, boleh numpuk)
+        self._pil = {}            # kunci -> [Image RGBA] hanya 2 status
+        self._foto_atas = None    # pegang referensi PhotoImage ramp terakhir
+        # 30ms cukup: durasi frame sprite 40-55ms, tik lebih cepat
+        # hanya membakar CPU dan menahan update() (dialog auto-close
+        # pernah meleset karena ini di suite UI)
+        self.loop = TimedLoop(kanvas, step_ms=30)
 
     def start(self):
-        w = max(self.kanvas.winfo_width(), 120)
-        h = max(self.kanvas.winfo_height(), 120)
-        self._frames = check_photos(w, h)
-        self._item = self.kanvas.create_image(0, 0,
-                                              image=self._frames[0],
-                                              anchor="c")
         self.loop.start(self._frame)
         return self
 
-    def _frame(self, t):
-        # pusat dihitung tiap frame: kanvas melebar setelah di-pack
-        try:
-            self.kanvas.coords(
-                self._item,
-                max(self.kanvas.winfo_width(), 120) // 2,
-                max(self.kanvas.winfo_height(), 120) // 2)
-        except tk.TclError:
-            self.loop.stop()
-            return
-        if t >= self._durasi:
-            self.kanvas.itemconfigure(self._item, image=self._frames[-1])
-            self.loop.stop()
-            if self._done is not None:
-                try:
-                    self._done()
-                except Exception:
-                    pass
-            return
-        idx = int(len(self._frames) * t / self._durasi)
-        self.kanvas.itemconfigure(self._item, image=self._frames[idx])
-
     def stop(self):
         self.loop.stop()
+
+    def set_state(self, kunci):
+        if kunci == self._kunci or kunci not in STAGE_MAP:
+            return
+        self._kunci_lama = self._kunci
+        self._t_lama = self._t_kunci
+        self._kunci = kunci
+        self._t_kunci = time.perf_counter()
+        self._ramp0 = (self._t_kunci
+                       if self._kunci_lama is not None else None)
+        if self._ramp0 is not None:
+            simpan = {self._kunci, self._kunci_lama}
+            for k in list(self._pil):
+                if k not in simpan:
+                    del self._pil[k]
+
+    def _pastikan_ukuran(self):
+        w = max(self.kanvas.winfo_width(), 320)
+        h = max(self.kanvas.winfo_height(), 48)
+        if (w, h) != self._ukuran:
+            self._ukuran = (w, h)
+            self._png.clear()
+            self._pil.clear()
+            self._foto_atas = None
+        return w, h
+
+    def _png_frame(self, kunci, idx):
+        # lazy: render SATU frame per butuh - 40 frame sekaligus =
+        # 200ms+ di dalam update() dan membuat dialog auto-close meleset
+        cache = self._png.get(kunci)
+        if cache is None:
+            cache = [None] * STAGE_FRAME
+            self._png[kunci] = cache
+        if cache[idx] is None:
+            fn, dur = STAGE_MAP[kunci]
+            cache[idx] = tk.PhotoImage(data=fn(self._ukuran[0],
+                                               self._ukuran[1],
+                                               idx * dur / STAGE_FRAME))
+        return cache[idx]
+
+    def _pil_frames(self, kunci):
+        import io as _io
+        from PIL import Image as _Im
+        frames = self._pil.get(kunci)
+        if frames is None:
+            fn, dur = STAGE_MAP[kunci]
+            frames = [_Im.open(_io.BytesIO(
+                        fn(self._ukuran[0], self._ukuran[1],
+                           i * dur / STAGE_FRAME))).convert("RGBA")
+                      for i in range(STAGE_FRAME)]
+            self._pil[kunci] = frames
+        return frames
+
+    def _idx(self, kunci, t_asal, t):
+        dur = STAGE_MAP[kunci][1]
+        u = ((t - t_asal) % dur) / dur
+        return int(u * STAGE_FRAME) % STAGE_FRAME
+
+    def _frame(self, t):
+        # jam absolut seragam: t dari TimedLoop relatif ke start loop,
+        # sedangkan _t_kunci/_ramp0 absolut (perf_counter) - dicampur
+        # dulu bikin alpha ramp meledak (OverflowError putalpha).
+        t = time.perf_counter()
+        if self._kunci is None:
+            return
+        self._pastikan_ukuran()
+        if self._ramp0 is not None:
+            u = (t - self._ramp0) / RAMP
+            if u >= 1.0:
+                self._ramp0 = None
+                self._kunci_lama = None
+                self.kanvas.itemconfigure(self._bawah, state="hidden")
+                self._pil.pop(self._kunci, None)   # ramp selesai: lepas PIL
+            else:
+                k = u * u * (3.0 - 2.0 * u)        # smoothstep
+                self._gambar_ramp(t, k)
+                return
+        fr = self._png_frame(self._kunci,
+                             self._idx(self._kunci, self._t_kunci, t))
+        self.kanvas.itemconfigure(self._atas, state="normal", image=fr)
+
+    def _gambar_ramp(self, t, k):
+        import io as _io
+        idx_l = self._idx(self._kunci_lama, self._t_lama, t)
+        fr_l = self._png_frame(self._kunci_lama, idx_l)
+        self.kanvas.itemconfigure(self._bawah, state="normal", image=fr_l)
+        fr = self._pil_frames(self._kunci)[
+            self._idx(self._kunci, self._t_kunci, t)].copy()
+        fr.putalpha(int(255 * k))
+        bio = _io.BytesIO()
+        fr.save(bio, format="PNG")
+        self._foto_atas = tk.PhotoImage(data=bio.getvalue())
+        self.kanvas.itemconfigure(self._atas, state="normal",
+                                  image=self._foto_atas)
+
