@@ -53,6 +53,9 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self._login_grace = 0        # jeda re-popup login setelah tombol buka login
         self._fokus_sambung = False  # app diangkat ke depan 1x setelah bot tersambung
         self._fokus_browser_at = 0.0 # FOCUS_BROWSER_AT engine terakhir yang ditanggapi
+        self._fokus_setup = False    # fokus browser 1x saat perlu set-up first-run
+        self._fokus_pilih = False    # fokus browser 1x saat alur pilih-level-sendiri
+        self._rentang_jawab = 0.0    # waktu user selesai memilih rentang (grace state)
         self._profile = "bot"        # 'bot' khusus | 'saya' profil browser user
         self._profile_dir = ""       # 'Default' / 'Profile 1' ... (mode saya)
         self._profile_label = ""     # nama tampilan profil (mis. 'Student')

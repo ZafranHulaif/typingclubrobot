@@ -80,6 +80,20 @@ class ActivityMixin:
         if _fokus_at and _fokus_at > self._fokus_browser_at:
             self._fokus_browser_at = _fokus_at
             self.root.after(150, _focus_browser_window)
+        # fokus browser HANYA saat ada yang harus dikerjakan user di sana:
+        # set-up first-run dan alur 'pilih level sendiri di browser'.
+        # (peluncuran browser sendiri kini di belakang - engine.browser)
+        if bot_thread_hidup and getattr(bot, "WAITING_SETUP", False) \
+                and not self._fokus_setup:
+            self._fokus_setup = True
+            self.root.after(150, _focus_browser_window)
+        elif not bot_thread_hidup:
+            self._fokus_setup = False
+        if self._tunggu_pilih_halaman and not self._fokus_pilih:
+            self._fokus_pilih = True
+            self.root.after(150, _focus_browser_window)
+        elif not self._tunggu_pilih_halaman:
+            self._fokus_pilih = False
         nama_level = ""
         if bot:
             url = getattr(bot, "STATUS_URL", "")
@@ -136,6 +150,9 @@ class ActivityMixin:
                 self._login_grace = 0
                 self._login_ever = False
                 self._log("Login edclub aktif - bot lanjut bekerja.")
+                # login selesai = tidak ada lagi yang perlu di browser:
+                # kembalikan fokus ke aplikasi
+                self._app_depan()
             elif self._login_dismiss:
                 self._login_dismiss = False
             else:
@@ -272,6 +289,12 @@ class ActivityMixin:
                 except Exception as ex:
                     self._log(f"[GUI] popup selesai gagal: {ex!r}")
 
+            baru_jawab = (bot_thread_hidup and self._rentang_jawab
+                          and time.time() - self._rentang_jawab < 6.0)
+            # PAGE = None saat browser belum selesai di-connect. Fake bot
+            # di suite uji tidak punya atribut ini -> pakai sentinel agar
+            # state 'Membuka' hanya untuk bot sungguhan.
+            pg_bot = getattr(bot, "PAGE", "tiada")
             if not self.lisensi_ok:
                 self._set_state("⚠ Perlu aktivasi", ORANGE)
             elif getattr(bot, "RANGE_DONE", False):
@@ -283,6 +306,11 @@ class ActivityMixin:
                     self._set_state("⏹ Berhenti", RED)
                 else:
                     self._set_state("⏻ Siap", FAINT)
+            elif bot_thread_hidup and pg_bot is None:
+                # browser sedang diluncurkan/di-connect (di belakang)
+                nama_br = ((getattr(bot, "BROWSER", None) or {}).get("name")
+                           or "browser")
+                self._set_state(f"🚀 Membuka {nama_br}...", ACCENT)
             elif getattr(bot, "WAITING_SETUP", False):
                 self._set_state("🧭 Menunggu set-up browser", YELLOW)
             elif self._rentang_terbuka:
@@ -302,6 +330,10 @@ class ActivityMixin:
                 self._set_state("⏹ Berhenti", RED)
             elif bot.PAUSED:
                 self._set_state("⏸ Jeda", YELLOW)
+            elif baru_jawab and ".play" not in url:
+                # baru selesai memilih rentang: bot membuka level pilihan -
+                # jangan flash 'Menunggu kamu' di sela-selang detik
+                self._set_state("🎯 Menyiapkan level...", ACCENT)
             elif ".play" not in url:
                 # user membuka halaman lain (daftar level dsb.) saat bot
                 # jalan: bot menunggu - dulu pill tetap 'Berjalan' hijau,
@@ -334,7 +366,14 @@ class ActivityMixin:
             elif getattr(bot, "NEEDS_LOGIN", False):
                 self._set_activity("Menunggu login",
                                     "Selesaikan login edclub di jendela browser.")
-            elif not getattr(bot, "LOGIN_DICEK", True):
+            elif bot_thread_hidup and pg_bot is None:
+                nama_br = ((getattr(bot, "BROWSER", None) or {}).get("name")
+                           or "browser")
+                self._set_activity(
+                    f"Membuka {nama_br}...",
+                    "Jendela browser dibuka di belakang - kamu tidak perlu "
+                    "melakukan apa pun dulu.")
+            elif bot_thread_hidup and not getattr(bot, "LOGIN_DICEK", True):
                 self._set_activity("Memeriksa login...",
                                     "Memastikan sesi edclub kamu aktif.")
             elif self._tunggu_pilih_halaman:
@@ -346,6 +385,9 @@ class ActivityMixin:
                 self._set_activity("Berhenti", "Klik Start untuk mulai lagi.")
             elif not bot_thread_hidup:
                 self._set_activity("Siap", "Klik Start untuk mulai.")
+            elif baru_jawab and ".play" not in url:
+                self._set_activity("Menyiapkan level...",
+                                    "Bot membuka pelajaran pilihanmu.")
             elif ".play" not in url:
                 # pengguna membuka halaman lain (daftar level dll.) saat bot
                 # jalan - bot menunggu; jangan tampilkan 'Sedang mengetik...'
@@ -420,6 +462,7 @@ class ActivityMixin:
         finally:
             self._rentang_terbuka = False
         if hasil == "halaman":
+            self._rentang_jawab = time.time()
             return "halaman"
         if hasil is None:
             return False
@@ -428,6 +471,7 @@ class ActivityMixin:
         self._save_range_settings()
         self._log(f"Rentang level: {self._rentang_mulai} - "
                   f"{self._rentang_akhir or 'akhir kursus'}.")
+        self._rentang_jawab = time.time()
         return True
 
 

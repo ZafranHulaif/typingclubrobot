@@ -373,12 +373,9 @@ def _restart_browser_debug():
             args.append(f"--user-data-dir={state.DEDICATED_PROFILE}")
     elif pilihan.get("name") != "Brave":
         args.append(f"--user-data-dir={state.DEDICATED_PROFILE}")
-    # jangan mencuri fokus: jendela browser muncul diminimized tanpa
+    # jangan mencuri fokus: jendela browser muncul di belakang tanpa
     # mengaktifkan dirinya (user bisa sedang mengetik di aplikasi lain).
-    si = subprocess.STARTUPINFO()
-    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    si.wShowWindow = 7   # SW_SHOWMINNOACTIVE
-    subprocess.Popen(args, close_fds=True, startupinfo=si)
+    _popen_latar(args)
     for _ in range(40):
         time.sleep(0.5)
         if state.STOP:
@@ -387,6 +384,17 @@ def _restart_browser_debug():
             print("[PEMULIHAN] Browser debug hidup kembali.")
             return True
     return False
+
+
+def _popen_latar(args):
+    """Luncurkan browser TANPA mencuri fokus: jendela muncul di belakang
+    (minimized tanpa aktivasi). Filosofi alur: fokus browser hanya saat
+    ada yang harus dikerjakan user di sana (login, pilih level, set-up)
+    - engine mengibarkan FOCUS_BROWSER_AT untuk kasus itu."""
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 7   # SW_SHOWMINNOACTIVE
+    subprocess.Popen(args, close_fds=True, startupinfo=si)
 
 
 def _find_setup_tab(br, pg_utama):
@@ -532,12 +540,11 @@ def ensure_browser():
                 if ud_saya:
                     print(f"[PROFIL] membuka {nm} dengan profilmu "
                           f"({state.PROFILE_LABEL or state.PROFILE_DIR})...")
-                    subprocess.Popen(
+                    _popen_latar(
                         [state.BROWSER["exe"], f"--remote-debugging-port={state.DEBUG_PORT}",
                          f"--user-data-dir={ud_saya}",
                          f"--profile-directory={state.PROFILE_DIR}",
-                         "--no-first-run"],
-                        close_fds=True)
+                         "--no-first-run"])
                     for _ in range(30):
                         time.sleep(0.5)
                         if state.STOP:
@@ -559,8 +566,8 @@ def ensure_browser():
                 if not langsung_profil:
                     print(f"Port 9222 kosong: membuka {nm} otomatis "
                           "dengan mode debug...")
-                    subprocess.Popen([state.BROWSER["exe"], f"--remote-debugging-port={state.DEBUG_PORT}"],
-                                     close_fds=True)
+                    _popen_latar([state.BROWSER["exe"],
+                                  f"--remote-debugging-port={state.DEBUG_PORT}"])
                     for _ in range(30):
                         time.sleep(0.5)
                         if state.STOP:
@@ -574,10 +581,9 @@ def ensure_browser():
                     alasan = ("sudah jalan tanpa debug" if _browser_running()
                               else "profil default menolak mode debug")
                     print(f"Membuka {nm} dengan profil khusus bot ({alasan})...")
-                    subprocess.Popen([state.BROWSER["exe"],
-                                      f"--remote-debugging-port={state.DEBUG_PORT}",
-                                      f"--user-data-dir={state.DEDICATED_PROFILE}"],
-                                     close_fds=True)
+                    _popen_latar([state.BROWSER["exe"],
+                                  f"--remote-debugging-port={state.DEBUG_PORT}",
+                                  f"--user-data-dir={state.DEDICATED_PROFILE}"])
                     for _ in range(30):
                         time.sleep(0.5)
                         if state.STOP:

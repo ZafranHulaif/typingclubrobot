@@ -81,10 +81,10 @@ class TimedLoop:
 # ------------------------------------------------- gelombang ketikan
 
 N_KUNCI = 7
-# jeda antar ketukan TIDAK seragam - seperti jari sungguhan: ada
-# ketukan cepat beruntun, ada yang ragu-ragu (irama konstan terasa
-# seperti metronom, bukan orang mengetik)
-IRAMA = [0.30, 0.22, 0.36, 0.19, 0.33, 0.24, 0.42]
+# jeda antar ketukan SERAGAM: irama acak justru terlihat seperti
+# aplikasi tersendat (keluhan live) - yang diminta mulus, jadi
+# metronom halus yang konsisten
+IRAMA = [0.24] * N_KUNCI
 JEDA_AKHIR = 0.55       # jeda napas sebelum mengulang
 NAIK = 0.08             # detik menyala penuh
 LUNTUR = 0.26           # konstanta pelunturan cahaya
@@ -92,11 +92,12 @@ SUP = 2                 # supersample
 
 
 def _mulaian():
-    """Waktu mulai ketukan tiap tuts (kumulatif + sedikit goyangan)."""
+    """Waktu mulai ketukan tiap tuts (kumulatif, tanpa goyangan -
+    ketidakteraturan kecil membuat animasi terasa patah-patah)."""
     mula = []
     t = 0.0
-    for k, jeda in enumerate(IRAMA):
-        mula.append(t + 0.03 * math.sin(k * 7.3))
+    for jeda in IRAMA:
+        mula.append(t)
         t += jeda
     return mula
 
