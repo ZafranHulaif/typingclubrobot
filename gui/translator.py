@@ -35,6 +35,8 @@ _ACTIVITY_MAP = [
     (re.compile(r"\[SETUP\] Browser baru sedang set-up"),
      "Selesaikan setelan awal di jendela browser, lalu tutup halamannya"),
     (re.compile(r"\[SETUP\] Set-up browser selesai"), "Browser siap"),
+    (re.compile(r"\[BOT\] Browser ditutup"),
+     "Browser ditutup - tekan Stop lalu Start untuk buka lagi"),
     (re.compile(r"\[LOGIN\] Menunggu login edclub"),
      "Menunggu kamu login di jendela browser"),
     (re.compile(r"\[LOGIN\] Halaman login terdeteksi"),

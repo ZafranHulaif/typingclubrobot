@@ -58,7 +58,8 @@ async function tokenOk(tok) {
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: { "content-type": "application/json; charset=utf-8",
+               "cache-control": "no-store" },
   });
 
 const esc = (s) =>
@@ -228,7 +229,12 @@ async function handle(request) {
       return new Response("<h3>kunci admin salah</h3>", { status: 403 });
     }
     return new Response(adminPage(await readMachines(), q.get("key")), {
-      headers: { "content-type": "text/html; charset=utf-8" },
+      headers: { "content-type": "text/html; charset=utf-8",
+                 // WAJIB no-store: tanpa ini laptop bisa menyajikan salinan
+                 // lama - aksi (revoke/approve) tampak tidak berefek padahal
+                 // server sudah berubah, dan dua perangkat menampilkan
+                 // status berbeda (keluhan live: HP benar, laptop basi).
+                 "cache-control": "no-store, must-revalidate" },
     });
   }
 
@@ -249,9 +255,14 @@ async function handle(request) {
     }
     await writeMachines(machines);
     // BASE kadang diisi tanpa https:// -> redirect rusak; pakai origin
-    // permintaan sebagai jatuhnya.
+    // permintaan sebagai jatuhnya. Respons manual (bukan Response.redirect)
+    // supaya bisa menempelkan no-store: redirect yang ter-cache membuat
+    // halaman admin setelah aksi tetap menampilkan daftar lama.
     const base = (env.BASE && env.BASE.includes("://")) ? env.BASE : u.origin;
-    return Response.redirect(`${base}/admin?key=${encodeURIComponent(key)}`, 302);
+    return new Response(null, { status: 302, headers: {
+      location: `${base}/admin?key=${encodeURIComponent(key)}`,
+      "cache-control": "no-store",
+    } });
   }
 
   if (u.pathname === "/api/publish" && request.method === "POST") {

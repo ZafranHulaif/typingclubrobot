@@ -103,6 +103,21 @@ def main_loop():
             session._sweep_stripe_tabs()
             session._sweep_ad_tabs()
 
+            # Browser ditutup user: page.url Playwright tetap melaporkan
+            # URL lama (stale, tanpa round-trip) -> STATUS_URL tak berubah
+            # dan kartu GUI terpaku 'Mengerjakan level ...' (keluhan live).
+            # is_connected() lokal/instan - tanpa round-trip ke renderer.
+            if state.browser is None or not state.browser.is_connected():
+                if not state.BROWSER_CLOSED:
+                    state.BROWSER_CLOSED = True
+                    state.STATUS_URL = ""
+                    state.STATUS_LABEL = ""
+                    print("[BOT] Browser ditutup - bot menunggu. Tekan Stop "
+                          "lalu Start untuk buka browser baru.")
+                time.sleep(0.5)
+                continue
+            state.BROWSER_CLOSED = False
+
             url = state.PAGE.url
             # page.url Playwright bisa stale: tab berisi Stripe checkout
             # masih melaporkan URL edclub . Percayai

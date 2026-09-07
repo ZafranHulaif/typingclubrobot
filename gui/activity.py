@@ -315,6 +315,10 @@ class ActivityMixin:
                     self._set_state("⏹ Berhenti", RED)
                 else:
                     self._set_state("⏻ Siap", FAINT)
+            elif getattr(bot, "BROWSER_CLOSED", False):
+                # jendela browser bot ditutup user: URL Playwright stale,
+                # engine sudah menandai state.BROWSER_CLOSED
+                self._set_state("✖ Browser ditutup", RED)
             elif bot_thread_hidup and pg_bot is None:
                 # browser sedang diluncurkan/di-connect (di belakang)
                 nama_br = ((getattr(bot, "BROWSER", None) or {}).get("name")
@@ -361,6 +365,11 @@ class ActivityMixin:
                     "Selesai!",
                     f"Semua level sampai level {self._rentang_akhir or self._total_level} "
                     "sudah dikerjakan. Klik Start untuk lanjut.")
+            elif getattr(bot, "BROWSER_CLOSED", False):
+                self._set_activity(
+                    "Browser ditutup",
+                    "Jendela browser bot ditutup. Tekan Stop lalu Start "
+                    "untuk membuka browser baru.")
             elif bot.PAUSED:
                 self._set_activity("Jeda",
                                     "Klik Lanjut atau tekan F9 untuk melanjutkan.")
