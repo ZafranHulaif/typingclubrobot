@@ -53,8 +53,16 @@ def _char_delay(slow=False, wpm_cap=None):
     if slow:
         state._last_char_delay = random.uniform(0.14, 0.24)
         return state._last_char_delay
-    base = 12.0 / wpm - state._loop_overhead
-    base = max(base, 0.004)
+    ideal = 12.0 / wpm
+    # Kompensasi overhead TIDAK BOLEH menghapus jeda: saat round-trip
+    # verifikasi lambat (animasi tutorial, halaman dingin, PC lambat)
+    # EMA bisa melampaui jeda ideal -> dulu base jatuh ke floor 4 ms =
+    # bot meledak 300+ wpm -> edclub menolak penyelesaian (tanpa layar
+    # skor, level diulang; keluhan live L245 & tutorial). Overhead
+    # dipakai maksimal 65% jeda ideal, sisa jeda minimum 30% ideal ->
+    # laju final tidak pernah lebih cepat dari target.
+    overhead = min(state._loop_overhead, ideal * 0.65)
+    base = max(ideal - overhead, ideal * 0.30)
     state._last_char_delay = base * random.uniform(0.85, 1.15)
     return state._last_char_delay
 

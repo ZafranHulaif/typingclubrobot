@@ -401,30 +401,37 @@ def main_loop():
                     # nyangkut di tab yang salah setelah navigasi manual).
                     if stalled > 6 and not user_sibuk and recovery._switch_to_playable_tab():
                         continue
-                    # level terkunci = halaman .play kosong (live: L100
-                    # logout memuat body kosong) - reload tidak akan
-                    # menolong; lompat ke urutan daftar.
-                    if stalled > 10:
+                    if stalled > 12 and not user_sibuk and time.time() - state._last_recovery > 25 \
+                            and time.time() - _nav_time > 25:
+                        # halaman kemungkinan mati/kosong -> pulihkan otomatis
+                        # (grace 25 dtk sejak tiba: halaman yang baru dinavigasi
+                        # (mis. lompatan rentang) boleh lambat memuat - jangan
+                        # langsung dikira mati dan di-reload). Recovery DULU:
+                        # dulu probe daftar level (stalled>10) berjalan lebih
+                        # dulu & memblokir puluhan detik -> freeze panjang di
+                        # transisi lesson (keluhan live 245 -> 246).
+                        if not recovery.recover_and_restart_lesson():
+                            state._last_recovery = time.time()
+                    if stalled > 20 and not user_sibuk:
+                        # level terkunci = halaman .play kosong (live: L100
+                        # logout memuat body kosong) - reload tidak akan
+                        # menolong; lompat ke urutan daftar. Di-throttle 60
+                        # dtk: probe memblokir (redirect daftar), jangan
+                        # diulang tiap iterasi.
                         nomor = 0
                         if state.STATUS_LABEL.startswith("L"):
                             try:
                                 nomor = int(state.STATUS_LABEL[1:])
                             except ValueError:
                                 pass
-                        if nomor and state._unlock_set is None:
+                        if (nomor and state._unlock_set is None
+                                and time.time() - state._unlock_ck > 60):
+                            state._unlock_ck = time.time()
                             state._unlock_set = levels._read_unlock_set()
                         if nomor and state._unlock_set and nomor not in state._unlock_set:
                             if levels._skip_to_next_lesson("level terkunci untuk akun"):
                                 state.last_action_time = time.time()
                                 continue
-                    if stalled > 12 and not user_sibuk and time.time() - state._last_recovery > 25 \
-                            and time.time() - _nav_time > 25:
-                        # halaman kemungkinan mati/kosong -> pulihkan otomatis
-                        # (grace 25 dtk sejak tiba: halaman yang baru dinavigasi
-                        # (mis. lompatan rentang) boleh lambat memuat - jangan
-                        # langsung dikira mati dan di-reload)
-                        if not recovery.recover_and_restart_lesson():
-                            state._last_recovery = time.time()
 
             time.sleep(0.15)
 

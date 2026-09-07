@@ -275,6 +275,9 @@ _probe_tab_ck = {"terakhir": 0.0}
 
 _stripe_sweep_last = 0.0
 
+# throttle probe daftar level (baca set unlock): max sekali per 60 dtk
+_unlock_ck = 0.0
+
 # tab/jendela baru yang muncul sendiri (iklan window.open, popup):
 # dicatat oleh sentinel login, ditutup sweeper kalau ternyata bukan
 # tab edclub (Brave memblokir iklan; Chrome/Edge tidak)

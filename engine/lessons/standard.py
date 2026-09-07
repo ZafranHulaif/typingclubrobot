@@ -257,7 +257,7 @@ def handle_standard(frame, text):
     # Kasus nyata (L113): lesson selesai tapi layar skor tidak pernah
     # muncul (bug situs) - tombol lanjut ada, klik mouse asli langsung.
     entry_url = state.PAGE.url
-    no_score_clicked = False
+    no_score_clicked = 0
     entry_wait_start = time.time()
     deadline = time.time() + 10
     while time.time() < deadline:
@@ -272,14 +272,17 @@ def handle_standard(frame, text):
             break
         if state.PAGE.url != entry_url:
             break   # level sudah pindah - jangan tunggu sisa deadline
-        if not no_score_clicked and time.time() > entry_wait_start + 3.0:
+        if no_score_clicked < 3 and time.time() > entry_wait_start + 3.0 + 4.0 * no_score_clicked:
             # 3 dtk tanpa skor/URL: kemungkinan layar skor tidak muncul
-            # -> satu klik lanjut (mouse asli) menyelesaikannya.
+            # -> klik lanjut (mouse asli) menyelesaikannya. Dulu sekali
+            # klik saja - kalau klik pertama gagal (tombol belum dirender /
+            # overlay), bot membakar sisa deadline lalu masuk rantai stall
+            # supervisor (freeze panjang, keluhan live 245 -> 246).
             try:
                 loc = state.PAGE.locator(".navbar-continue, a.navbar-continue").first
                 if loc.count() and loc.is_visible():
                     loc.click(timeout=2000)
-                    no_score_clicked = True
+                    no_score_clicked += 1
                     print("[Standard] layar skor belum muncul - klik "
                           "tombol lanjut")
                     time.sleep(0.8)
