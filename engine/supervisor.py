@@ -163,7 +163,7 @@ def main_loop():
                         target = key if ".play" in key else LIST_URL
                         newpg = None
                         try:
-                            newpg = state.PAGE.context.new_page()
+                            newpg = browser._tab_latar(state.PAGE.context)
                             newpg.goto(target, timeout=25000)
                             old = state.PAGE
                             state.PAGE = newpg

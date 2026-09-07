@@ -81,7 +81,7 @@ def _read_unlock_set():
         return None
     pg = None
     try:
-        pg = state.browser.contexts[0].new_page()
+        pg = browser._tab_latar(state.browser.contexts[0])
         pg.goto(LIST_URL, timeout=30000)
         pg.wait_for_selector("div.box-container", timeout=15000)
         time.sleep(1.0)
@@ -191,7 +191,7 @@ def build_level_map():
     pg = None
     baru = 0
     try:
-        pg = state.browser.contexts[0].new_page()
+        pg = browser._tab_latar(state.browser.contexts[0])
         pg.goto(LIST_URL, timeout=30000)
         pg.wait_for_selector("div.box-container", timeout=15000)
         total = pg.evaluate(
@@ -273,7 +273,7 @@ def build_level_map():
                             pg.close()
                         except Exception:
                             pass
-                        pg = state.browser.contexts[0].new_page()
+                        pg = browser._tab_latar(state.browser.contexts[0])
                 if not pulih:
                     print("[PETA] daftar tidak bisa dibuka lagi - berhenti "
                           "(lanjutkan lain waktu, sudah terpetakan "
@@ -397,7 +397,7 @@ def _skip_to_next_lesson(alasan):
         url = None
     if url is None:
         try:
-            newpg = state.PAGE.context.new_page()
+            newpg = browser._tab_latar(state.PAGE.context)
             url = _goto_next_lesson_in_list(newpg, base)
         except Exception:
             url = None

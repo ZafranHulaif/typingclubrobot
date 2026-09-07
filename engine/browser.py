@@ -398,6 +398,43 @@ def _popen_latar(args):
     subprocess.Popen(args, close_fds=True, startupinfo=si)
 
 
+def _tab_latar(ctx):
+    """Tab baru TANPA mengangkat jendela browser. ctx.new_page() Playwright
+    membuat tab FOREGROUND - Chromium mengaktifkan dirinya dan menaikkan
+    jendela OS (keluhan live: browser melompat ke depan di tengah bot
+    bekerja, padahal user sedang tidak perlu melihat apa pun). Lewat CDP
+    Target.createTarget(background=True) tab tetap di belakang; kalau CDP
+    gagal, jatuh ke new_page() biasa. Hanya untuk context default - context
+    lain butuh browserContextId, pakai jalur lama."""
+    lama = []
+    try:
+        lama = list(ctx.pages)
+    except Exception:
+        pass
+    br = None
+    try:
+        br = ctx.browser
+    except Exception:
+        br = None
+    default_ctx = bool(br and br.contexts and ctx is br.contexts[0])
+    if default_ctx:
+        try:
+            ses = br.new_browser_cdp_session()
+            ses.send("Target.createTarget",
+                     {"url": "about:blank", "background": True})
+            for _ in range(50):
+                time.sleep(0.1)
+                for pg in ctx.pages:
+                    if pg not in lama:
+                        return pg
+        except Exception:
+            pass
+    try:
+        return ctx.new_page()
+    except Exception:
+        return None
+
+
 def _find_setup_tab(br, pg_utama):
     """Tab SET-UP first-run (Edge/Chrome/Brave baru pertama kali dibuka di
     profil khusus bot): welcome / pilih default browser / izin cookie /
@@ -771,7 +808,7 @@ def ensure_browser():
         # gagal sesaat. Solusi: retry + fallback ke tab yang ada / context baru.
         for attempt in range(4):
             try:
-                page = ctx.new_page()
+                page = _tab_latar(ctx)
                 break
             except Exception as e:
                 print(f"Buka tab baru gagal ({attempt + 1}/4): {str(e)[:60]}")

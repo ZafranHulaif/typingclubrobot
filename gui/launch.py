@@ -708,6 +708,11 @@ class LaunchMixin:
         # Rentang level ditanyakan setelah tersambung & login diketahui
         # (bukan sebelum Start) - lihat _poll.
         self._tanya_rentang = True
+        # episode login BARU: popup login boleh muncul lagi walau sesi
+        # sebelumnya sudah pernah memunculkannya (dulu: popup tidak pernah
+        # muncul lagi di Start berikutnya selama user belum sempat login)
+        self._login_ever = False
+        self._login_dismiss = False
         # Popup pilih browser hanya pertama kali (belum ada pengaturan).
         # Setelah itu pilihan tersimpan; ganti lewat chip di tengah atas.
         if self._first_run:

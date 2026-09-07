@@ -221,7 +221,7 @@ def _probe_tab_login(timeout_s=15.0):
     (dulu None -> patroli menunggu throttle 30-60 dtk berikutnya = cek
     login pertama terasa lama). Return 'in'/'out'/None."""
     try:
-        tab = state.PAGE.context.new_page()
+        tab = browser._tab_latar(state.PAGE.context)
     except Exception:
         return None
     hasil = None
@@ -329,6 +329,9 @@ def _login_patrol(url):
         state.LOGIN_DICEK = True
     if mati and not state.NEEDS_LOGIN:
         state.NEEDS_LOGIN = True
+        # minta GUI mengangkat jendela browser SEKARANG: user harus login,
+        # dan browser sedang di belakang/minimized (alur background)
+        state.FOCUS_BROWSER_AT = time.time()
         print("[LOGIN] Sesi edclub tidak aktif"
               + (f" ({state._login_sentinel['alasan']})" if state._login_sentinel["alasan"] else "")
               + ". Login di jendela browser bot - bot menunggu di sini.")

@@ -96,7 +96,7 @@ def recover_and_restart_lesson():
 
     print("[RECOVERY] Halaman macet/kosong, membuka tab baru...")
     try:
-        newpg = state.PAGE.context.new_page()
+        newpg = browser._tab_latar(state.PAGE.context)
     except Exception as e:
         print(f"[RECOVERY] gagal bikin tab: {str(e)[:80]}")
         return False
@@ -133,7 +133,7 @@ def recover_and_restart_lesson():
                       f"({str(e)[:60]}) - coba daftar")
                 try:
                     newpg.close()
-                    newpg = state.PAGE.context.new_page()
+                    newpg = browser._tab_latar(state.PAGE.context)
                 except Exception:
                     return False
         try:

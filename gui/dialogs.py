@@ -71,11 +71,37 @@ def _focus_browser_window():
 
         user32.EnumWindows(enum_cb, 0)
         temuan.sort(key=lambda x: not x[0])  # jendela edclub dulu
-        for _pilih_edclub, hwnd in temuan[:3]:
-            user32.ShowWindow(hwnd, 9)  # SW_RESTORE (kalau diminimalkan)
-            user32.SetForegroundWindow(hwnd)
-            if user32.GetForegroundWindow() == hwnd:
-                return True
+        # Izin foreground: SetForegroundWindow dari timer GUI sering
+        # DITOLAK Windows kalau app sedang tidak pegang fokus (browser
+        # minimized = user tidak melihat apa pun -> login tak pernah
+        # terangkat). Trick standar: ikat thread input ke thread jendela
+        # foreground saat ini, plus ketukan ALT singkat, supaya OS
+        # mengizinkan perpindahan fokus.
+        fg = user32.GetForegroundWindow()
+        fg_thread = 0
+        my_thread = kernel32.GetCurrentThreadId()
+        if fg:
+            fg_thread = user32.GetWindowThreadProcessId(fg, None)
+        if fg_thread and fg_thread != my_thread:
+            user32.AttachThreadInput(my_thread, fg_thread, True)
+        user32.keybd_event(0x12, 0, 0, 0)      # ALT down
+        try:
+            for _pilih_edclub, hwnd in temuan[:3]:
+                user32.ShowWindow(hwnd, 9)  # SW_RESTORE (kalau diminimalkan)
+                user32.SetForegroundWindow(hwnd)
+                if user32.GetForegroundWindow() == hwnd:
+                    return True
+        finally:
+            user32.keybd_event(0x12, 0, 2, 0)  # ALT up
+            if fg_thread and fg_thread != my_thread:
+                user32.AttachThreadInput(my_thread, fg_thread, False)
+    except Exception:
+        pass
+    # jalan terakhir: SwitchToThisWindow memaksa perpindahan tanpa syarat
+    try:
+        if temuan:
+            user32.SwitchToThisWindow(temuan[0][1], True)
+            return user32.GetForegroundWindow() == temuan[0][1]
     except Exception:
         pass
     return False
