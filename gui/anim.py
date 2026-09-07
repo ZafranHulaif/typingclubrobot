@@ -70,16 +70,20 @@ class TimedLoop:
         try:
             if self._fn is not None and self._w.winfo_ismapped():
                 self._fn(time.perf_counter() - self._t0)
-        except tk.TclError:
-            return
         except Exception:
-            # satu tick salah tidak boleh menjatuhkan pemanggil update()
-            # (dulu TypeError dari tick lolos ke dialog yang sedang dibuka)
+            # satu tick salah tidak boleh MEMATIKAN loop (2.9.17: satu
+            # TclError 'image does not exist' = animasi beku selamanya)
+            # dan tidak boleh menjatuhkan pemanggil update()
+            pass
+        if not self._hidup:
             return
         try:
-            self._id = self._w.after(self._step, self._tik)
-        except tk.TclError:
+            if self._w.winfo_exists():
+                self._id = self._w.after(self._step, self._tik)
+                return
+        except Exception:
             pass
+        self._hidup = False   # widget hancur - baru berhenti
 
 
 # ------------------------------------------------- gelombang ketikan
@@ -520,6 +524,9 @@ class StateStage:
         self._ramp0 = None
         self._ukuran = (0, 0)
         self._foto = None    # pegang PhotoImage tik terakhir (GC aman)
+        self._foto_bawah = None  # idem utk lapis bawah - TANPA ini Python
+        # memusnahkan image Tk saat render selesai -> 'image doesn't exist'
+        # di tik berikutnya -> loop mati -> animasi beku (bug 2.9.17)
         self.loop = TimedLoop(kanvas, step_ms=30)
 
     def start(self):
@@ -571,9 +578,10 @@ class StateStage:
                 self.kanvas.itemconfigure(self._bawah, state="hidden")
             else:
                 k = u * u * (3.0 - 2.0 * u)        # smoothstep
-                fr_l = self._render(self._kunci_lama, now - self._t_lama)
+                self._foto_bawah = self._render(self._kunci_lama,
+                                                now - self._t_lama)
                 self.kanvas.itemconfigure(self._bawah, state="normal",
-                                          image=fr_l)
+                                          image=self._foto_bawah)
                 self._foto = self._render_alpha(self._kunci,
                                                 now - self._t_kunci, k)
                 self.kanvas.itemconfigure(self._atas, state="normal",
