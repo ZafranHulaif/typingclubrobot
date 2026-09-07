@@ -17,7 +17,7 @@ from playwright.sync_api import sync_playwright
 from . import state
 from . import browser
 from . import typing_core
-from .jstemplates import (ADHIDE_JS, BADGE_STREAK_JS, DETECT_JS, EDMODAL_CEK_JS, EDMODAL_JS, ESC_FALLBACK_JS, MODAL_HINT_JS, OVERLAY_JS, SCORE_JS)
+from .jstemplates import (ADHIDE_JS, BADGE_STREAK_JS, BLOK_POPUP_JS, DETECT_JS, EDMODAL_CEK_JS, EDMODAL_JS, ESC_FALLBACK_JS, MODAL_HINT_JS, OVERLAY_JS, SCORE_JS)
 
 
 
@@ -84,6 +84,18 @@ def close_overlays_all_frames():
     if time.time() < state._repeat_click["until"]:
         return 0
     total = 0
+    # BLOKIR CSS permanen dulu (sekali per dokumen): slot iklan layar
+    # hasil & modal Premium tidak pernah dirender - dulu tiap selesai
+    # level: iklan muncul -> Hide -> modal muncul -> klik X -> lanjut
+    # = idle beberapa detik per level (keluhan live Chrome/Edge; Brave
+    # bebas iklan berkat Shields). Penutup di bawah jadi fallback.
+    frames = _edclub_frames()
+    try:
+        run_js(BLOK_POPUP_JS, state.PAGE.main_frame)
+        for fr in frames:
+            run_js(BLOK_POPUP_JS, fr)
+    except Exception:
+        pass
     # IKLAN layar hasil duluan (paling murah + paling sering): Brave
     # memblokir iklan, Chrome/Edge tidak. Slot #adslot_results punya
     # tombol 'Hide x' tanpa class - generic closer tidak menangkapnya;
@@ -129,7 +141,7 @@ def close_overlays_all_frames():
             total += 1
     except Exception:
         pass
-    for fr in _edclub_frames():
+    for fr in frames:
         taken = run_js(OVERLAY_JS, fr)
         if taken:
             print(f"[Pop-up] {frame_label(fr)}: {'; '.join(taken[:3])}")

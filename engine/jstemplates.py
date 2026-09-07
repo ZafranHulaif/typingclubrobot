@@ -204,6 +204,25 @@ return (() => {
 """
 
 
+BLOK_POPUP_JS = r"""
+// Pasang blokir CSS permanen: slot iklan layar hasil (#adslot_*) dan modal
+// Premium (.edmodal) TIDAK PERNAH dirender. Dulu tiap selesai level bot
+// menunggu iklan muncul -> klik Hide -> modal muncul -> klik X -> lanjut
+// (terasa idle/beku beberapa detik per level di Chrome/Edge; Brave bebas
+// iklan berkat Shields sehingga tak pernah kena). Penutup klik di atas
+// tetap ada sebagai fallback; keduanya no-op saat display:none.
+// Sekali per dokumen (penanda di <html>).
+const d = document.documentElement;
+if (d.dataset.edblok) return false;
+d.dataset.edblok = '1';
+const s = document.createElement('style');
+s.id = 'edblok-style';
+s.textContent = '.edmodal, [id^="adslot"] { display: none !important; }';
+(document.head || d).appendChild(s);
+return true;
+"""
+
+
 OVERLAY_JS = r"""
 const taken = [];
 // Modal premium terlihat? Jangan klik tombol lanjut apa pun - di level
