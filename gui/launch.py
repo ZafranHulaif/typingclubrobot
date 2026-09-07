@@ -730,6 +730,9 @@ class LaunchMixin:
         # muncul lagi di Start berikutnya selama user belum sempat login)
         self._login_ever = False
         self._login_dismiss = False
+        # flag browser-ditutup sisa sesi sebelumnya tidak boleh bocor ke
+        # sesi baru (dulu: Start mem-flash 'Browser ditutup' sebelum cek login)
+        bot.BROWSER_CLOSED = False
         # Popup pilih browser hanya pertama kali (belum ada pengaturan).
         # Setelah itu pilihan tersimpan; ganti lewat chip di tengah atas.
         if self._first_run:

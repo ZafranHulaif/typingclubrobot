@@ -973,6 +973,7 @@ def disconnect():
     # tanpa koneksi pun harus membersihkan state sesi sebelumnya.
     state.NEEDS_LOGIN = False
     state.LOGIN_DICEK = False
+    state.BROWSER_CLOSED = False
     state.RANGE_READY = False
     state._login_sentinel["ok"] = True
     state._login_sentinel["alasan"] = ""

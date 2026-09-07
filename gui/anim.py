@@ -275,7 +275,7 @@ def _sprite_kunci_redam(w, h, t, warna=ACCENT):
     gap *= SUP
     x0 *= SUP
     y0 *= SUP
-    napas = 0.10 + 0.08 * (0.5 + 0.5 * math.sin(t * 2 * math.pi / 2.4))
+    napas = 0.14 + 0.32 * (0.5 + 0.5 * math.sin(t * 2 * math.pi / 2.4))
     for k in range(3):
         x = x0 + k * (s + gap)
         dr.rounded_rectangle([x, y0, x + s, y0 + s], radius=s * 0.20,
@@ -341,7 +341,8 @@ def _sprite_baris(w, h, t, warna=ACCENT):
     total = 3 * bh + 2 * jeda_r
     x0 = (W - bw) / 2
     y0 = (H - total) / 2
-    pos = (t % 1.8) / 1.8 * 3.0
+    u = (t % 2.4) / 2.4
+    pos = 2.0 * (1.0 - abs(2.0 * u - 1.0))   # 0 -> 2 -> 0 (ping-pong mulus)
     for k in range(3):
         nyala = max(0.0, 1.0 - abs(pos - (k + 0.5)))
         dr.rounded_rectangle([x0, y0 + k * (bh + jeda_r),
@@ -455,24 +456,32 @@ def _sprite_silang(w, h, t, warna=RED):
     r = int(kecil * 0.26 * SUP)
     cx, cy = W // 2, H // 2
     tebal = max(2, int(round(3.0 * (kecil / 64.0) * SUP)))
-    siklus = (t % 1.8) / 1.8
+    # gambar 0-0.35, 0.35-0.7; tahan 0.7-0.8; pudar 0.8-1.0 = loop mulus
+    siklus = (t % 2.0) / 2.0
+    pudar = 1.0
+    if siklus > 0.8:
+        pudar = 1.0 - (siklus - 0.8) / 0.2
+    kotak = _campur(PANEL, warna, 0.25 * pudar)
+    garis = _campur(PANEL, warna, pudar)
     dr.rounded_rectangle([cx - r * 1.25, cy - r * 1.25,
                           cx + r * 1.25, cy + r * 1.25], radius=int(r * 0.5),
-                         outline=_campur(PANEL, warna, 0.25),
-                         width=max(1, SUP))
+                         outline=kotak, width=max(1, SUP))
     A = (cx - r * 0.7, cy - r * 0.7)
     B = (cx + r * 0.7, cy + r * 0.7)
     C = (cx - r * 0.7, cy + r * 0.7)
     D = (cx + r * 0.7, cy - r * 0.7)
-    if siklus < 0.5:
-        k = siklus / 0.5
+    if siklus < 0.35:
+        k = siklus / 0.35
         ujung = (A[0] + (B[0] - A[0]) * k, A[1] + (B[1] - A[1]) * k)
-        dr.line([A, ujung], fill=_rgb(warna), width=tebal)
-    else:
-        dr.line([A, B], fill=_rgb(warna), width=tebal)
-        k = (siklus - 0.5) / 0.5
+        dr.line([A, ujung], fill=garis, width=tebal)
+    elif siklus < 0.7:
+        dr.line([A, B], fill=garis, width=tebal)
+        k = (siklus - 0.35) / 0.35
         ujung = (C[0] + (D[0] - C[0]) * k, C[1] + (D[1] - C[1]) * k)
-        dr.line([C, ujung], fill=_rgb(warna), width=tebal)
+        dr.line([C, ujung], fill=garis, width=tebal)
+    else:
+        dr.line([A, B], fill=garis, width=tebal)
+        dr.line([C, D], fill=garis, width=tebal)
     return _ke_photo(im, w, h)
 
 
@@ -492,13 +501,12 @@ STAGE_MAP = {
     "selesai": (_sprite_selesai, 1.6),
     "tutup": (_sprite_silang, 1.8),
 }
-
 class StateStage:
     """Panggung animasi status untuk kartu aktivitas. Dua lapis gambar:
     ganti status = animasi baru memudar penuh di atas yang lama (RAMP);
     ganti di tengah transisi tinggal menukar lapis atas - mulus, tanpa
-    restart. Memori terjaga: frame PIL (untuk ramp alpha) hanya disimpan
-    untuk status yang sedang terlibat transisi."""
+    restart. Frame dirender segar tiap tik (tanpa cache) - nol aliasing,
+    nol memori cache; biaya ~3-5ms per tik saat terlihat saja."""
 
     def __init__(self, kanvas):
         self.kanvas = kanvas
@@ -511,12 +519,7 @@ class StateStage:
         self._t_lama = 0.0
         self._ramp0 = None
         self._ukuran = (0, 0)
-        self._png = {}            # kunci -> [PhotoImage] (kecil, boleh numpuk)
-        self._pil = {}            # kunci -> [Image RGBA] hanya 2 status
-        self._foto_atas = None    # pegang referensi PhotoImage ramp terakhir
-        # 30ms cukup: durasi frame sprite 40-55ms, tik lebih cepat
-        # hanya membakar CPU dan menahan update() (dialog auto-close
-        # pernah meleset karena ini di suite UI)
+        self._foto = None    # pegang PhotoImage tik terakhir (GC aman)
         self.loop = TimedLoop(kanvas, step_ms=30)
 
     def start(self):
@@ -535,88 +538,48 @@ class StateStage:
         self._t_kunci = time.perf_counter()
         self._ramp0 = (self._t_kunci
                        if self._kunci_lama is not None else None)
-        if self._ramp0 is not None:
-            simpan = {self._kunci, self._kunci_lama}
-            for k in list(self._pil):
-                if k not in simpan:
-                    del self._pil[k]
 
-    def _pastikan_ukuran(self):
+    def _render(self, kunci, t):
+        fn, _dur = STAGE_MAP[kunci]
+        return tk.PhotoImage(data=fn(self._ukuran[0], self._ukuran[1], t))
+
+    def _render_alpha(self, kunci, t, k):
+        import io as _io
+        from PIL import Image as _Im
+        fn, _dur = STAGE_MAP[kunci]
+        im = _Im.open(_io.BytesIO(
+            fn(self._ukuran[0], self._ukuran[1], t))).convert("RGBA")
+        im.putalpha(int(255 * k))
+        bio = _io.BytesIO()
+        im.save(bio, format="PNG")
+        return tk.PhotoImage(data=bio.getvalue())
+
+    def _frame(self, t):
+        # jam absolut seragam (t dari TimedLoop relatif - jangan dicampur)
+        now = time.perf_counter()
+        if self._kunci is None:
+            return
         w = max(self.kanvas.winfo_width(), 320)
         h = max(self.kanvas.winfo_height(), 48)
         if (w, h) != self._ukuran:
             self._ukuran = (w, h)
-            self._png.clear()
-            self._pil.clear()
-            self._foto_atas = None
-        return w, h
-
-    def _png_frame(self, kunci, idx):
-        # lazy: render SATU frame per butuh - 40 frame sekaligus =
-        # 200ms+ di dalam update() dan membuat dialog auto-close meleset
-        cache = self._png.get(kunci)
-        if cache is None:
-            cache = [None] * STAGE_FRAME
-            self._png[kunci] = cache
-        if cache[idx] is None:
-            fn, dur = STAGE_MAP[kunci]
-            cache[idx] = tk.PhotoImage(data=fn(self._ukuran[0],
-                                               self._ukuran[1],
-                                               idx * dur / STAGE_FRAME))
-        return cache[idx]
-
-    def _pil_frames(self, kunci):
-        import io as _io
-        from PIL import Image as _Im
-        frames = self._pil.get(kunci)
-        if frames is None:
-            fn, dur = STAGE_MAP[kunci]
-            frames = [_Im.open(_io.BytesIO(
-                        fn(self._ukuran[0], self._ukuran[1],
-                           i * dur / STAGE_FRAME))).convert("RGBA")
-                      for i in range(STAGE_FRAME)]
-            self._pil[kunci] = frames
-        return frames
-
-    def _idx(self, kunci, t_asal, t):
-        dur = STAGE_MAP[kunci][1]
-        u = ((t - t_asal) % dur) / dur
-        return int(u * STAGE_FRAME) % STAGE_FRAME
-
-    def _frame(self, t):
-        # jam absolut seragam: t dari TimedLoop relatif ke start loop,
-        # sedangkan _t_kunci/_ramp0 absolut (perf_counter) - dicampur
-        # dulu bikin alpha ramp meledak (OverflowError putalpha).
-        t = time.perf_counter()
-        if self._kunci is None:
-            return
-        self._pastikan_ukuran()
         if self._ramp0 is not None:
-            u = (t - self._ramp0) / RAMP
+            u = (now - self._ramp0) / RAMP
             if u >= 1.0:
                 self._ramp0 = None
                 self._kunci_lama = None
                 self.kanvas.itemconfigure(self._bawah, state="hidden")
-                self._pil.pop(self._kunci, None)   # ramp selesai: lepas PIL
             else:
                 k = u * u * (3.0 - 2.0 * u)        # smoothstep
-                self._gambar_ramp(t, k)
+                fr_l = self._render(self._kunci_lama, now - self._t_lama)
+                self.kanvas.itemconfigure(self._bawah, state="normal",
+                                          image=fr_l)
+                self._foto = self._render_alpha(self._kunci,
+                                                now - self._t_kunci, k)
+                self.kanvas.itemconfigure(self._atas, state="normal",
+                                          image=self._foto)
                 return
-        fr = self._png_frame(self._kunci,
-                             self._idx(self._kunci, self._t_kunci, t))
-        self.kanvas.itemconfigure(self._atas, state="normal", image=fr)
-
-    def _gambar_ramp(self, t, k):
-        import io as _io
-        idx_l = self._idx(self._kunci_lama, self._t_lama, t)
-        fr_l = self._png_frame(self._kunci_lama, idx_l)
-        self.kanvas.itemconfigure(self._bawah, state="normal", image=fr_l)
-        fr = self._pil_frames(self._kunci)[
-            self._idx(self._kunci, self._t_kunci, t)].copy()
-        fr.putalpha(int(255 * k))
-        bio = _io.BytesIO()
-        fr.save(bio, format="PNG")
-        self._foto_atas = tk.PhotoImage(data=bio.getvalue())
+        self._foto = self._render(self._kunci, now - self._t_kunci)
         self.kanvas.itemconfigure(self._atas, state="normal",
-                                  image=self._foto_atas)
+                                  image=self._foto)
 

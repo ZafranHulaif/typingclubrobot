@@ -74,6 +74,11 @@ def _lesson_gone():
     Tanpa cek ini bot mengetik ke ruang kosong ber-menit-menit sementara
     kartu aktivitas GUI masih menampilkan level lama (keluhan live)."""
     try:
+        if state.browser is not None and not state.browser.is_connected():
+            return True   # browser ditutup user: berhenti mengetik sekarang
+    except Exception:
+        pass
+    try:
         url = state.PAGE.url or ""
     except Exception:
         return False

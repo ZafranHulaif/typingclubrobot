@@ -365,6 +365,10 @@ class ActivityMixin:
                     "Selesai!",
                     f"Semua level sampai level {self._rentang_akhir or self._total_level} "
                     "sudah dikerjakan. Klik Start untuk lanjut.")
+            elif bot.STOP:
+                self._set_activity("Berhenti", "Klik Start untuk mulai lagi.")
+            elif not bot_thread_hidup:
+                self._set_activity("Siap", "Klik Start untuk mulai.")
             elif getattr(bot, "BROWSER_CLOSED", False):
                 self._set_activity(
                     "Browser ditutup",
@@ -399,10 +403,6 @@ class ActivityMixin:
                     "Pilih level awal",
                     "Buka pelajaran pilihanmu di jendela browser - "
                     "bot mulai dari situ.")
-            elif bot.STOP:
-                self._set_activity("Berhenti", "Klik Start untuk mulai lagi.")
-            elif not bot_thread_hidup:
-                self._set_activity("Siap", "Klik Start untuk mulai.")
             elif baru_jawab and ".play" not in url:
                 self._set_activity("Menyiapkan level...",
                                     "Bot membuka pelajaran pilihanmu.")
