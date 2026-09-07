@@ -43,6 +43,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self._first_run = not os.path.exists(SETTINGS_FILE)
         self._login_win = None       # popup 'login dulu' (aktif saat sesi mati)
         self._login_dismiss = False  # user menutup popup login manual
+        self._login_ever = False     # popup login sudah muncul di episode ini
         self._tanya_win = None       # popup 'bot menunggu, lanjut/stop?'
         self._selesai_info = False   # popup 'rentang selesai' sudah tampil
         self._terkunci_win = None    # popup 'level start terkunci'

@@ -117,18 +117,29 @@ class ActivityMixin:
             di_halaman_login = any(k in url_now
                                    for k in ("signin", "login", "signup"))
             if getattr(bot, "NEEDS_LOGIN", False):
+                # popup PERTAMA episode login selalu muncul, walaupun
+                # browser sedang berada di halaman login (dulu: popup
+                # ditahan selama URL mengandung 'signin' - live: popup
+                # baru muncul menit berikutnya ketika kebetulan ada probe
+                # yang memindahkan tab). Penahanan halaman login hanya
+                # untuk RE-popup setelah user menutup / memilih buka login
+                # (jangan muncul lagi di tengah user mengetik sandi).
                 if (self._login_win is None and not self._login_dismiss
-                        and not di_halaman_login
                         and not self._rentang_terbuka
-                        and time.time() > self._login_grace):
+                        and time.time() > self._login_grace
+                        and (not self._login_ever or not di_halaman_login)):
+                    self._login_ever = True
                     self._login_popup()
             elif self._login_win is not None:
                 self._login_win.destroy()
                 self._login_win = None
                 self._login_grace = 0
+                self._login_ever = False
                 self._log("Login edclub aktif - bot lanjut bekerja.")
             elif self._login_dismiss:
                 self._login_dismiss = False
+            else:
+                self._login_ever = False
 
             # >2 menit tanpa lesson karena user memakai browser bot
             # (saat menunggu pilihan level di halaman, popup ini mubazir -
@@ -280,6 +291,11 @@ class ActivityMixin:
                 self._set_state("🎯 Memilih level", ACCENT)
             elif getattr(bot, "NEEDS_LOGIN", False):
                 self._set_state("⚠ Menunggu login", YELLOW)
+            elif not getattr(bot, "LOGIN_DICEK", True):
+                # antara browser terbuka dan status login terbaca: dulu
+                # jatuh ke 'Menunggu kamu' padahal bot sedang memeriksa
+                # sesi (keluhan live: 'state langsung kamu memakai bot')
+                self._set_state("🔎 Memeriksa login", ACCENT)
             elif self._tunggu_pilih_halaman:
                 self._set_state("🎯 Memilih level", ACCENT)
             elif bot.STOP:
@@ -318,6 +334,9 @@ class ActivityMixin:
             elif getattr(bot, "NEEDS_LOGIN", False):
                 self._set_activity("Menunggu login",
                                     "Selesaikan login edclub di jendela browser.")
+            elif not getattr(bot, "LOGIN_DICEK", True):
+                self._set_activity("Memeriksa login...",
+                                    "Memastikan sesi edclub kamu aktif.")
             elif self._tunggu_pilih_halaman:
                 self._set_activity(
                     "Pilih level awal",

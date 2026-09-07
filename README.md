@@ -171,7 +171,7 @@ autopilot_pw.py             compatibility facade over the package
 gui/                        desktop front end (tkinter), split by role:
   theme.py licensing.py icons.py widgets.py translator.py
   dialogs.py activity.py launch.py dev.py app.py
-net/                        online client (v2.9.5): self-update + licensing
+net/                        online client (v2.9.6): self-update + licensing
   api.py                    thin urllib layer, the only internet touchpoint
   license.py                Ed25519 token verify (offline) + status calls
   updater.py                version check, hash-verified download, exe swap
