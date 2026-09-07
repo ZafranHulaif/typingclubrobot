@@ -245,6 +245,10 @@ class ActivityMixin:
                             bot.RANGE_DONE = False
                             bot._range_jump_done = False
                             bot.RANGE_READY = True
+                            # rentang terjawab = bot yang kerja (lompat ke
+                            # level awal) - browser kembali ke belakang,
+                            # sama seperti alur pilih-sendiri-di-browser
+                            self.root.after(1500, _minimize_browser_windows)
                         else:
                             # dilewati = jalan dari posisi sekarang; rentang
                             # lama tidak boleh dipakai (live: bot pernah
@@ -677,7 +681,7 @@ class ActivityMixin:
         langkah = (
             ("1", "Klik tombol kuning \"Buka Halaman Login\" di bawah"),
             ("2", "Login seperti biasa di jendela browser bot "
-                  "(akun sekolah / Google / Microsoft)"),
+                  "(email & sandi edclub)"),
             ("3", "Selesai - jendela ini tertutup otomatis, bot lanjut"),
         )
         for nomor, teks in langkah:
@@ -692,11 +696,6 @@ class ActivityMixin:
             tk.Label(baris, text=teks, font=("Segoe UI", 10), fg=FG, bg=PANEL,
                      anchor="w", wraplength=380, justify="left").pack(
                 side="left", padx=(10, 0))
-        tk.Label(body, text="Klik kuning = login Individual Edition (email & "
-                            "sandi); \"Akun Sekolah\" = portal sekolah "
-                            "(login Google/Clever).",
-                 font=("Segoe UI", 8), fg=FAINT, bg=PANEL, wraplength=420,
-                 justify="left").pack(anchor="w", pady=(8, 0))
         tk.Label(body, text="Sekali login cukup - profil bot mengingatnya. "
                             "Jendela ini hanya muncul kalau sesi benar-benar mati.",
                  font=("Segoe UI", 8), fg=FAINT, bg=PANEL, wraplength=420,
@@ -730,14 +729,6 @@ class ActivityMixin:
         b1.bind("<Button-1>", lambda e: self._safe(
             lambda: buka_login(bot.LOGIN_URL_INDIVIDUAL if bot else "")))
         b1._tb_klik = lambda: buka_login(bot.LOGIN_URL_INDIVIDUAL if bot else "")
-
-        b15 = tk.Label(foot, text="Akun Sekolah", font=("Segoe UI", 9, "bold"),
-                       fg=FG, bg=CARD, padx=12, pady=7, cursor="hand2",
-                       highlightthickness=1, highlightbackground=EDGE)
-        b15.pack(side="right", padx=(0, 8))
-        b15.bind("<Button-1>", lambda e: self._safe(
-            lambda: buka_login(bot.LOGIN_URL_SCHOOL if bot else "")))
-        b15._tb_klik = lambda: buka_login(bot.LOGIN_URL_SCHOOL if bot else "")
 
         def tutup():
             self._login_dismiss = True

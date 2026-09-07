@@ -107,7 +107,7 @@ LICENSE_FILE = os.path.join(BASE_DIR, "license.dat")
 
 
 
-APP_VERSION = "2.9.12"
+APP_VERSION = "2.9.13"
 
 
 CREATOR = "ZafranHulaif"

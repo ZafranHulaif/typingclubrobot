@@ -46,6 +46,8 @@ AWAIT_RANGE = False    # True = GUI sedang menanya rentang; bot menunggu
 
 ASK_BUILD_MAP = False # GUI meminta bot membangun peta level lengkap
 
+ASK_RECOVERY = False  # GUI meminta pemulihan lesson manual (tombol Pulihkan)
+
 RANGE_DONE = False   # True = mencapai level akhir rentang pilihan user
 
 LEVEL_START = 1           # rentang level pilihan user (GUI)

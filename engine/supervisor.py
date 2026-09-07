@@ -269,6 +269,15 @@ def main_loop():
                 state.ASK_BUILD_MAP = False
                 levels.build_level_map()
                 continue
+            # pemulihan manual dari tombol GUI: jalankan recovery sekarang
+            # (satu thread dengan Playwright - aman dipanggil di sini)
+            if state.ASK_RECOVERY:
+                state.ASK_RECOVERY = False
+                print("[PEMULIHAN] diminta manual - memeriksa & memulihkan "
+                      "lesson...")
+                if recovery.recover_and_restart_lesson():
+                    state.last_action_time = time.time()
+                continue
             # rentang sedang ditanyakan GUI -> berhenti bergerak (dulu:
             # recovery menembak & membuka level terdepan L106 saat popup
             # rentang masih terbuka)

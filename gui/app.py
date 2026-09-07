@@ -153,6 +153,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
         self.kanan = tk.Frame(ctrl, bg=BG)
         self.kanan.pack(side="right")
+        self._btn(self.kanan, "Pulihkan", CARD, self.on_recovery, kecil=True)
         self._btn(self.kanan, "❓", CARD, self.on_tips, kecil=True)
 
         # ---------- baris pengaturan: kecepatan ----------

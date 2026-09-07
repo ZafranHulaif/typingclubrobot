@@ -356,9 +356,10 @@ def _login_patrol(url):
         state.LOGIN_DICEK = True
     if mati and not state.NEEDS_LOGIN:
         state.NEEDS_LOGIN = True
-        # minta GUI mengangkat jendela browser SEKARANG: user harus login,
-        # dan browser sedang di belakang/minimized (alur background)
-        state.FOCUS_BROWSER_AT = time.time()
+        # JANGAN angkat jendela browser di sini: popup login saja dulu.
+        # Browser baru diangkat SETELAH user menekan "Buka Halaman Login"
+        # (ASK_LOGIN_NAV di bawah) - keluhan live: Chrome melompat ke depan
+        # begitu popup muncul, padahal user belum memilih apa pun.
         print("[LOGIN] Sesi edclub tidak aktif"
               + (f" ({state._login_sentinel['alasan']})" if state._login_sentinel["alasan"] else "")
               + ". Login di jendela browser bot - bot menunggu di sini.")

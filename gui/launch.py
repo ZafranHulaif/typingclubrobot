@@ -825,6 +825,17 @@ class LaunchMixin:
               "tunggu beberapa detik.")
 
 
+    def on_recovery(self):
+        """Tombol Pulihkan: minta bot memeriksa & memulihkan lesson sekarang
+        (flag dibaca loop bot - Playwright tidak boleh disentuh lintas
+        thread). Log hasilnya muncul di kartu aktivitas."""
+        if not (self.bot_thread and self.bot_thread.is_alive()):
+            self._log("Klik Start dulu - pemulihan butuh bot yang sedang jalan.")
+            return
+        self.bot.ASK_RECOVERY = True
+        self._log("Memeriksa & memulihkan lesson...")
+
+
     def on_speed(self, _=None):
         if not self.bot:
             return
