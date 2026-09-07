@@ -159,6 +159,51 @@ return !!(cont && (cont.offsetWidth || cont.offsetHeight));
 # Penutup pop-up / iklan premium / achievement
 # ---------------------------------------------------------------------------
 
+ADHIDE_JS = r"""
+// Sembunyikan IKLAN di layar hasil (slot #adslot_*). Tombolnya bertuliskan
+// 'Hide ×' TANPA class/id apa pun - selektor tutup generik ([class*=x] dsb.)
+// tidak menangkapnya, jadi dulu iklan menutupi hasil sampai auto-dismiss
+// +-5 detik dan malah memicu eskalasi ESC+klik mouse. Klik JS biasa cukup
+// (handler DOM sederhana; terverifikasi live: iframe iklan lenyap seketika).
+const tutup = [];
+for (const slot of document.querySelectorAll('[id^="adslot"]')) {
+    if (getComputedStyle(slot).display === 'none') continue;
+    const btn = [...slot.querySelectorAll('button, a, [role="button"], div, span')]
+        .find(b => (b.textContent || '').trim().replace(/\s+/g, ' ') === 'Hide ×');
+    if (btn && (btn.offsetWidth || btn.offsetHeight)) {
+        try { btn.click(); tutup.push(slot.id); } catch (e) {}
+    }
+}
+return tutup;
+"""
+
+
+EDMODAL_JS = r"""
+// Tutup modal Premium Edition (upsell langganan). Muncul sendiri di
+// layar hasil SETELAH iklan disembunyikan (Chrome/Edge) dan di level
+// premium. Tombolnya .edmodal-x - DIV polos tanpa role/button sehingga
+// selektor tutup generik ([class*=close] dst.) melewatkannya, dan ESC
+// tidak menutupnya (live). Klik JS dulu; kalau masih ada, kembalikan
+// titik tengah .edmodal-x supaya pemanggil mengklik mouse CDP.
+const m = document.querySelector('.edmodal');
+if (!m || getComputedStyle(m).display === 'none') return null;
+const x = m.querySelector('.edmodal-x');
+if (x) { try { x.click(); } catch (e) {} }
+return 'dicoba';
+"""
+
+EDMODAL_CEK_JS = r"""
+return (() => {
+    const m = document.querySelector('.edmodal');
+    if (!m || getComputedStyle(m).display === 'none') return null;
+    const x = m.querySelector('.edmodal-x');
+    const r = (x || m).getBoundingClientRect();
+    return {x: r.left + r.width / 2, y: r.top + r.height / 2,
+            ada_x: !!x};
+})();
+"""
+
+
 OVERLAY_JS = r"""
 const taken = [];
 // Modal premium terlihat? Jangan klik tombol lanjut apa pun - di level

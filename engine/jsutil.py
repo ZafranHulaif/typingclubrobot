@@ -17,7 +17,7 @@ from playwright.sync_api import sync_playwright
 from . import state
 from . import browser
 from . import typing_core
-from .jstemplates import (BADGE_STREAK_JS, DETECT_JS, ESC_FALLBACK_JS, MODAL_HINT_JS, OVERLAY_JS, SCORE_JS)
+from .jstemplates import (ADHIDE_JS, BADGE_STREAK_JS, DETECT_JS, EDMODAL_CEK_JS, EDMODAL_JS, ESC_FALLBACK_JS, MODAL_HINT_JS, OVERLAY_JS, SCORE_JS)
 
 
 
@@ -84,6 +84,41 @@ def close_overlays_all_frames():
     if time.time() < state._repeat_click["until"]:
         return 0
     total = 0
+    # IKLAN layar hasil duluan (paling murah + paling sering): Brave
+    # memblokir iklan, Chrome/Edge tidak. Slot #adslot_results punya
+    # tombol 'Hide x' tanpa class - generic closer tidak menangkapnya;
+    # dulu iklan menunggu auto-dismiss sendiri sambil menutupi hasil.
+    try:
+        sembunyi = run_js(ADHIDE_JS, state.PAGE.main_frame)
+        if sembunyi:
+            print(f"[Pop-up] iklan layar hasil disembunyikan "
+                  f"({'; '.join(sembunyi[:3])})")
+            total += len(sembunyi)
+    except Exception:
+        pass
+    # Modal Premium Edition (upsell langganan): muncul di layar hasil
+    # SETELAH iklan disembunyikan (Chrome/Edge) dan di level premium.
+    # Tombol .edmodal-x = DIV polos - selektor tutup generik melewatkannya
+    # dan ESC tidak berfungsi (live). JS click dulu, lalu bila perlu
+    # klik mouse CDP terverifikasi di titik tengahnya.
+    try:
+        if run_js(EDMODAL_JS, state.PAGE.main_frame):
+            time.sleep(0.5)
+            titik = run_js(EDMODAL_CEK_JS, state.PAGE.main_frame)
+            if titik and titik.get("ada_x"):
+                typing_core._mark_bot_click()
+                state.PAGE.mouse.click(titik["x"], titik["y"])
+                time.sleep(0.3)
+                masih = run_js(EDMODAL_CEK_JS, state.PAGE.main_frame)
+                print("[Pop-up] modal Premium ditutup "
+                      + ("(klik mouse .edmodal-x)" if masih is None
+                         else "- GAGAL, tunggu penutup generik"))
+                total += 1
+            elif titik is None:
+                print("[Pop-up] modal Premium ditutup (.edmodal-x)")
+                total += 1
+    except Exception:
+        pass
     # Badge streak: tidak punya tombol tutup - ESC keyboard asli (CDP,
     # isTrusted) menutupnya (live terverifikasi; KeyboardEvent sintetis
     # berisiko tidak dipercaya seperti JS .click()).
