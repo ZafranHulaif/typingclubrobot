@@ -42,6 +42,8 @@ _ACTIVITY_MAP = [
     (re.compile(r"\[LOGIN\] Sesi edclub aktif kembali"), "Login aktif. Bot lanjut bekerja."),
     (re.compile(r"\[USER\] kamu sedang memakai browser bot"),
      "Kamu sedang memakai browser bot - bot menunggu"),
+    (re.compile(r"\[USER\] kamu pindah halaman"),
+     "Kamu pindah halaman - bot menunggu"),
     (re.compile(r"\[USER\] halaman tenang"), "Bot lanjut bekerja."),
     (re.compile(r"\[RENTANG\] menuju level awal (\d+)"), "Menuju level %s"),
     (re.compile(r"\[RENTANG\] sudah ada lesson terbuka"),

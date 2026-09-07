@@ -38,14 +38,18 @@ def _clear_modifiers():
             pass
 
 
-def _char_delay(slow=False):
+def _char_delay(slow=False, wpm_cap=None):
     """Jeda per karakter dari target WPM (1 kata = 5 karakter).
     Delay dikurangi overhead verifikasi yang terukur (loop mengukur sendiri
     via _loop_overhead) supaya LAJU AKHIR benar-benar mendekati target:
     140 wpm = ~86 ms/kar total, 200 = 60, 85 = 141.
     slow=True (tutorial boxed): engine butuh waktu animasi per karakter -
-    jangan turun di bawah cadence aman (0.14-0.24 s)."""
+    jangan turun di bawah cadence aman (0.14-0.24 s).
+    wpm_cap: batas atas kecepatan (tutorial: di atas 140 wpm edclub
+    kadang menolak penyelesaian - level diulang tanpa layar skor)."""
     wpm = SPEEDS[state.SPEED_IDX][0]
+    if wpm_cap is not None and wpm > wpm_cap:
+        wpm = wpm_cap
     if slow:
         state._last_char_delay = random.uniform(0.14, 0.24)
         return state._last_char_delay
@@ -55,8 +59,22 @@ def _char_delay(slow=False):
     return state._last_char_delay
 
 
-def type_chars(text, max_chars=None, slow=False):
+def _lesson_gone():
+    """True kalau halaman tidak lagi lesson (.play hilang dari URL)
+    saat bot sedang mengetik = user mengambil alih / tab dibajak.
+    page.url = properti lokal (instan, tanpa round-trip ke renderer).
+    Tanpa cek ini bot mengetik ke ruang kosong ber-menit-menit sementara
+    kartu aktivitas GUI masih menampilkan level lama (keluhan live)."""
+    try:
+        url = state.PAGE.url or ""
+    except Exception:
+        return False
+    return bool(url) and ".play" not in url
+
+
+def type_chars(text, max_chars=None, slow=False, wpm_cap=None):
     """Ketik via CDP. slow=True untuk tutorial boxed (animasi scroll-garis).
+    wpm_cap = batas atas kecepatan (tutorial 140).
     TIDAK ada jeda untuk 'aktivitas user': input CDP isTrusted=true sehingga
     deteksi keydown mempan false-positive, dan klik mouse di tengah
     halaman tidak mengganggu engine. Gangguan user yang betulan (klik
@@ -68,21 +86,25 @@ def type_chars(text, max_chars=None, slow=False):
             time.sleep(0.15)
         if state.STOP:
             return False
+        if _lesson_gone():
+            state.STATUS_URL = state.PAGE.url   # GUI langsung lihat keadaan baru
+            print("[USER] kamu pindah halaman - bot berhenti mengetik")
+            return False
         try:
             if char == "\n":
                 state.PAGE.keyboard.press("Enter")
                 time.sleep(0.03 + 0.02 * random.random())
             elif char == "\t":
                 state.PAGE.keyboard.press("Tab")
-                time.sleep(_char_delay(slow))
+                time.sleep(_char_delay(slow, wpm_cap))
             elif char == " ":
                 # wajib type() bukan press(): engine butuh event keypress/input
                 # penuh untuk spasi - press() hanya kirim down/up = ditandai salah
                 state.PAGE.keyboard.type(" ")
-                time.sleep(_char_delay(slow))
+                time.sleep(_char_delay(slow, wpm_cap))
             else:
                 state.PAGE.keyboard.type(char)
-                time.sleep(_char_delay(slow))
+                time.sleep(_char_delay(slow, wpm_cap))
         except Exception:
             return False
     return True

@@ -43,7 +43,9 @@ def handle_tutorial(frame, data):
     if jsutil.run_js(START_BANNER_JS, frame):
         time.sleep(0.4)
     # pola level = lesson standar dengan UI lain (kesimpulan user, benar):
-    # ketik urutan penuh sekali dengan kecepatan normal (140 wpm) - transisi
+    # ketik urutan penuh sekali dengan kecepatan sedang (dibatasi 140 wpm
+    # walau pilihan user lebih cepat - di atas itu edclub kadang menolak
+    # penyelesaian: tanpa layar skor, level diam-diam diulang) - transisi
     # animasi tidak perlu selesai untuk bisa lanjut. keuali di awal level:
     # tepat setelah intro, ada jendela mati saat transisi - ketikan pertama
     # jatuh ke ruang kosong. Tunggu layar stabil (bacaan sisa sama 2x,
@@ -85,7 +87,7 @@ def handle_tutorial(frame, data):
         while state.PAUSED and not state.STOP:
             time.sleep(0.15)
         n = min(CH, len(rem))
-        if not typing_core.type_chars(rem[:n], slow=pelan):
+        if not typing_core.type_chars(rem[:n], slow=pelan, wpm_cap=140):
             break
         typing_core.keep_alive_quiet(frame)
         rem = rem[n:]

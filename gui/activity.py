@@ -86,23 +86,27 @@ class ActivityMixin:
             # Indikator level: label asli dari teks halaman ("Lesson 87:").
             # Rumus URL lama (URL-115) salah untuk banyak akun - hanya
             # dipakai sebagai cadangan kalau label belum terbaca.
+            # Hanya boleh mengaku "Level X" kalau URL memang lesson:
+            # label/URL bisa jeda lama (engine sedang mengetik) - dulu
+            # user pindah ke daftar level tapi kartu tetap "Level ...".
             label = getattr(bot, "STATUS_LABEL", "")
-            if label.startswith("L"):
-                nama_level = f"Level {label[1:]}"
+            if ".play" in url:
+                if label.startswith("L"):
+                    nama_level = f"Level {label[1:]}"
+                else:
+                    # cadangan: peta terbalik id URL -> level (instan, pasti)
+                    lvl = None
+                    try:
+                        lvl = bot.url_to_level(url)
+                    except Exception:
+                        pass
+                    if lvl:
+                        nama_level = f"Level {lvl}"
+                    else:
+                        m = re.search(r"/program-\d+/(\d+)\.play", url)
+                        nama_level = f"Level ? (URL {m.group(1)})" if m else ""
             elif ".game" in url:
                 nama_level = "Daftar pelajaran"
-            else:
-                # cadangan: peta terbalik id URL -> level (instan, pasti)
-                lvl = None
-                try:
-                    lvl = bot.url_to_level(url)
-                except Exception:
-                    pass
-                if lvl:
-                    nama_level = f"Level {lvl}"
-                else:
-                    m = re.search(r"/program-\d+/(\d+)\.play", url)
-                    nama_level = f"Level ? (URL {m.group(1)})" if m else ""
             self._aktiv_nama = nama_level
 
             # popup 'login dulu': muncul saat sesi edclub mati, tertutup
