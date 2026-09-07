@@ -76,12 +76,18 @@ def url_to_level(url):
 def _read_unlock_set():
     """Set nomor level yang TERKUNCI/TERBUKA: kumpulkan nomor lesson yang
     punya class 'is_unlocked' di daftar lesson. Akun baru/logout = hanya
-    level 1. None = daftar tidak terbaca."""
+    level 1. None = daftar tidak terbaca. Redirect TAB UTAMA pulang-pergi
+    (dulu tab cadangan - tab baru selalu mengangkat jendela browser,
+    keluhan live)."""
     if state.browser is None:
         return None
-    pg = None
+    pg = state.PAGE
     try:
-        pg = browser._tab_latar(state.browser.contexts[0])
+        asal = browser._real_url(pg) or ""
+    except Exception:
+        return None
+    kembali = asal if ".play" in asal else ""
+    try:
         pg.goto(LIST_URL, timeout=30000)
         pg.wait_for_selector("div.box-container", timeout=15000)
         time.sleep(1.0)
@@ -100,11 +106,11 @@ def _read_unlock_set():
     except Exception:
         return None
     finally:
-        try:
-            if pg is not None:
-                pg.close()
-        except Exception:
-            pass
+        if kembali:
+            try:
+                pg.goto(kembali, timeout=25000)
+            except Exception:
+                pass
 
 
 def _range_validate_step():
@@ -183,15 +189,21 @@ def build_level_map():
     """Bangun peta level -> URL lengkap (1..685) dengan membuka daftar
     lesson lalu menklik tiap baris dan merekam URL .play-nya (~1.3 dtk/
     level, sekali per akun). Baris daftar terverifikasi: aria-label
-    'Lesson N' sesuai urutan. Jalan di tab terpisah supaya PAGE aktif
-    tidak terganggu."""
+    'Lesson N' sesuai urutan. Jalan di TAB UTAMA (redirect pulang-pergi;
+    dulu tab terpisah - tab baru mengangkat jendela browser, keluhan
+    live). Supervisor ikut menunggu di sini, jadi tidak ada yang lain
+    menyentuh tab selama memetakan."""
     if state.browser is None:
         print("[PETA] belum terhubung ke browser.")
         return 0
-    pg = None
+    pg = state.PAGE
+    asal = ""
+    try:
+        asal = browser._real_url(pg) or ""
+    except Exception:
+        asal = ""
     baru = 0
     try:
-        pg = browser._tab_latar(state.browser.contexts[0])
         pg.goto(LIST_URL, timeout=30000)
         pg.wait_for_selector("div.box-container", timeout=15000)
         total = pg.evaluate(
@@ -282,11 +294,14 @@ def build_level_map():
         print(f"[PETA] selesai: +{baru} baru, total {len(state._level_map)} "
               f"level terpetakan (level_map.json).")
     finally:
-        try:
-            if pg is not None:
-                pg.close()
-        except Exception:
-            pass
+        if pg is not state.PAGE:
+            state.PAGE = pg   # halaman lama mati -> tab pengganti jadi utama
+        kembali = asal if ".play" in asal else ""
+        if kembali:
+            try:
+                pg.goto(kembali, timeout=25000)
+            except Exception:
+                pass
     return baru
 
 

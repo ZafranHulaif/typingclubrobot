@@ -802,3 +802,38 @@ if (adaLogin) return 'out';
 return null;
 """
 
+
+PROBE_FETCH_LOGIN_JS = r"""
+// Cek status login TANPA navigasi & TANPA tab baru: fetch same-origin ke
+// dashboard dari tab aktif, lalu baca penanda dari HTML mentahnya.
+// 'out' pasti kalau server me-redirect fetch ke halaman signin (terverifikasi
+// live: /sportal/ logout diarahkan ke /signin). 'in' hanya kalau nama profil
+// sudah ada di HTML mentah (dashboard kadang merender navbar logout dulu lalu
+// diganti client-side -> kembalikan '' = belum jelas, caller boleh fallback).
+async () => {
+  try {
+    const r = await fetch('/sportal/', {credentials: 'include'});
+    const u = (r.url || '').toLowerCase();
+    if (/signin|\/login|signup/.test(u)) return 'out';
+    const t = await r.text();
+    const d = new DOMParser().parseFromString(t, 'text/html');
+    const el = d.querySelector('.profile-name');
+    if (el) {
+      const x = (el.textContent || '').trim();
+      if (x && !/sign|log\s*in/i.test(x)) return 'in';
+      return 'out';
+    }
+    const UI_TOGGLE = /^(courses?|english|save progress|more|help|settings?|language|lessons?|programs?|typing jungle|espa\S*|\d+)$/i;
+    const tog = d.querySelectorAll('li.dropdown > a.dropdown-toggle');
+    for (const a of tog) {
+      const t2 = (a.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!t2 || t2.length > 40) continue;
+      if (/log ?(in|out)|sign ?(in|up|out)/i.test(t2)) return 'out';
+      if (UI_TOGGLE.test(t2)) continue;
+      return 'in';
+    }
+    return '';
+  } catch (e) { return ''; }
+}
+"""
+

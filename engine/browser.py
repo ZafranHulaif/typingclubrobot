@@ -480,6 +480,17 @@ def _tab_latar(ctx):
         except Exception:
             baru = None
     if baru is None:
+        # CDP sempat berhasil tapi Playwright belum mencatat page-nya saat
+        # poll habis - scan sekali lagi sebelum membuat duabelas (dulu:
+        # fallback new_page() membuat tab KEDUA, user melihat dua tab).
+        try:
+            for pg in ctx.pages:
+                if pg not in lama:
+                    baru = pg
+                    break
+        except Exception:
+            pass
+    if baru is None:
         try:
             baru = ctx.new_page()
         except Exception:
@@ -841,33 +852,33 @@ def ensure_browser():
     if page is None:
         # Kalau tidak ada tab edclub: PAKAI tab kosong yang sudah ada
         # (tab pertama browser baru selalu newtab/blank) daripada membuat
-        # tab lagi - live: tab menumpuk dan membebani perangkat lambat.
-        for c2 in browser.contexts:
-            try:
-                for pg in (c2.pages or []):
-                    u = (_real_url(pg) or "").strip().lower()
-                    if (not u or u in ("about:blank", "about:newtab")
-                            or "newtab" in u
-                            or u.startswith(("chrome://", "edge://",
-                                             "brave://"))):
-                        page = pg
-                        break
-            except Exception:
-                continue
+        # tab lagi - live: tab menumpuk dan membebani perangkat lambat,
+        # dan membuat tab selalu MENGANGKAT jendela browser walau
+        # minimized (keluhan live 2.9.10). Tab start-up kadang mendaftar
+        # ke CDP belakangan (scan pertama kosong -> dulu langsung bikin
+        # tab baru) - tunggu sebentar sebelum menyerah.
+        for _ in range(10):
+            for c2 in browser.contexts:
+                try:
+                    for pg in (c2.pages or []):
+                        u = (_real_url(pg) or "").strip().lower()
+                        if (not u or u in ("about:blank", "about:newtab")
+                                or "newtab" in u
+                                or u.startswith(("chrome://", "edge://",
+                                                 "brave://"))):
+                            page = pg
+                            break
+                except Exception:
+                    continue
+                if page is not None:
+                    break
             if page is not None:
                 break
-        # Tab baru dibuat hanya bila tidak ada yang bisa dipakai.
-        # pernah gagal live: menutup tab Stripe sisa = satu-satunya tab di
-        # jendelanya -> Brave membongkar jendela itu -> Target.createTarget
-        # gagal sesaat. Solusi: retry + fallback ke tab yang ada / context baru.
-        for attempt in range(4):
-            try:
-                page = _tab_latar(ctx)
-                break
-            except Exception as e:
-                print(f"Buka tab baru gagal ({attempt + 1}/4): {str(e)[:60]}")
-                time.sleep(1.5)
+            time.sleep(0.5)
         if page is None:
+            # Tidak ada tab kosong: pakai tab apa saja yang ada (jangan
+            # buat tab baru - pasti mengangkat jendela). Profil bot
+            # dedikasi, jadi tab yang ada memang tab milik bot.
             for c2 in browser.contexts:
                 try:
                     if c2.pages:
@@ -875,6 +886,19 @@ def ensure_browser():
                         break
                 except Exception:
                     continue
+        # Tab baru dibuat hanya bila browser benar-benar punya nol tab
+        # (kasus langka). pernah gagal live: menutup tab Stripe sisa =
+        # satu-satunya tab di jendelanya -> Brave membongkar jendela itu
+        # -> Target.createTarget gagal sesaat. Solusi: retry + fallback
+        # ke context baru.
+        for attempt in range(4):
+            if page is not None:
+                break
+            try:
+                page = _tab_latar(ctx)
+            except Exception as e:
+                print(f"Buka tab baru gagal ({attempt + 1}/4): {str(e)[:60]}")
+            time.sleep(1.5)
         if page is None:
             try:
                 page = browser.new_context().new_page()

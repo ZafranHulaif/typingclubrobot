@@ -18,7 +18,8 @@ from . import state
 from . import browser
 from . import jsutil
 from .config import (LOGIN_URL_INDIVIDUAL)
-from .jstemplates import (PROFILE_CHECK_JS, SESI_PATH_RE)
+from .jstemplates import (PROFILE_CHECK_JS, PROBE_FETCH_LOGIN_JS,
+                          SESI_PATH_RE)
 
 
 
@@ -203,6 +204,29 @@ def _probe_redirect_login(timeout_s=14.0):
     return hasil
 
 
+def _probe_fetch_login(timeout_s=9.0):
+    """Cek sesi lewat fetch same-origin dari tab aktif: NOL tab baru dan
+    NOL navigasi - tab yang dipakai user (form login, lesson) tidak
+    disentuh sama sekali. Dulu tab cadangan dibuat-buat tiap 60 dtk
+    selagi menunggu login -> Chromium mengangkat jendela & user melihat
+    tab liar muncul-hilang. Return 'in'/'out'/'' (belum jelas)/None (tab
+    tidak bisa dievaluasi -> caller boleh fallback tab cadangan)."""
+    try:
+        state.PAGE.wait_for_load_state(timeout=4000)
+    except Exception:
+        pass
+    batas = time.time() + timeout_s
+    while time.time() < batas:
+        try:
+            r = state.PAGE.evaluate(PROBE_FETCH_LOGIN_JS)
+        except Exception:
+            return None
+        if r in ("in", "out"):
+            return r
+        time.sleep(2.0)
+    return ""
+
+
 def _probe_tab_login(timeout_s=15.0):
     """Buka tab CADANGAN ke dashboard edclub, baca penanda login di sana,
     lalu tutup. Status sesi berlaku untuk AKUN secara keseluruhan (token
@@ -289,10 +313,13 @@ def _login_patrol(url):
         state._probe_tab_ck["terakhir"] = now
         if state.NEEDS_LOGIN:
             # sesi mati saat bot sedang berjalan: jangan ganggu tab yang
-            # sedang dipakai user - tetap pakai tab cadangan
-            print("[LOGIN] Halaman ini tanpa penanda login - cek sesi lewat "
-                  "tab cadangan...")
-            profil = _probe_tab_login()
+            # sedang dipakai user - fetch same-origin dulu (nol tab baru);
+            # tab cadangan cuma kalau fetch tak bisa menyimpulkan
+            profil = _probe_fetch_login()
+            if profil not in ("in", "out"):
+                print("[LOGIN] Halaman ini tanpa penanda login - cek sesi lewat "
+                      "tab cadangan...")
+                profil = _probe_tab_login()
         else:
             # gerbang start: cek lewat TAB AKTIF (redirect dashboard
             # pulang-pergi) - nol tab baru; kasus paling sering sekaligus
