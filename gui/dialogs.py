@@ -81,6 +81,49 @@ def _focus_browser_window():
     return False
 
 
+def _minimize_browser_windows():
+    """Kecilkan jendela browser bot (judul edclub) kembali ke belakang -
+    dipakai tepat setelah login selesai: bot mengetik via CDP tanpa perlu
+    jendela di depan, jadi browser tidak mengganggu dan status aplikasi
+    yang terlihat user. HANYA jendela berjudul edclub/typingclub -
+    jendela browser pribadi user tidak disentuh."""
+    try:
+        user32_ = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        kandidat = {"brave.exe", "chrome.exe", "msedge.exe"}
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def enum_cb(hwnd, _l):
+            try:
+                if not user32_.IsWindowVisible(hwnd):
+                    return True
+                pid = wintypes.DWORD()
+                user32_.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                h = kernel32.OpenProcess(0x1000, False, pid.value)
+                if not h:
+                    return True
+                buf = ctypes.create_unicode_buffer(512)
+                n = wintypes.DWORD(512)
+                ok = kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n))
+                kernel32.CloseHandle(h)
+                if not ok:
+                    return True
+                exe = buf.value.replace("\\", "/").split("/")[-1].lower()
+                if exe in kandidat:
+                    judul = ctypes.create_unicode_buffer(256)
+                    user32_.GetWindowTextW(hwnd, judul, 256)
+                    jl = judul.value.lower()
+                    if ("edclub" in jl or "typingclub" in jl) and judul.value:
+                        user32_.ShowWindow(hwnd, 6)  # SW_MINIMIZE (tanpa aktivasi)
+            except Exception:
+                pass
+            return True
+
+        user32_.EnumWindows(enum_cb, 0)
+    except Exception:
+        pass
+
+
 
 
 def dialog_pick_browser(induk, detected, dipilih="Otomatis", profil="bot"):

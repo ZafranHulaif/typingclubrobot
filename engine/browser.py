@@ -363,7 +363,8 @@ def _restart_browser_debug():
     if not exe or not os.path.isfile(exe):
         print("[PEMULIHAN] Browser tidak ditemukan - tidak bisa restart.")
         return False
-    args = [exe, f"--remote-debugging-port={state.DEBUG_PORT}", "--restore-last-session"]
+    args = [exe, f"--remote-debugging-port={state.DEBUG_PORT}", "--restore-last-session",
+            "--start-minimized"]
     if state.PROFILE_MODE == "saya" and state.PROFILE_DIR:
         ud_saya = profiles._profile_dir_arg(pilihan.get("name", ""))
         if ud_saya:
@@ -544,7 +545,7 @@ def ensure_browser():
                         [state.BROWSER["exe"], f"--remote-debugging-port={state.DEBUG_PORT}",
                          f"--user-data-dir={ud_saya}",
                          f"--profile-directory={state.PROFILE_DIR}",
-                         "--no-first-run"])
+                         "--no-first-run", "--start-minimized"])
                     for _ in range(30):
                         time.sleep(0.5)
                         if state.STOP:
@@ -567,7 +568,8 @@ def ensure_browser():
                     print(f"Port 9222 kosong: membuka {nm} otomatis "
                           "dengan mode debug...")
                     _popen_latar([state.BROWSER["exe"],
-                                  f"--remote-debugging-port={state.DEBUG_PORT}"])
+                                  f"--remote-debugging-port={state.DEBUG_PORT}",
+                                  "--start-minimized"])
                     for _ in range(30):
                         time.sleep(0.5)
                         if state.STOP:
@@ -583,7 +585,8 @@ def ensure_browser():
                     print(f"Membuka {nm} dengan profil khusus bot ({alasan})...")
                     _popen_latar([state.BROWSER["exe"],
                                   f"--remote-debugging-port={state.DEBUG_PORT}",
-                                  f"--user-data-dir={state.DEDICATED_PROFILE}"])
+                                  f"--user-data-dir={state.DEDICATED_PROFILE}",
+                                  "--start-minimized"])
                     for _ in range(30):
                         time.sleep(0.5)
                         if state.STOP:

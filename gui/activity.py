@@ -19,7 +19,8 @@ from ctypes import wintypes
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
-from .dialogs import (_focus_browser_window, dialog_range, dialog_done)
+from .dialogs import (_focus_browser_window, _minimize_browser_windows,
+                      dialog_range, dialog_done)
 from .theme import (ACCENT, BTN_FG, CARD, DIM, EDGE, FAINT, FG, GREEN, ORANGE, PANEL, RED, SETTINGS_FILE, YELLOW)
 from .translator import _friendly_text
 
@@ -151,8 +152,9 @@ class ActivityMixin:
                 self._login_ever = False
                 self._log("Login edclub aktif - bot lanjut bekerja.")
                 # login selesai = tidak ada lagi yang perlu di browser:
-                # kembalikan fokus ke aplikasi
-                self._app_depan()
+                # kecilkan lagi ke belakang (bot mengetik via CDP), app
+                # tidak perlu merebut fokus - statusnya yang bercerita
+                self.root.after(600, _minimize_browser_windows)
             elif self._login_dismiss:
                 self._login_dismiss = False
             else:
@@ -186,6 +188,9 @@ class ActivityMixin:
                     if ".play" in url_p:
                         self._tunggu_pilih_halaman = False
                         bot.AWAIT_RANGE = False
+                        # level pilihan terbuka = kerja pindah ke bot:
+                        # browser kembali ke belakang
+                        self.root.after(600, _minimize_browser_windows)
                         if lvl_p:
                             self._rentang_mulai = lvl_p
                             self._save_range_settings()
