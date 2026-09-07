@@ -62,13 +62,11 @@ def handle_intro_steps():
             state._intro_sig = sig
             state._intro_attempts = 0
         state._intro_attempts += 1
-        # pola tutorial (terbukti): tunggu layar stabil dulu sebelum menekan
-        # (jendela mati transisi; menekan terlalu dini = keystroke hilang).
-        # Layar pertama di sebuah level: jendela matinya panjang (habis load
-        # level) -> 2x baca @0.25s. Layar berikutnya dalam alur intro yang
-        # sama (f->j->d->k): engine sudah hidup -> 2x baca @0.10s, tekanan
-        # berikutnya praktis instan (pola user "fj" cepat).
-        wait = 0.10 if state._intro_flow else 0.25
+        # pola tutorial: tunggu layar stabil dulu sebelum menekan (jendela
+        # mati transisi; menekan terlalu dini = keystroke hilang). Dulu
+        # 2x baca @0.25s layar pertama / @0.10s berikutnya - intro 2 tombol
+        # terasa lambat (keluhan live). Kini 2x baca @0.12s / @0.05s.
+        wait = 0.05 if state._intro_flow else 0.12
         stable = 0
         for _ in range(10):
             time.sleep(wait)
@@ -96,10 +94,13 @@ def handle_intro_steps():
                     state.PAGE.keyboard.type(key)
             except Exception:
                 return False
-        # tunggu instruksi berganti secepat mungkin (poll 80 ms) supaya
-        # f->j praktis instan seperti tekanan manusia beruntun
-        for _ in range(30):
-            time.sleep(0.08)
+        # tunggu instruksi berganti (poll 40 ms) supaya f->j praktis
+        # instan seperti tekanan manusia beruntun. Tak kunjung ganti dalam
+        # 0.6 dtk = keystroke ditelan jendela mati - balik sekarang agar
+        # iterasi berikutnya menekan ulang (dulu menunggu 2.4 dtk penuh =
+        # intro super lambat; keluhan live).
+        for _ in range(15):
+            time.sleep(0.04)
             now = jsutil.run_js(INTRO_JS, fr)
             if not now or (now.get("key"), now.get("type")) != (res.get("key"), res.get("type")):
                 state.stats["intro"] += 1

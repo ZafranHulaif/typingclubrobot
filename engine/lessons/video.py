@@ -23,7 +23,9 @@ from ..jstemplates import (VIDEO_SKIP_JS, VIDEO_STATE_JS)
 
 
 def handle_video_level():
-    for fr in jsutil.all_frames():
+    # frame edclub saja: evaluasi di ~20 iframe iklan per iterasi hanya
+    # menambah jeda tanpa pernah memuat video.
+    for fr in jsutil._edclub_frames():
         info = jsutil.run_js(VIDEO_STATE_JS, fr)
         if not info:
             continue

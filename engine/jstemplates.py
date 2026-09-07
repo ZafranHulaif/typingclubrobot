@@ -789,14 +789,6 @@ for (const el of document.querySelectorAll('div, span, p')) {
     if (m) return {type: 'type', key: m[1].trim().toLowerCase()};
     if (/^press enter/i.test(t)) return {type: 'enter'};
 }
-// Splash "New Key Introduction" (pengenalan kunci baru): tidak ada
-// instruksi ketik yang terbaca di layar - satu Enter melewatinya dan
-// tutorial langsung mulai (pola user live: Enter = skip pengenalan).
-const bt = (document.body ? document.body.innerText : '').toLowerCase();
-if (bt.includes('new key introduction') &&
-    !/^type the[\s\S]{1,20}?\s+key/m.test(bt)) {
-    return {type: 'enter', splash: true};
-}
 return null;
 """
 
