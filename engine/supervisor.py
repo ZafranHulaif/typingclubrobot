@@ -322,6 +322,14 @@ def main_loop():
                 time.sleep(0.8)
                 continue
 
+            # Level video DULUAN sebelum penutup pop-up: dulu penutup
+            # mencocokkan elemen X di halaman video, klik berulang tanpa
+            # hasil + eskalasi ESC/klik mouse - iterasi selalu 'continue'
+            # sebelum handler video giliran (video tak pernah dilompat,
+            # halaman malah terbawa ke halaman program; log live 116).
+            if ".play" in url and video.handle_video_level():
+                continue
+
             if jsutil.close_overlays_all_frames():
                 state.stats["popup"] += 1
                 time.sleep(0.6)
@@ -369,9 +377,6 @@ def main_loop():
                     time.sleep(0.4)
                     continue
                 if screenkey.click_screen_keyboard():
-                    time.sleep(0.4)
-                    continue
-                if video.handle_video_level():
                     time.sleep(0.4)
                     continue
                 if not ocr.try_ocr_minigame(data or {}):

@@ -27,6 +27,20 @@ def handle_video_level():
         info = jsutil.run_js(VIDEO_STATE_JS, fr)
         if not info:
             continue
+        if info.get("splash"):
+            # Pemain belum termounting: klik splash play besar dulu supaya
+            # <video> muncul, seek akhir jalan di polling berikutnya.
+            try:
+                btn = fr.locator(".vjs-big-play-button").first
+                typing_core._mark_bot_click(fr)
+                btn.click(timeout=2000)
+                state.stats["video"] += 1
+                state.last_action_time = time.time()
+                print(f"[Video] {jsutil.frame_label(fr)}: splash play diklik")
+                time.sleep(0.8)
+                return True
+            except Exception:
+                continue
         if info.get("paused"):
             try:
                 btn = fr.locator(".vjs-big-play-button").first

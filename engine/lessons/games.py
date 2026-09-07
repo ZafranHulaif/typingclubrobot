@@ -49,6 +49,12 @@ def _premium_modal_action():
     dipanggil SERING di awal level (watch window)."""
     for fr in jsutil._edclub_frames():
         pm = jsutil.run_js(PREMIUM_MODAL_JS, fr)
+        if pm and pm.get("hidden"):
+            # Modal terblokir CSS (display:none): X sudah diklik via JS
+            # di dalam PREMIUM_MODAL_JS (klik mouse mustahil, rect nol).
+            print("[Premium] modal tersembunyi (blokir CSS) - X diklik "
+                  "via JS, lanjut lesson berikutnya")
+            return "clicked"
         if pm and pm.get("x") is not None:
             try:
                 typing_core._mark_bot_click()

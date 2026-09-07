@@ -268,24 +268,22 @@ STAGE_FRAME = 40        # frame per loop (cukup halus, hemat memori)
 RAMP = 0.38             # detik crossfade antar status
 
 
-def _sprite_kunci_redam(w, h, t, warna=ACCENT):
-    """Tiga tuts redam bernapas pelan - siap/menganggur."""
+def _sprite_siap(w, h, t, warna=ACCENT):
+    """Satu tuts pusat bernapas dengan lampu siap - siap/menganggur."""
     W, H = w * SUP, h * SUP
     im = Image.new("RGB", (W, H), _rgb(PANEL))
     dr = ImageDraw.Draw(im)
-    s, gap, x0, y0 = _geometri(w, min(h, 72))
-    y0 += (h - min(h, 72)) / 2
-    s *= SUP
-    gap *= SUP
-    x0 *= SUP
-    y0 *= SUP
-    napas = 0.14 + 0.32 * (0.5 + 0.5 * math.sin(t * 2 * math.pi / 2.4))
-    for k in range(3):
-        x = x0 + k * (s + gap)
-        dr.rounded_rectangle([x, y0, x + s, y0 + s], radius=s * 0.20,
-                             fill=_campur(PANEL, CARD, 0.9),
-                             outline=_campur(EDGE, warna, napas),
-                             width=max(1, SUP))
+    kecil = min(w * 0.5, h)
+    s = kecil * 0.60 * SUP
+    cx, cy = W / 2.0, H / 2.0
+    napas = 0.5 + 0.5 * math.sin(t * 2 * math.pi / 2.4)
+    dr.rounded_rectangle([cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2],
+                         radius=s * 0.22,
+                         outline=_campur(EDGE, warna, 0.28 + 0.60 * napas),
+                         width=max(2, int(round(2.5 * (kecil / 64.0) * SUP))))
+    d = s * 0.17
+    dr.ellipse([cx - d, cy - d, cx + d, cy + d],
+               fill=_campur(PANEL, warna, 0.25 + 0.70 * napas))
     return _ke_photo(im, w, h)
 
 
@@ -492,7 +490,7 @@ def _sprite_silang(w, h, t, warna=RED):
 # peta status -> (fungsi sprite, durasi loop)
 STAGE_MAP = {
     "berjalan": (wave_sprite, _durasi_loop()),
-    "siap": (_sprite_kunci_redam, 2.4),
+    "siap": (_sprite_siap, 2.4),
     "membuka": (lambda w, h, t: _sprite_spinner(w, h, t, ACCENT, 100, 1.25), 1.0),
     "memeriksa": (lambda w, h, t: _sprite_spinner(w, h, t, YELLOW, 70, 0.9), 1.1),
     "login": (lambda w, h, t: _sprite_kunci_glyph(w, h, t, YELLOW), 2.0),

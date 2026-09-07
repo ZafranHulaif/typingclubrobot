@@ -331,6 +331,11 @@ for (const d of dlgs) {
     const premium = /premium|upgrade|subscription|subscribe|langganan|berlangganan|go pro|unlock all/.test(t);
     if (achievement || premium) return {achievement: achievement, premium: premium};
 }
+// Modal premium terblokir CSS (display:none) tetap dihitung: jalur
+// 'layar gelap premium' (klik lanjut/skip urutan) harus jalan, bukan
+// recovery penuh yang membawa bot keluar dari posisi.
+const em = document.querySelector('.edmodal');
+if (em) return {achievement: false, premium: true};
 return null;
 """
 
@@ -344,6 +349,16 @@ PREMIUM_MODAL_JS = r"""
 // Catatan: Jangan blokir request Stripe - modal yang checkout-nya gagal
 // termuat jadi zombie gelap menetap (ever terjadi: 'gelap' false alarm).
 let modal = null;
+// Modal Premium yang DIBLOKIR CSS (BLOK_POPUP_JS, display:none): rect-nya
+// nol sehingga jalur klik mouse mustahil. X tetap bisa diklik via JS -
+// handler edclub tetap menyala & lesson lanjut sendiri (perilaku
+// terverifikasi live: tutup modal premium = lanjut level berikutnya).
+const em = document.querySelector('.edmodal');
+if (em && getComputedStyle(em).display === 'none') {
+    const ex = em.querySelector('.edmodal-x');
+    if (ex) { try { ex.click(); } catch (e) {} return {hidden: true}; }
+    return null;
+}
 for (const d of document.querySelectorAll('[class*="modal" i], [role="dialog"]')) {
     if (d.offsetWidth > 100 && d.offsetHeight > 80) { modal = d; break; }
 }
@@ -736,8 +751,12 @@ return null;
 
 VIDEO_STATE_JS = r"""
 const v = document.querySelector('video');
-if (!v) return null;
-return {paused: !!(v.ended || v.paused), dur: v.duration || 0, cur: v.currentTime || 0};
+if (v) return {paused: !!(v.ended || v.paused), dur: v.duration || 0, cur: v.currentTime || 0};
+// Pemain videojs belum termounting (level video baru dibuka dari daftar):
+// splash tombol play besar menunggu klik pertama sebelum <video> ada.
+const big = document.querySelector('.vjs-big-play-button');
+if (big && (big.offsetWidth || big.offsetHeight)) return {splash: true};
+return null;
 """
 
 
@@ -769,6 +788,14 @@ for (const el of document.querySelectorAll('div, span, p')) {
     const m = t.match(/^type the\s+([\s\S]+?)\s+key/i);
     if (m) return {type: 'type', key: m[1].trim().toLowerCase()};
     if (/^press enter/i.test(t)) return {type: 'enter'};
+}
+// Splash "New Key Introduction" (pengenalan kunci baru): tidak ada
+// instruksi ketik yang terbaca di layar - satu Enter melewatinya dan
+// tutorial langsung mulai (pola user live: Enter = skip pengenalan).
+const bt = (document.body ? document.body.innerText : '').toLowerCase();
+if (bt.includes('new key introduction') &&
+    !/^type the[\s\S]{1,20}?\s+key/m.test(bt)) {
+    return {type: 'enter', splash: true};
 }
 return null;
 """

@@ -353,6 +353,17 @@ def _goto_next_lesson_in_list(newpg, current_url):
     ditinggalkan (level rusak) atau lesson yang sudah ditandai rusak,
     klik baris TEPAT SETELAH baris itu. Return URL .play, None jika gagal."""
     cur = _lesson_id(current_url)
+    # Nomor level sekarang: scan daftar MULAI SETELAH baris level ini.
+    # Dulu scan selalu dari baris 0 -> 'pelajaran terbuka pertama tanpa
+    # progres' bisa level lama yang terlewat (live: user di 295, skip
+    # malah mendarat di 106) - jangan pernah mundur ke belakang posisi.
+    lvl_now = url_to_level(current_url) or 0
+    if not lvl_now:
+        try:
+            lab = _level_label()
+            lvl_now = int(lab[1:]) if lab[:1] == "L" and lab[1:].isdigit() else 0
+        except Exception:
+            lvl_now = 0
     row = 0
     for _ in range(6):
         if state.STOP:
@@ -363,16 +374,30 @@ def _goto_next_lesson_in_list(newpg, current_url):
                                     timeout=15000)
         except Exception:
             continue
-        idx = newpg.evaluate("""(arg) => {
+        idx = newpg.evaluate(r"""(arg) => {
             const rows = [...document.querySelectorAll('div.box-container')];
-            for (let i = arg; i < rows.length; i++) {
+            const nomor = r => {
+                const m = (r.getAttribute('aria-label') || '').match(/Lesson (\d+)/);
+                return m ? parseInt(m[1], 10) : 0;
+            };
+            let awal = arg[0];
+            if (arg[1] > 0) {
+                for (let i = 0; i < rows.length; i++) {
+                    if (nomor(rows[i]) === arg[1]) {
+                        awal = Math.max(awal, i + 1);
+                        break;
+                    }
+                }
+            }
+            for (let i = awal; i < rows.length; i++) {
                 const cls = rows[i].className || '';
                 if (!cls.includes('is_unlocked') || cls.includes('has_progress')) continue;
+                if (arg[1] > 0 && nomor(rows[i]) && nomor(rows[i]) < arg[1]) continue;
                 const nm = rows[i].querySelector('div.lsn_name');
                 if (nm) { nm.click(); return i; }
             }
             return -1;
-        }""", row)
+        }""", [row, lvl_now])
         if idx is None or idx < 0:
             continue
         row = idx + 1
