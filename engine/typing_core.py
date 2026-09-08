@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright
 
 from . import state
+from . import browser
 from . import jsutil
 from .config import (SPEEDS)
 from .jstemplates import (ANTI_PAUSE_JS, ERR_COUNT_JS, ESC_FALLBACK_JS, MODAL_HINT_JS, QUIET_ALIVE_JS, READ_REMAINING_JS, STATE_JS, USER_WATCH_JS)
@@ -74,8 +75,15 @@ def _lesson_gone():
     Tanpa cek ini bot mengetik ke ruang kosong ber-menit-menit sementara
     kartu aktivitas GUI masih menampilkan level lama (keluhan live)."""
     try:
-        if state.browser is not None and not state.browser.is_connected():
-            return True   # browser ditutup user: berhenti mengetik sekarang
+        if state.browser is not None and (
+                not state.browser.is_connected()
+                or not browser._pages_alive()):
+            return True   # browser/window ditutup user: berhenti sekarang
+    except Exception:
+        pass
+    try:
+        if state.PAGE is not None and state.PAGE.is_closed():
+            return True   # tab lesson ditutup/diganti
     except Exception:
         pass
     try:
@@ -100,8 +108,16 @@ def type_chars(text, max_chars=None, slow=False, wpm_cap=None):
         if state.STOP:
             return False
         if _lesson_gone():
-            state.STATUS_URL = state.PAGE.url   # GUI langsung lihat keadaan baru
-            print("[USER] kamu pindah halaman - bot berhenti mengetik")
+            try:
+                state.STATUS_URL = state.PAGE.url
+            except Exception:
+                pass
+            if state.browser is not None and (
+                    not state.browser.is_connected()
+                    or not browser._pages_alive()):
+                print("[BOT] Browser ditutup saat mengetik - berhenti")
+            else:
+                print("[USER] kamu pindah halaman - bot berhenti mengetik")
             return False
         try:
             if char == "\n":

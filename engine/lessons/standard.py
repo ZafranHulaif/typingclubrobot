@@ -241,6 +241,12 @@ def handle_standard(frame, text):
             except Exception:
                 pass
         typing_core._clear_modifiers()
+    if typing_core._lesson_gone():
+        # browser/window ditutup (atau user pindah halaman) saat mengetik:
+        # keluar SEKARANG - dulu deadline post-lesson (10+8 dtk) tetap
+        # dibakar sehingga kartu GUI terpaku di 'mengetik' berdetik-detik
+        # (keluhan live: tutup browser = kartu tidak update).
+        return False
     if not typed_any:
         return False
     state.last_typed_text = text

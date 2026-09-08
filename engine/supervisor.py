@@ -107,7 +107,11 @@ def main_loop():
             # URL lama (stale, tanpa round-trip) -> STATUS_URL tak berubah
             # dan kartu GUI terpaku 'Mengerjakan level ...' (keluhan live).
             # is_connected() lokal/instan - tanpa round-trip ke renderer.
-            if state.browser is None or not state.browser.is_connected():
+            # Daftar halaman kosong ikut dicek: window ditutup bisa
+            # menyisakan proses hidup beberapa detik (is_connected masih
+            # True) padahal tidak ada tab lagi.
+            if (state.browser is None or not state.browser.is_connected()
+                    or not browser._pages_alive()):
                 if not state.BROWSER_CLOSED:
                     state.BROWSER_CLOSED = True
                     state.STATUS_URL = ""

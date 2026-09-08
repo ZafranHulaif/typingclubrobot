@@ -59,6 +59,22 @@ def _real_url(pg):
         return ""
 
 
+def _pages_alive():
+    """Masih ada tab/halaman di browser? Window yang ditutup mengosongkan
+    daftar halaman SEKETIKA, padahal proses Chromium bisa hidup beberapa
+    detik lebih lama (is_connected() masih True) - dulu bot terus
+    mengetik 'ke ruang hantu' sampai level habis dan kartu GUI terpaku
+    di situ (keluhan live). Browser diminimalkan tetap True: tab-nya
+    masih ada."""
+    try:
+        for ctx in state.browser.contexts:
+            if ctx.pages:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _edclub_frame(fr):
     """Frame ini milik edclub? Frame Stripe checkout (iframe premium)
     TIDAK BOLEH dijalankan klik apa pun - klik di dalamnya pernah
