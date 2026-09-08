@@ -223,6 +223,23 @@ return true;
 """
 
 
+BUKA_BLOK_JS = r"""
+// Bongkar blokir CSS sesaat (kebalikan BLOK_POPUP_JS): modal premium
+// yang diblokir display:none bisa TANPA tombol X - animasi tampilnya
+// tidak pernah jalan sehingga X tak pernah dipasang (live: level
+// premium di awal rentang terus di-skip). Setelah blokir dibongkar,
+// modal tampil beneran dan jalur klik X yang terbukti bekerja.
+// close_overlays memasang blokir lagi di iterasi berikutnya.
+const st = document.getElementById('edblok-style');
+const d = document.documentElement;
+if (!st && !d.dataset.edblok) return false;
+if (st) st.remove();
+try { delete d.dataset.edblok; } catch (e) {}
+d.removeAttribute('data-edblok');
+return true;
+"""
+
+
 OVERLAY_JS = r"""
 const taken = [];
 // Modal premium terlihat? Jangan klik tombol lanjut apa pun - di level
@@ -355,7 +372,7 @@ let modal = null;
 // terverifikasi live: tutup modal premium = lanjut level berikutnya).
 const em = document.querySelector('.edmodal');
 if (em && getComputedStyle(em).display === 'none') {
-    const ex = em.querySelector('.edmodal-x');
+    const ex = em.querySelector('.edmodal-x, [class*="close" i], [aria-label*="close" i]');
     if (ex) { try { ex.click(); } catch (e) {} return {hidden: true}; }
     return null;
 }

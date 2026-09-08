@@ -31,7 +31,7 @@ from .lessons import tutorial
 from . import typing_core
 from .lessons import video
 from .config import (LIST_URL)
-from .jstemplates import (MODAL_HINT_JS)
+from .jstemplates import (BUKA_BLOK_JS, MODAL_HINT_JS)
 
 
 
@@ -393,10 +393,19 @@ def main_loop():
                         print(f"[TUNDA] tidak ada aktivitas {stalled:.0f}s di "
                               f"{url.split('/')[-1]} - dumping state...")
                         jsutil.dump_debug_info()
-                    # Level premium yang modal-nya sudah tertutup tapi layar
-                    # masih gelap & tak ada kerjaan (edclub bug, level 106):
-                    # satu klik tombol lanjut langsung ke lesson berikutnya
-                    # (perilaku terverifikasi user). Coba sebelum recovery.
+                    # Layar gelap premium: X modal (termasuk modal terblokir
+                    # CSS) dicoba watch window tiap iterasi - klik X = edclub
+                    # lanjut sendiri ke lesson berikutnya. Tombol lanjut
+                    # dicoba untuk sisa modal yang sudah tertutup (edclub
+                    # bug, level 106). Dulu: tanpa tombol lanjut = langsung
+                    # di-skip di 6 dtk - di load dingin modal premium bisa
+                    # baru muncul/setelah X terpasang lewat dari 6 dtk
+                    # (live: 3 level premium ter-skip beruntun di awal
+                    # rentang 540), dan modal terblokir CSS bisa TANPA X
+                    # (animasi tampil tidak jalan di display:none) ->
+                    # blokir dibongkar sesaat supaya modal tampil dan jalur
+                    # klik X terbukti yang bekerja. Baru setelah 20 dtk
+                    # tanpa kemajuan level dianggap rusak.
                     if stalled > 6 and not user_sibuk:
                         prem = False
                         for fr2 in jsutil.all_frames():
@@ -407,25 +416,30 @@ def main_loop():
                         if prem:
                             # tanpa Enter (form checkout bisa menangkap Enter)
                             # - langsung klik mouse asli di tombol lanjut.
-                            clicked_prem = False
                             try:
                                 loc = state.PAGE.locator(
                                     ".navbar-continue, a.navbar-continue").first
                                 if loc.count() and loc.is_visible():
                                     loc.click(timeout=2000)
-                                    clicked_prem = True
                                     print("[Premium] layar gelap premium - "
                                           "lanjut ke lesson berikutnya")
                                     state.last_action_time = time.time()
                                     continue
                             except Exception:
                                 pass
-                            # Tidak ada tombol lanjut -> level memang rusak:
-                            # lompat langsung, jangan tunggu recovery.
-                            if not clicked_prem and levels._skip_to_next_lesson(
+                            if stalled > 8:
+                                for fr2 in jsutil.all_frames():
+                                    if jsutil.run_js(BUKA_BLOK_JS, fr2):
+                                        print("[Premium] modal premium tanpa X "
+                                              "saat diblokir - blokir dibuka "
+                                              "sesaat")
+                                        break
+                            if stalled > 20 and levels._skip_to_next_lesson(
                                     "layar gelap premium tanpa tombol lanjut"):
                                 state.last_action_time = time.time()
                                 continue
+                            time.sleep(0.4)
+                            continue
                     # Tab edclub lain mungkin punya pekerjaan (bot bisa
                     # nyangkut di tab yang salah setelah navigasi manual).
                     if stalled > 6 and not user_sibuk and recovery._switch_to_playable_tab():
