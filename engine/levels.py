@@ -348,10 +348,11 @@ def _wait_play_url(newpg):
 def _goto_next_lesson_in_list(newpg, current_url):
     """Buka daftar pelajaran dan klik pelajaran berikutnya SESUAI URUTAN
     KURSUS. Nomor URL edclub tidak berurutan (setelah 189.play situs
-    lanjut ke 2959.play) - jangan hitung N+1. Klik baris
-    pertama yang belum dikerjakan; kalau itu malah lesson yang baru
-    ditinggalkan (level rusak) atau lesson yang sudah ditandai rusak,
-    klik baris TEPAT SETELAH baris itu. Return URL .play, None jika gagal."""
+    lanjut ke 2959.play) - jangan hitung N+1. Klik baris TERBUKA pertama
+    TEPAT SETELAH posisi sekarang - urutan ketat, TANPA melompati baris
+    yang sudah ada progres (dulu filter has_progress membuat satu skip
+    melompat 16-17 level sekaligus: live 540 -> 556 -> 573 -> 589,
+    keluhan user 'tidak urut'). Return URL .play, None jika gagal."""
     cur = _lesson_id(current_url)
     # Nomor level sekarang: scan daftar MULAI SETELAH baris level ini.
     # Dulu scan selalu dari baris 0 -> 'pelajaran terbuka pertama tanpa
@@ -391,7 +392,7 @@ def _goto_next_lesson_in_list(newpg, current_url):
             }
             for (let i = awal; i < rows.length; i++) {
                 const cls = rows[i].className || '';
-                if (!cls.includes('is_unlocked') || cls.includes('has_progress')) continue;
+                if (!cls.includes('is_unlocked')) continue;
                 if (arg[1] > 0 && nomor(rows[i]) && nomor(rows[i]) < arg[1]) continue;
                 const nm = rows[i].querySelector('div.lsn_name');
                 if (nm) { nm.click(); return i; }

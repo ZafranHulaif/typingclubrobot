@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import os
+import paths
 import queue
 import re
 import socket
@@ -97,17 +98,17 @@ else:
 
 
 
-LOG_FILE = os.path.join(BASE_DIR, "bot.log")
+LOG_FILE = paths.data_path("bot.log")
 
 
-SETTINGS_FILE = os.path.join(BASE_DIR, "typingbot_settings.json")
+SETTINGS_FILE = paths.data_path("typingbot_settings.json")
 
 
-LICENSE_FILE = os.path.join(BASE_DIR, "license.dat")
+LICENSE_FILE = paths.data_path("license.dat")
 
 
 
-APP_VERSION = "2.9.22"
+APP_VERSION = "2.9.23"
 
 
 CREATOR = "ZafranHulaif"

@@ -14,6 +14,8 @@ from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
 
+import paths
+
 
 
 LOGIN_URL_INDIVIDUAL = "https://www.edclub.com/signin"   # Individual Edition
@@ -78,6 +80,6 @@ try:
 except Exception:
     _BASE = os.path.dirname(os.path.abspath(__file__))
 
-_LOG_PATH = os.path.join(_BASE, "bot.log")
-_LEVEL_MAP_FILE = os.path.join(_BASE, "level_map.json")
+_LOG_PATH = paths.data_path("bot.log")
+_LEVEL_MAP_FILE = paths.data_path("level_map.json")
 

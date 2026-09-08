@@ -21,8 +21,10 @@ The real interpreter is the manager shim:
    finds it under _MEIPASS/assets - without it the window/taskbar icon
    falls back to the default Tk logo even though the exe icon is right.)
 5. PYZ check via CArchiveReader + open_embedded_archive('PYZ.pyz').
-6. Smoke: run exe 25s, require "Modul bot dimuat" line in dist/bot.log
-   (empty log = false pass, that hid a startup crash once).
+6. Smoke: run exe 25s, require "Modul bot dimuat" line in
+   `%LOCALAPPDATA%/TypingBot/bot.log` (frozen app writes its log there,
+   NOT next to the exe anymore; empty log = false pass, that hid a
+   startup crash once).
 
 ## Conventions
 - Identifiers English; comments casual short Indonesian; user-facing
@@ -35,6 +37,16 @@ The real interpreter is the manager shim:
   though code comments/UI are Indonesian (drifted to Indonesian in
   2.8.4; owner noticed, fixed).
 - Never push without explicit user ask; never commit gitignored `_*.py`.
+- Frozen app keeps user data (license.dat, typingbot_settings.json,
+  level_map.json, server_url.txt, bot.log) in `%LOCALAPPDATA%/TypingBot`
+  via paths.py (dev mode: repo root). First frozen run migrates old files
+  from beside the exe and creates a Start Menu shortcut `TypingBot`
+  (friend request: exe folder must stay clean, no installer).
+- Field bug reports: read `%LOCALAPPDATA%/TypingBot/bot.log` (2.9.23+),
+  or dist/bot.log for older builds.
+- Lesson-list skips must be STRICTLY in order: `_goto_next_lesson_in_list`
+  only skips locked rows, never `has_progress` rows (2.9.22 and older
+  jumped 16-17 levels per skip; owner rejected).
 
 ## Online features (v2.7)
 - net/ client + server/ backend, contract in server/API.md.

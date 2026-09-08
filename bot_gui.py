@@ -114,6 +114,14 @@ if __name__ == "__main__":
         from net import updater as _netupd
         if _netupd.pop_pending(_sys.executable):
             raise SystemExit(0)
+        # migrasi data lama (di sebelah exe -> %LOCALAPPDATA%/TypingBot)
+        # dan pintasan Start Menu - keduanya sekali jalan, tak menunda
+        # GUI (pintasan di thread belakang, PowerShell butuh +-0.3 dtk)
+        import paths as _paths
+        _paths.data_dir()
+        import threading as _th
+        _th.Thread(target=_paths.ensure_start_menu_shortcut,
+                   daemon=True).start()
     import tkinter as tk
     from gui import app as gui_app
     root = tk.Tk()
