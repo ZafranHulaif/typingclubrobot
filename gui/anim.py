@@ -254,6 +254,90 @@ def attach_wave(kanvas):
     return WaveField(kanvas).start()
 
 
+# ------------------------------------------------------ animasi centang
+
+def _sprite_centang(w, h, u, warna=GREEN):
+    """Sekali jalan, u = 0..1: cincin tipis menyapu penuh (0-0.3),
+    centang menggambar dirinya sendiri (0.3-0.7), gema memudar (0.7-1)."""
+    W, H = w * SUP, h * SUP
+    im = Image.new("RGB", (W, H), _rgb(PANEL))
+    dr = ImageDraw.Draw(im)
+    kecil = min(w * 0.5, h)
+    r = int(kecil * 0.30 * SUP)
+    cx, cy = W // 2, H // 2
+    tebal = max(2, int(round(2.6 * (kecil / 64.0) * SUP)))
+    if u < 0.3:
+        k = u / 0.3
+        dr.arc([cx - r, cy - r, cx + r, cy + r], -90, -90 + 360 * k,
+               fill=_rgb(warna), width=tebal)
+    else:
+        dr.arc([cx - r, cy - r, cx + r, cy + r], 0, 360,
+               fill=_rgb(warna), width=tebal)
+        p = min((u - 0.3) / 0.4, 1.0)
+        A = (cx - r * 0.55, cy + r * 0.05)
+        B = (cx - r * 0.15, cy + r * 0.45)
+        C = (cx + r * 0.60, cy - r * 0.40)
+        if p <= 0.5:
+            k = p / 0.5
+            ujung = (A[0] + (B[0] - A[0]) * k, A[1] + (B[1] - A[1]) * k)
+            dr.line([A, ujung], fill=_rgb(warna), width=tebal)
+        else:
+            dr.line([A, B], fill=_rgb(warna), width=tebal)
+            k = (p - 0.5) / 0.5
+            ujung = (B[0] + (C[0] - B[0]) * k, B[1] + (C[1] - B[1]) * k)
+            dr.line([B, ujung], fill=_rgb(warna), width=tebal)
+        if u > 0.7:
+            gema = (u - 0.7) / 0.3
+            rp = r * (1.05 + 0.22 * gema)
+            dr.arc([cx - rp, cy - rp, cx + rp, cy + rp], 0, 360,
+                   fill=_campur(PANEL, warna, 1.0 - gema),
+                   width=max(1, tebal // 2))
+    return _ke_photo(im, w, h)
+
+
+class PlayCheck:
+    """Animasi sukses sekali jalan pada kanvas dialog. done() dipanggil
+    TEPAT SETELAH animasinya selesai - dulu kelas ini hilang saat
+    refactor animasi sehingga dialog langsung tertutup tanpa momen
+    'disetujui' (AttributeError ditelan except -> done instan)."""
+
+    def __init__(self, kanvas, durasi=1.4, done=None):
+        self.kanvas = kanvas
+        self.durasi = max(0.6, float(durasi))
+        self._done = done
+        self._foto = None    # pegang PhotoImage terakhir (GC aman)
+        self._ukuran = (0, 0)
+        self.item = kanvas.create_image(0, 0, anchor="nw")
+        self.loop = TimedLoop(kanvas, step_ms=30)
+        self._selesai = False
+
+    def start(self):
+        self.loop.start(self._frame)
+        return self
+
+    def stop(self):
+        self.loop.stop()
+
+    def _frame(self, t):
+        w = max(self.kanvas.winfo_width(), 220)
+        h = max(self.kanvas.winfo_height(), 64)
+        u = min(t / self.durasi, 1.0)
+        if u >= 1.0:
+            self.loop.stop()
+            if not self._selesai:
+                self._selesai = True
+                if self._done:
+                    try:
+                        self._done()
+                    except Exception:
+                        pass
+            return
+        if (w, h) != self._ukuran or self._foto is None:
+            self._ukuran = (w, h)
+        self._foto = tk.PhotoImage(data=_sprite_centang(w, h, u))
+        self.kanvas.itemconfigure(self.item, image=self._foto)
+
+
 # ------------------------------------------------------- panggung status
 #
 # Satu kanvas = dua lapis gambar bertumpuk. Ganti status = animasi baru
