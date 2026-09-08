@@ -145,12 +145,60 @@ if(n)document.getElementById('isi').replaceWith(n);
 </script></body></html>`;
 }
 
-async function readMachines() {
-  const v = await env.MACHINES.get("machines");
-  return v ? JSON.parse(v) : {};
+// Status tiap mesin kini SATU kunci KV per mesin (`machine:<mc>`).
+// Dulu satu blob JSON utk semua mesin: tiap poll/aksi admin membaca-
+// tulis ulang seluruh blob, dan KV itu eventually-consistent (baca
+// basi ~60 dtk) -> tulisan balik dari data basi bisa MENGEMBALIKAN
+// status lama (keluhan live: approve di HP, aplikasi tetap bilang
+// pending/revoked). Kunci terpisah membatasi effect tulisan basi
+// hanya ke mesin itu sendiri.
+const machineKey = (mc) => `machine:${mc}`;
+
+async function getMachine(mc) {
+  const v = await env.MACHINES.get(machineKey(mc));
+  if (v) {
+    try { return JSON.parse(v); } catch (e) { return null; }
+  }
+  // migrasi sekali jalan dari blob lama (deploy sebelum 2.9.25)
+  const legacy = await env.MACHINES.get("machines");
+  if (!legacy) return null;
+  let m = null;
+  try { m = JSON.parse(legacy)[mc] || null; } catch (e) { return null; }
+  if (m) await env.MACHINES.put(machineKey(mc), JSON.stringify(m));
+  return m;
 }
-async function writeMachines(m) {
-  await env.MACHINES.put("machines", JSON.stringify(m));
+
+async function putMachine(m) {
+  await env.MACHINES.put(machineKey(m.mc), JSON.stringify(m));
+}
+
+// kunci per-mesin dulu (data terbaru), blob lama hanya mengisi yang
+// belum termigrasi, lalu dihapus begitu semuanya pindah
+async function allMachines() {
+  const out = {};
+  const daftar = await env.MACHINES.list({ prefix: "machine:" });
+  for (const k of daftar.keys) {
+    const v = await env.MACHINES.get(k.name);
+    if (!v) continue;
+    try {
+      const m = JSON.parse(v);
+      if (m && (m.mc || k.name.length > 8)) out[m.mc || k.name.slice(8)] = m;
+    } catch (e) {}
+  }
+  const legacy = await env.MACHINES.get("machines");
+  if (legacy) {
+    let habis = true;
+    try {
+      for (const [mc, m] of Object.entries(JSON.parse(legacy))) {
+        if (!out[mc]) {
+          out[mc] = m;
+          await env.MACHINES.put(machineKey(mc), JSON.stringify(m));
+        }
+      }
+    } catch (e) { habis = false; }
+    if (habis) await env.MACHINES.delete("machines");
+  }
+  return out;
 }
 
 function chunkKey(ver, i) {
@@ -170,8 +218,7 @@ async function handle(request) {
     const d = await request.json();
     const mc = String(d.mc || "").slice(0, 32);
     if (!mc) return json({ error: "mc_required" }, 400);
-    const machines = await readMachines();
-    const m = machines[mc] ||
+    const m = (await getMachine(mc)) ||
       { mc, status: "pending", first_seen: Math.floor(Date.now() / 1000) };
     if (m.status === "denied" || m.status === "revoked") {
       // mesin dicabut/ditolak minta lagi -> wajib disetujui ulang
@@ -180,8 +227,7 @@ async function handle(request) {
     m.nickname = String(d.nickname || "?").slice(0, 40) || m.nickname || "?";
     m.app_version = String(d.app_version || "").slice(0, 16);
     m.last_seen = Math.floor(Date.now() / 1000);
-    machines[mc] = m;
-    await writeMachines(machines);
+    await putMachine(m);
     if (m.status === "approved") {
       return json({ status: "approved", token: await makeToken(mc) });
     }
@@ -190,13 +236,13 @@ async function handle(request) {
 
   if (u.pathname === "/api/license/status") {
     const mc = q.get("mc") || "";
-    const machines = await readMachines();
-    const m = machines[mc];
+    const m = await getMachine(mc);
     if (!m) return json({ status: "unknown" });
+    // sengaja TANPA tulisan (dulu last_seen di-update di sini): poll
+    // sering + tulis balik blob = jendela race yang bikin status
+    // approve/revoked saling timpa. Terakhir terlihat cukup dari
+    // POST /api/license/request.
     if (m.status !== "approved") return json({ status: m.status });
-    m.last_seen = Math.floor(Date.now() / 1000);
-    machines[mc] = m;
-    await writeMachines(machines);
     return json({ status: "approved", token: await makeToken(mc) });
   }
 
@@ -228,7 +274,7 @@ async function handle(request) {
     if (q.get("key") !== env.ADMIN_KEY) {
       return new Response("<h3>kunci admin salah</h3>", { status: 403 });
     }
-    return new Response(adminPage(await readMachines(), q.get("key")), {
+    return new Response(adminPage(await allMachines(), q.get("key")), {
       headers: { "content-type": "text/html; charset=utf-8",
                  // WAJIB no-store: tanpa ini laptop bisa menyajikan salinan
                  // lama - aksi (revoke/approve) tampak tidak berefek padahal
@@ -246,14 +292,14 @@ async function handle(request) {
     const act = fd.get("act");
     const peta = { approve: "approved", deny: "denied", revoke: "revoked", pending: "pending" };
     if (!peta[act] && act !== "delete") return json({ error: "bad_action" }, 400);
-    const machines = await readMachines();
-    if (!machines[mc]) return json({ error: "unknown_mc" }, 404);
     if (act === "delete") {
-      delete machines[mc];
+      await env.MACHINES.delete(machineKey(mc));
     } else {
-      machines[mc].status = peta[act];
+      const m = await getMachine(mc);
+      if (!m) return json({ error: "unknown_mc" }, 404);
+      m.status = peta[act];
+      await putMachine(m);
     }
-    await writeMachines(machines);
     // BASE kadang diisi tanpa https:// -> redirect rusak; pakai origin
     // permintaan sebagai jatuhnya. Respons manual (bukan Response.redirect)
     // supaya bisa menempelkan no-store: redirect yang ter-cache membuat

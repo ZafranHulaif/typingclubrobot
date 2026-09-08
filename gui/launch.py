@@ -347,10 +347,27 @@ class LaunchMixin:
         if st == "approved" and data.get("token"):
             _save_online_token(data["token"])
             self._tok_cache = data["token"]
-        elif st == "approved":
-            pass
-        else:
-            self._ui_queue.put(lambda: self._on_license_revoked(st))
+            return
+        if st == "approved":
+            return
+        # jawaban buruk pertama jangan langsung mencabut: KV edge server
+        # bisa menyajikan status basi ~60 dtk (keluhan live: popup
+        # "dicabut" padahal pemilik baru saja menyetujui). Konfirmasi
+        # sekali lagi sebelum membunuh sesi bot yang sedang jalan.
+        time.sleep(30)
+        if not self.lisensi_ok:
+            return
+        try:
+            data = netlic.fetch_status(_machine_code())
+        except Exception:
+            return
+        st = data.get("status")
+        if st == "approved":
+            if data.get("token"):
+                _save_online_token(data["token"])
+                self._tok_cache = data["token"]
+            return
+        self._ui_queue.put(lambda: self._on_license_revoked(st))
 
     def _net_periodic(self):
         threading.Thread(target=self._net_license_recheck, daemon=True).start()

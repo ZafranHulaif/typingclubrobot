@@ -31,6 +31,8 @@ Idempoten: mesin yang sudah approved langsung diberi token.
 {"status": "denied"}
 {"status": "unknown"}
 ```
+Read-only (tanpa tulisan KV) supaya poll rutin tidak menimpa aksi
+admin yang baru saja ditulis saat KV masih menyajikan data basi.
 
 ### `GET /api/download?t=<token b64>`
 Token = base64(JSON token di atas). Stream binary exe.
@@ -63,7 +65,7 @@ Unggah rilis baru. Respons: `{"ok": true, "sha256": "...", "size": N}`.
 
 | Data              | local_server        | Worker                     |
 | ----------------- | ------------------- | -------------------------- |
-| mesin (status dsb)| `_store/machines.json` | KV `MACHINES`           |
+| mesin (status dsb)| `_store/machines.json`  | KV `MACHINES`, kunci `machine:<mc>` (satu kunci per mesin) |
 | metadata rilis    | `_store/release.json`  | KV `META` (key `release`) |
 | binary exe        | `_store/TypingBot.exe` | KV `META` chunks `exe:<ver>:<i>` (20 MiB/potong) |
 | private key       | `_signing.json` (gitignore) | secret `SIGN_PRIV` (PKCS8 b64) |
