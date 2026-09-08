@@ -58,5 +58,10 @@ The real interpreter is the manager shim:
   META; Worker free plan body limit means exe must stay under ~95 MB).
 - Release flow: build exe -> `"$PY" server/publish.py dist/TypingBot.exe
   --version X.Y --notes "..."` (url/admin key from server/_admin.json).
+- If publish 503s repeatedly while /api/latest still reads fine: capture
+  the error body - `error code: 1102` = the worker exceeded resources on
+  the 70 MB upload at YOUR nearest POP (live: Jakarta CGK under
+  maintenance). Fix: route through a VPN/other region and re-run publish.
+  CF-RAY footer in the error shows the POP.
 - Old manual HMAC keys stay valid; token files are one-line JSON in
   license.dat (sniffed by leading "{").
