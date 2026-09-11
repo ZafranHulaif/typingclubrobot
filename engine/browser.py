@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+from ctypes import wintypes
 from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
@@ -408,10 +409,74 @@ def _popen_latar(args):
     (minimized tanpa aktivasi). Filosofi alur: fokus browser hanya saat
     ada yang harus dikerjakan user di sana (login, pilih level, set-up)
     - engine mengibarkan FOCUS_BROWSER_AT untuk kasus itu."""
+    lama = _hwnd_browser_visible()
     si = subprocess.STARTUPINFO()
     si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     si.wShowWindow = 7   # SW_SHOWMINNOACTIVE
     subprocess.Popen(args, close_fds=True, startupinfo=si)
+    # Brave mengabaikan --start-minimized saat cold start (keluhan live:
+    # jendela PERTAMA melompat ke depan dan mencuri fokus) - jaga dan
+    # kecilkan jendela baru tanpa aktivasi sampai masa launch selesai.
+    threading.Thread(target=_kecilkan_jendela_baru, args=(lama,),
+                     daemon=True).start()
+
+
+_KANDIDAT_EXE = {"brave.exe", "chrome.exe", "msedge.exe"}
+
+
+def _hwnd_browser_visible():
+    """Set hwnd semua jendela browser kandidat yang terlihat saat ini."""
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    temuan = set()
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def enum_cb(hwnd, _l):
+        try:
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            h = kernel32.OpenProcess(0x1000, False, pid.value)
+            if not h:
+                return True
+            buf = ctypes.create_unicode_buffer(512)
+            n = wintypes.DWORD(512)
+            ok = kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n))
+            kernel32.CloseHandle(h)
+            if ok:
+                exe = buf.value.replace("\\", "/").split("/")[-1].lower()
+                if exe in _KANDIDAT_EXE:
+                    temuan.add(hwnd)
+        except Exception:
+            pass
+        return True
+
+    user32.EnumWindows(enum_cb, 0)
+    return temuan
+
+
+def _kecilkan_jendela_baru(lama, batas=12.0):
+    """Kecilkan HANYA jendela browser BARU hasil launch, tanpa aktivasi.
+    Jendela yang sudah ada sebelum launch (browser pribadi user yang
+    ikut jalan berdampingan) tidak disentuh. Begitu engine meminta fokus
+    (FOCUS_BROWSER_AT - halaman login siap dilihat) watcher langsung
+    pamit supaya tidak mengecilkan jendela yang memang harus terlihat."""
+    user32 = ctypes.windll.user32
+    mulai = time.time()
+    tenggat = time.perf_counter() + batas
+    while time.perf_counter() < tenggat:
+        if state.STOP or state.FOCUS_BROWSER_AT > mulai:
+            return
+        baru = _hwnd_browser_visible() - lama
+        if state.STOP or state.FOCUS_BROWSER_AT > mulai:
+            return
+        for hwnd in baru:
+            try:
+                user32.ShowWindow(hwnd, 7)  # SW_SHOWMINNOACTIVE
+            except Exception:
+                pass
+        time.sleep(0.25)
 
 
 def _kecilkan_jendela_bot():
