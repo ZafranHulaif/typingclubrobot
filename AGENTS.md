@@ -16,7 +16,7 @@ The real interpreter is the manager shim:
    "AKURASI 100% di semua skenario."
 4. Build: taskkill TypingBot.exe first (a running app LOCKS the exe and
    PyInstaller can report success while the file stays stale!), then
-   `"$PY" -m PyInstaller --onefile --windowed --name TypingBot --icon docs/logo.ico --add-data "docs/logo.png;assets" --add-data "docs/logo.ico;assets" --version-file version_info.txt --clean --noconfirm bot_gui.py`
+   `"" -m PyInstaller --onefile --windowed --name TypingBot --icon docs/logo.ico --add-data "docs/logo.png;assets" --add-data "docs/logo.ico;assets" --version-file version_info.txt --exclude-module cv2 --clean --noconfirm bot_gui.py`
    (logo.ico MUST be bundled: gui/theme.py `_asset_path("logo.ico")` only
    finds it under _MEIPASS/assets - without it the window/taskbar icon
    falls back to the default Tk logo even though the exe icon is right.)

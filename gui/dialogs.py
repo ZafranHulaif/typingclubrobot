@@ -23,7 +23,7 @@ from .icons import _icon_widget, user32
 from . import anim
 from .theme import (ACCENT, BROWSER_COLORS, CARD, CARD_HOVER, CREATOR, DIM, EDGE, FAINT, FG, GREEN, ORANGE, PANEL, RED, YELLOW)
 from .translator import _display_name
-from .widgets import _Dialog
+from .widgets import ScrollbarGelap, _Dialog
 
 
 
@@ -342,6 +342,38 @@ def dialog_pick_profile(induk, nama_browser, daftar, dipilih_dir=""):
                           daftar[0])
     baris_profil = []
 
+    # daftar profil hidup di kanvas yang bisa digulir: dulu baris
+    # langsung dipack ke body - profil banyak membuat dialog lebih
+    # tinggi dari layar dan tak bisa digulir (keluhan live: profil
+    # di bawah tidak bisa dipilih).
+    bingkai = tk.Frame(d.body, bg=PANEL)
+    bingkai.pack(fill="both", expand=True)
+    kan = tk.Canvas(bingkai, bg=PANEL, highlightthickness=0)
+    gulir = ScrollbarGelap(bingkai, kan.yview)
+    kan.configure(yscrollcommand=gulir.set)
+    gulir.pack(side="right", fill="y")
+    kan.pack(side="left", fill="both", expand=True)
+    isi = tk.Frame(kan, bg=PANEL)
+    jendela = kan.create_window((0, 0), window=isi, anchor="nw")
+
+    def gulir_roda(e):
+        kan.yview_scroll(-1 if e.delta > 0 else 1, "units")
+
+    def _pas_lebar(e):
+        kan.itemconfigure(jendela, width=e.width)
+
+    kan.bind("<Configure>", _pas_lebar)
+
+    def _rentang(_e=None):
+        kan.configure(scrollregion=kan.bbox("all"))
+        kan.configure(height=min(isi.winfo_reqheight(),
+                                 int(d.winfo_screenheight() * 0.52)),
+                      width=min(max(isi.winfo_reqwidth(), 380), 440))
+
+    isi.bind("<Configure>", _rentang)
+    for wd in (kan, isi):
+        wd.bind("<MouseWheel>", gulir_roda)
+
     def pick_row(p):
         d.hasil_profil = p
         for st, render in baris_profil:
@@ -357,9 +389,9 @@ def dialog_pick_profile(induk, nama_browser, daftar, dipilih_dir=""):
         # dialog -> semua baris memanggil pick_row(profil terakhir),
         # jadi pilihan selalu loncat ke satu profil yang sama (keluhan
         # user: 'dipaksa zafran').
-        wrap = tk.Frame(d.body, bg=CARD, highlightthickness=1,
+        wrap = tk.Frame(isi, bg=CARD, highlightthickness=1,
                         highlightbackground=EDGE, cursor="hand2")
-        wrap.pack(fill="x", pady=3)
+        wrap.pack(fill="x", padx=(0, 12), pady=3)
         dalam = tk.Frame(wrap, bg=CARD)
         dalam.pack(fill="x", padx=10, pady=8)
         warna_avatar = PALET[ix % len(PALET)]
@@ -409,6 +441,7 @@ def dialog_pick_profile(induk, nama_browser, daftar, dipilih_dir=""):
             wdgt.bind("<Button-1>", klik)
             wdgt.bind("<Enter>", hover)
             wdgt.bind("<Leave>", leave)
+            wdgt.bind("<MouseWheel>", gulir_roda)
         baris_profil.append((st, render))
         render()
 
