@@ -149,6 +149,7 @@ _enter_times = []
 _std_last_rem = None
 
 _std_attempts = 0
+_std_last_try = 0.0     # waktu coba terakhir (jeda 8 dtk antar giliran)
 
 _stall_user_note = False
 

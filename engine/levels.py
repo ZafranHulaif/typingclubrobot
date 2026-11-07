@@ -19,6 +19,7 @@ from . import browser
 from . import jsutil
 from . import session
 from .config import (LIST_URL, _LEVEL_MAP_FILE)
+from .jstemplates import (SPA_SKIP_JS)
 
 
 
@@ -413,9 +414,29 @@ def _goto_next_lesson_in_list(newpg, current_url):
     return None
 
 
+def _wait_spa_next_url(old_lid):
+    """Setelah klik tombol Skip UI baru: tunggu URL pindah ke lesson
+    lain (id beda). Return URL bentuk .play, None kalau tidak pindah."""
+    for _ in range(12):
+        time.sleep(0.7)
+        if state.STOP:
+            return None
+        try:
+            u = browser._real_url(state.PAGE)
+        except Exception:
+            continue
+        if ".play" in u:
+            nid = _lesson_id(u)
+            if nid and nid != old_lid:
+                return u
+    return None
+
+
 def _skip_to_next_lesson(alasan):
-    """Level rusak/premium-beku: buka tab BARU ke pelajaran berikutnya
-    menurut URUTAN DAFTAR (bukan N+1 URL), tutup tab lama."""
+    """Level rusak/premium-beku: lanjut ke pelajaran berikutnya sesuai
+    URUTAN DAFTAR (bukan N+1 URL). Utama: tombol 'Skip' footer lesson
+    UI baru (daftar lama .game tak merender barisnya lagi sejak update
+    Nov 2026); fallback: klik baris daftar seperti dulu."""
     base = state.last_url if (state.last_url and ".play" in state.last_url) else ""
     if not base:
         try:
@@ -427,9 +448,30 @@ def _skip_to_next_lesson(alasan):
     lid = _lesson_id(base)
     if lid:
         state._broken_lessons.add(lid)
-    # Coba di tab yang sama dulu (tanpa buka tab baru - user terganggu
-    # dengan tab baru terus-menerus). Tab baru hanya kalau tab sekarang
-    # mati (evaluate/goto gagal).
+    # UI baru: klik 'Skip' milik edclub sendiri di tab yang sama -
+    # urutan kurus terjaga, tanpa tab baru (user terganggu tab baru
+    # terus-menerus).
+    try:
+        titik = jsutil.run_js(SPA_SKIP_JS, state.PAGE.main_frame)
+    except Exception:
+        titik = None
+    if titik:
+        try:
+            state.PAGE.mouse.click(titik["x"], titik["y"])
+        except Exception:
+            titik = None
+        if titik:
+            url = _wait_spa_next_url(lid)
+            if url:
+                state._recovery_counts.pop(base, None)
+                state._hijack_counts.pop(base, None)
+                state.last_url = url
+                state.last_action_time = time.time()
+                state._last_recovery = time.time()
+                print(f"[SKIP] {alasan} - lanjut ke {url.split('/')[-1]} "
+                      "(tombol Skip UI baru)")
+                return True
+    # UI lama: klik baris pelajaran berikutnya di daftar
     url = None
     newpg = state.PAGE
     try:

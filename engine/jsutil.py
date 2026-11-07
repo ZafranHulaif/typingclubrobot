@@ -17,7 +17,11 @@ from playwright.sync_api import sync_playwright
 from . import state
 from . import browser
 from . import typing_core
-from .jstemplates import (ADHIDE_JS, BADGE_STREAK_JS, BLOK_POPUP_JS, DETECT_JS, EDMODAL_CEK_JS, EDMODAL_JS, ESC_FALLBACK_JS, MODAL_HINT_JS, OVERLAY_JS, SCORE_JS)
+from .config import BIRTH_MONTH, BIRTH_YEAR
+from .jstemplates import (ADHIDE_JS, AUDIO_GATE_JS, BADGE_STREAK_JS, BIRTHDAY_JS,
+                          BLOK_POPUP_JS, DIDOMI_JS, DETECT_JS, EDMODAL_CEK_JS,
+                          EDMODAL_JS, ESC_FALLBACK_JS, MODAL_HINT_JS, OVERLAY_JS,
+                          SCORE_JS)
 
 
 
@@ -55,6 +59,52 @@ def frame_label(frame):
     if frame == state.PAGE.main_frame:
         return "atas"
     return "frame:" + (frame.url[-60:] if frame.url else frame.name)
+
+
+def close_didomi_notice():
+    """Banner consent Didomi (#didomi-host) menutupi layar & menelan
+    klik apa pun di bawahnya (live: klik gerbang audio ditolak -
+    'didomi-host intercepts pointer events'). JS click cukup untuk
+    membubarkannya; consent tersimpan di cookie jadi jarang muncul."""
+    try:
+        return bool(run_js(DIDOMI_JS, state.PAGE.main_frame))
+    except Exception:
+        return False
+
+
+def fill_birthday_modal():
+    """Modal 'When is your birthday?' (update UI student Nov 2026):
+    sekali per akun, menahan semua lesson. Isi tanggal netral dari
+    config lalu klik Confirm."""
+    try:
+        if not run_js(BIRTHDAY_JS, state.PAGE.main_frame):
+            return False
+        dlg = state.PAGE.locator('[role="dialog"]').first
+        dlg.locator('select[name="month"]').select_option(BIRTH_MONTH, timeout=4000)
+        dlg.locator('input[name="year"]').fill(BIRTH_YEAR, timeout=4000)
+        dlg.locator('button', has_text="Confirm").first.click(timeout=4000)
+        print(f"[Modal] birthday diisi ({BIRTH_MONTH} {BIRTH_YEAR})")
+        return True
+    except Exception:
+        return False
+
+
+def click_audio_gate():
+    """Gerbang audio 'Ready to start?' UI student baru: menahan mount
+    player lesson sampai ada gesture user (live: level video tidak
+    pernah memuat tanpa klik Start ini). Klik CDP = gesture valid,
+    JS click tidak dihitung browser."""
+    try:
+        if not run_js(AUDIO_GATE_JS, state.PAGE.main_frame):
+            return False
+        typing_core._mark_bot_click(state.PAGE.main_frame)
+        state.PAGE.locator(
+            'button[data-testid="audio-activation-gate"]'
+        ).first.click(timeout=3000)
+        print("[Gerbang] audio 'Ready to start?' diklik")
+        return True
+    except Exception:
+        return False
 
 
 def detect_all_frames():
@@ -224,6 +274,10 @@ def dump_debug_info():
                     url: location.href.slice(0, 100),
                     canvases: document.querySelectorAll('canvas').length,
                     core: !!window.core,
+                    gate: !!document.querySelector('button[data-testid="audio-activation-gate"]'),
+                    didomi: !!document.getElementById('didomi-notice'),
+                    birthday: !!document.querySelector('[role="dialog"] select[name="month"]'),
+                    videos: document.querySelectorAll('video').length,
                     texts: (function(){
                         const out = [];
                         for (const s of document.querySelectorAll('span, div, p')) {
@@ -238,7 +292,9 @@ def dump_debug_info():
             """, fr)
             if info:
                 print(f"DEBUG {frame_label(fr)}: core={info.get('core')} "
-                      f"canvas={info.get('canvases')} url={info.get('url')}")
+                      f"canvas={info.get('canvases')} video={info.get('videos')} "
+                      f"gate={info.get('gate')} didomi={info.get('didomi')} "
+                      f"birthday={info.get('birthday')} url={info.get('url')}")
                 for t in info.get("texts", []):
                     print(f"DEBUG   dom: {t}")
         print("---------------------------")

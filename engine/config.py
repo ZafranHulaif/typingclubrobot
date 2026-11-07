@@ -22,7 +22,12 @@ LOGIN_URL_INDIVIDUAL = "https://www.edclub.com/signin"   # Individual Edition
 
 LOGIN_URL_SCHOOL = "https://sportal.edclub.com/"      # akun sekolah (Google)
 
-SPEEDS = [(140, "NORMAL (140 wpm)"), (200, "CEPAT (200 wpm)"), (85, "SANTAI (85 wpm)")]
+SPEEDS = [(140, "NORMAL (140 wpm)"), (200, "CEPAT (200 wpm)"), (85, "SANTAI (85 wpm)"),
+          # Tangga lebih cepat (permintaan user: dulu dicap 200 karena
+          # situs LAMA layar putih kalau lebih cepat; coba lagi di UI baru
+          # Nov 2026 - mesin pemulihan reload kini menutup kasus blank).
+          (225, "KILAT (225 wpm)"), (250, "NGEBUT (250 wpm)"),
+          (275, "GILA (275 wpm)"), (300, "MAKSIMAL (300 wpm)")]
 
 
 # Browser bawaan Chromium apa pun bisa. Urutan preferensi: Brave (yang
@@ -71,6 +76,13 @@ UI_WORDS = {
 
 
 LIST_URL = "https://www.edclub.com/sportal/program-3.game"
+
+# Modal 'When is your birthday?' edclub (update UI student Nov 2026):
+# muncul sekali per akun dan menahan semua lesson sampai diisi. Diisi
+# tanggal netral dewasa supaya fitur akun tidak terkunci; ganti di sini
+# kalau mau tanggal lain (bisa diubah lagi dari Settings edclub).
+BIRTH_MONTH = "January"
+BIRTH_YEAR = "2000"
 
 try:
     # saat di-bundle jadi .exe, __file__ menunjuk folder temp PyInstaller

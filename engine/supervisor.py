@@ -313,6 +313,26 @@ def main_loop():
             if rentang._range_check(url):
                 continue
 
+            # Penahan halaman UI student baru (update Nov 2026), DULUAN
+            # sebelum handler mana pun: banner consent Didomi (menelan
+            # klik apa pun), gerbang audio 'Ready to start?' (menahan
+            # mount player - level video tidak pernah memuat tanpa ini),
+            # dan modal 'When is your birthday?'. Live 116.play: bot
+            # TUNDA terus, recovery reload 3x sia-sia (keluhan teman:
+            # 'video levels won't load').
+            if jsutil.close_didomi_notice():
+                state.last_action_time = time.time()
+                time.sleep(0.4)
+                continue
+            if jsutil.click_audio_gate():
+                state.last_action_time = time.time()
+                time.sleep(0.8)
+                continue
+            if jsutil.fill_birthday_modal():
+                state.last_action_time = time.time()
+                time.sleep(0.8)
+                continue
+
             # Watch window: klik X modal premium sebelum penutup pop-up
             # dan handler mana pun. modal premium edclub
             # hanya sekali per page-load; ESC/klik salah dari penutup

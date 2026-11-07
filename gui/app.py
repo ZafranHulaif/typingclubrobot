@@ -21,7 +21,7 @@ from tkinter.scrolledtext import ScrolledText
 
 from .licensing import _machine_code, _license_valid
 from . import anim
-from .theme import (APP_VERSION, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, PANEL, CREATOR, RED, SETTINGS_FILE, YELLOW, _asset_path, _build_stamp)
+from .theme import (APP_VERSION, ACCENT, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, PANEL, CREATOR, RED, SETTINGS_FILE, YELLOW, _asset_path, _build_stamp)
 from .widgets import Dropdown, _gelap_titlebar
 
 
@@ -167,11 +167,51 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         kotak2.pack(side="left", expand=True, fill="x")
         tk.Label(kotak2, text="Kecepatan", font=("Segoe UI", 9), fg=FAINT,
                  bg=BG).pack(anchor="w", padx=2)
-        self.speed_var = tk.StringVar(value="Normal (140)")
-        self.speed_dd = Dropdown(kotak2, self.speed_var,
-                                 ("Normal (140)", "Cepat (200)", "Santai (85)"),
-                                 on_change=self.on_speed)
-        self.speed_dd.pack(anchor="w", pady=(2, 0), fill="x")
+        # chip tangga kecepatan + slider (permintaan user: 3 pilihan
+        # dropdown terasa terbatas). Tangga penuh 85-300 wpm: dulu di-cap
+        # 200 karena situs LAMA blank di atasnya - kini dicoba lagi di UI
+        # baru, recovery reload menutup kasus blank. Klik chip ATAU geser
+        # slider (mengunci ke tangga terdekat).
+        self.SPEED_TIERS = (("Santai", 85, 2), ("Normal", 140, 0),
+                            ("Cepat", 200, 1), ("Kilat", 225, 3),
+                            ("Ngebut", 250, 4), ("Gila", 275, 5),
+                            ("Maks", 300, 6))
+        self.speed_var = tk.StringVar(value="Cepat (200)")
+        chips = tk.Frame(kotak2, bg=BG)
+        chips.pack(anchor="w", pady=(2, 0))
+        self._speed_chips = {}
+        for _nama, _wpm, _idx in self.SPEED_TIERS:
+            _lbl = f"{_nama} ({_wpm})"
+            _c = tk.Label(chips, text=_lbl, font=("Segoe UI", 9),
+                          fg=FG, bg=CARD, padx=10, pady=5, cursor="hand2")
+            _c.pack(side="left", padx=(0, 6))
+            _c.bind("<Button-1>", lambda e, l=_lbl: self._pilih_speed(l))
+            _c.bind("<Enter>", lambda e, c=_c: c.configure(bg=CARD_HOVER))
+            _c.bind("<Leave>", lambda e, c=_c: self._speed_chip_warna(c))
+            self._speed_chips[_lbl] = _c
+        srow = tk.Frame(kotak2, bg=BG)
+        srow.pack(fill="x", pady=(6, 0))
+        self.speed_scale = tk.Scale(srow, from_=85, to=300, resolution=5,
+                                    orient="horizontal", showvalue=False,
+                                    bg=BG, fg=FG, highlightthickness=0,
+                                    troughcolor=CARD, activebackground=ACCENT,
+                                    bd=0, command=self._on_speed_slide)
+        self.speed_scale.pack(side="left")
+        self.speed_readout = tk.Label(srow, text="", font=("Segoe UI", 10, "bold"),
+                                      fg=FG, bg=BG)
+        self.speed_readout.pack(side="left", padx=(16, 0))
+        # pulihkan kecepatan tersimpan (dulu pilihan kecepatan tidak
+        # disimpan sama sekali + tak berlaku sebelum Start)
+        _spd = ""
+        try:
+            _spd = json.load(open(SETTINGS_FILE, encoding="utf-8")).get("speed", "")
+        except Exception:
+            pass
+        if _spd:
+            self.speed_var.set(_spd)
+        self._speed_applying = False
+        self.speed_scale.set(self._speed_wpm(self.speed_var.get()) or 200)
+        self._render_speed_pick()
 
         # Rentang level tidak lagi ada di jendela utama (diminta saat Start
         # atau otomatis dari lesson yang sedang terbuka).
@@ -330,6 +370,47 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             pass
 
 
+    def _speed_wpm(self, lbl):
+        """Angka wpm dari label tier ('Cepat (200)' -> 200)."""
+        m = re.search(r"(\d+)", lbl or "")
+        return int(m.group(1)) if m else None
+
+    def _render_speed_pick(self):
+        """Warna chip, readout, dan posisi slider mengikuti speed_var."""
+        aktif = self.speed_var.get()
+        for lbl, c in self._speed_chips.items():
+            if lbl == aktif:
+                c.configure(bg=ACCENT, fg="#ffffff")
+            else:
+                c.configure(bg=CARD, fg=FG)
+        wpm = self._speed_wpm(aktif) or 200
+        nama = aktif.split(" (")[0]
+        self.speed_readout.configure(text=f"{nama} — {wpm} wpm")
+        # slider ikut; flag mencegah command slider memicu apply berulang
+        self._speed_applying = True
+        try:
+            self.speed_scale.set(wpm)
+        finally:
+            self._speed_applying = False
+
+    def _pilih_speed(self, lbl):
+        """Set tier kecepatan dari chip / snap slider."""
+        if self.speed_var.get() != lbl:
+            self.speed_var.set(lbl)
+            self._render_speed_pick()
+            self.on_speed()
+
+    def _on_speed_slide(self, _val=None):
+        """Slider digeser: kunci ke tier tangga terdekat."""
+        if self._speed_applying:
+            return
+        try:
+            wpm = int(float(_val)) if _val else int(self.speed_scale.get())
+        except Exception:
+            return
+        terbaik = min(self.SPEED_TIERS, key=lambda t: abs(t[1] - wpm))
+        self._pilih_speed(f"{terbaik[0]} ({terbaik[1]})")
+
     def _toggle_hotkey(self):
         self._hotkey = not self._hotkey
         self._save_settings()
@@ -350,6 +431,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             pass
         data["browser"] = self.browser_var.get()
         data["hotkey"] = bool(self._hotkey)
+        data["speed"] = self.speed_var.get()
         data["profile"] = self._profile
         data["profile_dir"] = self._profile_dir
         data["profile_label"] = self._profile_label
@@ -390,4 +472,10 @@ if __name__ == "__main__":
     except Exception:
         pass
     App(root)
+    # buka langsung maksimal (permintaan user) - di entrypoint, bukan di
+    # App: test UI bikin App dengan geometri kecil sendiri
+    try:
+        root.state("zoomed")
+    except Exception:
+        pass
     root.mainloop()

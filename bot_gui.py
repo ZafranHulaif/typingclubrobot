@@ -145,6 +145,13 @@ if __name__ == "__main__":
     _sys.excepthook = _catat_error
 
     gui_app.App(root)
+    # buka langsung maksimal (permintaan user: jangan jendela kecil).
+    # Di entrypoint, bukan di App: test UI bikin App dengan geometri
+    # kecil sendiri - zoom di App merusak test pengecilan jendela.
+    try:
+        root.state("zoomed")
+    except Exception:
+        pass
 
     def _angkat():
         # angkat jendela ke depan + fokus - penting saat aplikasi

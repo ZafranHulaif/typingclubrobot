@@ -46,15 +46,25 @@ def handle_standard(frame, text):
     rem = typing_core.read_remaining(frame)
     if rem is None:
         return False
-    # anti-busur: teks sama persis & sudah dicoba 3x -> diamkan (biarkan
-    # handler lain / recovery yang bekerja)
+    # anti-busur: teks sama persis & sudah dicoba 3x berturut-turut ->
+    # diamkan SEMENTARA (8 dtk). UI baru Nov 2026: di transisi layar skor
+    # -> lesson berikutnya, stage kadang belum interaktif - 3 percobaan
+    # pertama bisa terbakar percuma. Dulu diam selamanya tanpa log: bot
+    # nampak mati di stage mengetik. Ketikan selalu verifikasi per
+    # karakter (tidak pernah salah), jadi mencoba ulang aman.
     if rem == state._std_last_rem:
         state._std_attempts += 1
         if state._std_attempts > 3:
-            return False
+            if time.time() - state._std_last_try < 8.0:
+                return False
+            if state._std_attempts == 4:
+                print("[Standard] 3x ketik tak terkonsumsi (stage belum "
+                      "siap?) - mencoba lagi")
+            state._std_attempts = 1   # mulai giliran coba baru
     else:
         state._std_last_rem = rem
         state._std_attempts = 1
+    state._std_last_try = time.time()
 
     print(f"[Standard] Sisa {len(rem)} karakter: {rem[:24]!r}..."
           + (f" (TAHAN {hold_key!r})" if hold_key else ""))
@@ -74,7 +84,10 @@ def handle_standard(frame, text):
     # aktifkan lesson: klik banner "Start Typing" jika sedang tampil
     if jsutil.run_js(START_BANNER_JS, frame):
         print("[Standard] banner Start Typing diklik")
-        time.sleep(0.4)
+        # UI baru: stage butuh sesaat setelah banner untuk mengaktifkan
+        # input - dulu 0.4 dtk cukup di situs lama, ketikan awal kadang
+        # tak terkonsumsi di UI baru.
+        time.sleep(0.8)
         rem = typing_core.read_remaining(frame) or ""
 
     typed_any = False

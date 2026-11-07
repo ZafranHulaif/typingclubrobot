@@ -795,6 +795,66 @@ return true;
 
 
 # ---------------------------------------------------------------------------
+# Penahan halaman UI student baru (update Nov 2026): consent Didomi,
+# gerbang audio 'Ready to start?', modal 'When is your birthday?', dan
+# tombol Skip footer lesson. Tanpa pembersihan ini player tidak pernah
+# mount - level video TUNDA terus (live 116.play, recovery reload 3x
+# sia-sia; keluhan 'video levels won't load').
+# ---------------------------------------------------------------------------
+
+DIDOMI_JS = r"""
+// Banner consent Didomi (#didomi-host) menutupi halaman & menelan klik
+// apa pun di bawahnya (live: klik gerbang audio ditolak - 'didomi-host
+// intercepts pointer events'). Klik 'Agree and close'; consent
+// tersimpan di cookie jadi jarang muncul lagi.
+const b = document.getElementById('didomi-notice-agree-button');
+if (b && (b.offsetWidth || b.offsetHeight)) { b.click(); return 'agree'; }
+const n = document.getElementById('didomi-notice');
+if (!n) return null;
+const alt = [...n.querySelectorAll('button')].find(x =>
+  /agree|accept/i.test(x.id + ' ' + (x.innerText || '')));
+if (alt) { alt.click(); return 'alternatif'; }
+return null;
+"""
+
+
+AUDIO_GATE_JS = r"""
+// Gerbang audio 'Ready to start?': menahan mount player lesson sampai
+// ada gesture user (AudioContext - warning console Chrome). Kliknya
+// PAKE locator CDP (trusted), bukan JS click - deteksi di sini saja.
+const b = document.querySelector('button[data-testid="audio-activation-gate"]');
+return !!(b && (b.offsetWidth || b.offsetHeight));
+"""
+
+
+BIRTHDAY_JS = r"""
+// Modal 'When is your birthday?' (sekali per akun): menahan lesson
+// sampai diisi. Deteksi field bulan+tahun khas modal ini di dialog.
+const dlg = document.querySelector('[role="dialog"]');
+if (!dlg) return false;
+return !!(dlg.querySelector('select[name="month"]') &&
+          dlg.querySelector('input[name="year"]'));
+"""
+
+
+SPA_SKIP_JS = r"""
+// Tombol 'Skip' footer lesson UI baru (kanan bawah, teks PERSIS 'Skip'
+// - bukan link aksesibilitas 'Skip to main content' di atas). Daftar
+// pelajaran lama (.game) tak merender baris div.box-container lagi,
+// jadi tombol edclub sendiri ini pengganti klik baris daftar.
+for (const e of document.querySelectorAll('button, a, [role="button"]')) {
+    const t = (e.innerText || '').trim();
+    if (t !== 'Skip' || !(e.offsetWidth || e.offsetHeight)) continue;
+    const r = e.getBoundingClientRect();
+    if (r.y < 200 || r.width < 30) continue;   // footer saja
+    return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)};
+}
+return null;
+"""
+
+
+
+# ---------------------------------------------------------------------------
 # Langkah intro "Type the f key" / "Press Enter"
 # ---------------------------------------------------------------------------
 

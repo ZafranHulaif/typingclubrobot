@@ -44,20 +44,37 @@ def _is_edclub_url(url):
     return h.endswith("edclub.com") or h.endswith("typingclub.com")
 
 
+def _lesson_play_url(u):
+    """Rute lesson SPA baru /student/course/<c>/lesson/<id> -> bentuk
+    .play lama .../program-<c>/<id>.play. ID lesson-nya SAMA (live:
+    /lesson/116 = 116.play) - normalisasi di sini supaya semua cek
+    '.play' & peta level bot tetap jalan di UI baru."""
+    if not u or "/lesson/" not in u:
+        return u
+    m = re.search(r"/student/course/(\d+)/lesson/(\d+)", u)
+    if not m:
+        return u
+    return f"https://www.edclub.com/sportal/program-{m.group(1)}/{m.group(2)}.play"
+
+
 def _real_url(pg):
     """URL asli halaman via evaluate. page.url Playwright bisa stale
     (isi sudah m.stripe.network tapi masih melaporkan edclub);
-    location.href tidak pernah bohong."""
+    location.href tidak pernah bohong. URL lesson UI baru dinormalkan
+    ke bentuk .play (lihat _lesson_play_url)."""
+    u = None
     try:
         u = pg.evaluate("() => location.href")
-        if u and isinstance(u, str):
-            return u
+        if u and not isinstance(u, str):
+            u = None
     except Exception:
-        pass
-    try:
-        return pg.url
-    except Exception:
-        return ""
+        u = None
+    if not u:
+        try:
+            u = pg.url
+        except Exception:
+            return ""
+    return _lesson_play_url(u)
 
 
 def _pages_alive():
@@ -92,7 +109,12 @@ def _edclub_frame(fr):
     if not u or u.startswith("about:"):
         return True
     h = (urlparse(u).hostname or "").lower()
-    return h.endswith("edclub.com") or h.endswith("typingclub.com")
+    # corevideo.edclub.app = frame player video UI student baru (update
+    # Nov 2026) - dulu tidak lolos filter, handler video tidak pernah
+    # melihat <video>-nya: level video TUNDA terus (keluhan 'video
+    # levels won't load').
+    return (h.endswith("edclub.com") or h.endswith("typingclub.com")
+            or h.endswith("edclub.app"))
 
 
 def _check_debug_port():
