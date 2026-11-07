@@ -20,7 +20,8 @@ from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
 from .icons import _draw_vector_icon
-from .theme import (ACCENT, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FG, PANEL)
+from .theme import (ACCENT, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG,
+                    PANEL)
 
 
 
@@ -330,3 +331,227 @@ class _Dialog(tk.Toplevel):
             self._primer.focus_set()
         self.wait_window(self)
         return self.hasil
+
+
+
+# ------------------------------------------------------------ slider modern
+def _blend(c1, c2, t):
+    """Campur dua warna hex (#rrggbb), t=0 -> c1, t=1 -> c2."""
+    r1, g1, b1 = (int(c1[i:i + 2], 16) for i in (1, 3, 5))
+    r2, g2, b2 = (int(c2[i:i + 2], 16) for i in (1, 3, 5))
+    return "#%02x%02x%02x" % (
+        round(r1 + (r2 - r1) * t), round(g1 + (g2 - g1) * t),
+        round(b1 + (b2 - b1) * t))
+
+
+class SpeedSlider(tk.Canvas):
+    """Slider kecepatan berbasis Canvas - halus, tebal, anti-pixel.
+
+    Tampak & rasa (permintaan user: 'simple tapi detail terkecil
+    diperhatikan'):
+    - rail tebal dengan bayangan halus, isian accent, tick tier berlabel.
+    - thumb bulat ANTIALIAS (lingkaran konsentris blended, bukan satu
+      oval keras) + bayangan lembut + SQUASH & STRETCH mengikuti
+      kecepatan gerak (rasa fisik: ditarik cepat memanjang, mantul
+      saat mendarat).
+    - drag = nilai halus mengalir (command per wpm berubah, engine ikut
+      live). Lepas = spring menuju tick terdekat DENGAN overshoot kecil
+      (bukan snap instan). set_wpm() dari luar juga menganimasi spring.
+    """
+
+    H = 64          # ruang bayangan + rail tebal + label tick bawah
+
+    def __init__(self, parent, tiers, value, command=None, released=None,
+                 width=430, bg=PANEL, **kw):
+        super().__init__(parent, width=width, height=self.H, bg=bg,
+                         highlightthickness=0, bd=0)
+        self._tiers = sorted(list(tiers), key=lambda t: t[1])
+        self._command = command      # dipanggil saat nilai halus berubah
+        self._released = released    # dipanggil dengan tick target saat lepas
+        self._bg = bg
+        # posisi thumb (px canvas), velocity, dan target utk spring
+        self._x = 0.0
+        self._v = 0.0
+        self._target_x = 0.0
+        self._drag = False
+        self._hover = False
+        self._wpm = value
+        self._tick_job = None
+        self.bind("<Button-1>", self._on_down)
+        self.bind("<B1-Motion>", self._on_move)
+        self.bind("<ButtonRelease-1>", self._on_up)
+        self.bind("<Enter>", lambda e: self._set_hover(True))
+        self.bind("<Leave>", lambda e: self._set_hover(False))
+        self.bind("<Configure>", lambda e: self._snap_now())
+        self._snap_now()
+
+    # -- geometri ---------------------------------------------------------
+    @property
+    def _rail_y(self):
+        return 26
+
+    def _x_for(self, wpm):
+        lo, hi = self._tiers[0][1], self._tiers[-1][1]
+        w = max(60, self.winfo_width() or 430)
+        f = (wpm - lo) / max(1, hi - lo)
+        return 16 + f * (w - 32)
+
+    def _wpm_for(self, x):
+        lo, hi = self._tiers[0][1], self._tiers[-1][1]
+        w = max(60, self.winfo_width() or 430)
+        f = max(0.0, min(1.0, (x - 16) / max(1, w - 32)))
+        return lo + f * (hi - lo)
+
+    # -- api --------------------------------------------------------------
+    def set_wpm(self, wpm):
+        """Sinkron dari luar (settings/hotkey): animasi spring ke sana."""
+        wpm = int(wpm)
+        if wpm == self._wpm and self._tick_job is None:
+            return
+        if self._drag:
+            return   # jangan ganggu drag berjalan
+        self._wpm = wpm
+        self._target_x = self._x_for(self._wpm)
+        self._start_tick()
+
+    def get_wpm(self):
+        return self._wpm
+
+    def _set_hover(self, on):
+        self._hover = on
+        self._draw()
+
+    # -- interaksi --------------------------------------------------------
+    def _on_down(self, e):
+        self._drag = True
+        self._v = 0.0
+        self._x = float(e.x)
+        self._target_x = self._x
+        self._live()
+
+    def _on_move(self, e):
+        if self._drag:
+            self._v = e.x - self._x       # kecepatan pointer utk squash
+            self._x = float(e.x)
+            self._target_x = self._x
+            self._live()
+
+    def _on_up(self, _e):
+        self._drag = False
+        # tick terdekat jadi target; spring mengantar dengan bounce kecil
+        nearest = min(self._tiers,
+                      key=lambda t: abs(self._x_for(t[1]) - self._x))
+        self._wpm = nearest[1]
+        self._target_x = self._x_for(self._wpm)
+        self._start_tick()
+        if self._released:
+            self._released(self._wpm)
+
+    def _live(self):
+        """Saat drag: nilai halus mengalir + gambar real-time."""
+        wpm = int(round(max(self._tiers[0][1],
+                            min(self._tiers[-1][1], self._wpm_for(self._x)))))
+        if wpm != self._wpm:
+            self._wpm = wpm
+            if self._command:
+                self._command(wpm)
+        self._draw()
+
+    # -- spring physics ---------------------------------------------------
+    def _snap_now(self):
+        """Posisikan thumb langsung (awal/resize) tanpa animasi."""
+        self._x = self._target_x = self._x_for(self._wpm)
+        self._v = 0.0
+        self._draw()
+
+    def _start_tick(self):
+        if self._tick_job is None:
+            self._tick()
+
+    def _tick(self):
+        # spring teredam: masih ada overshoot kecil (bounce alami)
+        k, c = 0.14, 0.74
+        self._v += k * (self._target_x - self._x) - c * self._v
+        self._x += self._v
+        if abs(self._target_x - self._x) < 0.3 and abs(self._v) < 0.05:
+            self._x = self._target_x
+            self._v = 0.0
+            self._tick_job = None
+            self._draw()
+            return
+        self._draw()
+        self._tick_job = self.after(16, self._tick)
+
+    # -- gambar -----------------------------------------------------------
+    def _aa_oval(self, cx, cy, rx, ry, fill, steps=4, outline=None):
+        """Lingkaran ANTIALIAS: cincin konsentris dari tepi blended menuju
+        warna penuh - tepi halus, bukan gigi pixel keras."""
+        for i in range(steps, 0, -1):
+            t = i / (steps + 1)
+            warna = _blend(self._bg, fill, 1.0 - t)
+            self.create_oval(cx - rx * (1 + t * 0.9), cy - ry * (1 + t * 0.9),
+                             cx + rx * (1 + t * 0.9), cy + ry * (1 + t * 0.9),
+                             fill=warna, width=0)
+        self.create_oval(cx - rx, cy - ry, cx + rx, cy + ry,
+                         fill=fill, width=0, outline=outline or fill)
+
+    def _draw(self):
+        self.delete("all")
+        w = max(60, self.winfo_width() or 430)
+        x0, x1 = 16, w - 16
+        y = self._rail_y
+        rail_h = 10
+        rail = _blend(self._bg, "#ffffff", 0.07)
+        rail_hi = _blend(self._bg, "#ffffff", 0.13)
+        # bayangan rail lembut di bawahnya
+        sh = _blend(self._bg, "#000000", 0.30)
+        self.create_rectangle(x0 + 2, y + rail_h // 2 + 1, x1 - 2,
+                              y + rail_h // 2 + 4, fill=sh, width=0)
+        # rail dasar (tebal) + ujung bulat + garis highlight atas utk depth
+        self.create_rectangle(x0, y - rail_h // 2, x1, y + rail_h // 2,
+                              fill=rail, width=0)
+        self.create_oval(x0 - rail_h // 2, y - rail_h // 2,
+                         x0 + rail_h // 2, y + rail_h // 2, fill=rail, width=0)
+        self.create_oval(x1 - rail_h // 2, y - rail_h // 2,
+                         x1 + rail_h // 2, y + rail_h // 2, fill=rail, width=0)
+        self.create_rectangle(x0 + 3, y - rail_h // 2 + 1, x1 - 3,
+                              y - rail_h // 2 + 3, fill=rail_hi, width=0)
+        # isian accent sampai thumb (ujung bulat juga)
+        xt = max(x0, min(self._x, x1))
+        if xt > x0 + 6:
+            self.create_rectangle(x0, y - rail_h // 2, xt, y + rail_h // 2,
+                                  fill=ACCENT, width=0)
+            self.create_oval(x0 - rail_h // 2, y - rail_h // 2,
+                             x0 + rail_h // 2, y + rail_h // 2,
+                             fill=ACCENT, width=0)
+            self.create_rectangle(x0 + 3, y - rail_h // 2 + 1, xt - 1,
+                                  y - rail_h // 2 + 3,
+                                  fill=_blend(ACCENT, "#ffffff", 0.25),
+                                  width=0)
+        # tick tier + label (angka disembunyikan bila tertutup thumb -
+        # nilainya sudah tampil di readout kanan atas)
+        for _nama, wpm in self._tiers:
+            tx = self._x_for(wpm)
+            lewat = wpm <= self._wpm
+            self.create_rectangle(tx - 1, y - rail_h // 2 - 6,
+                                  tx + 1, y - rail_h // 2 - 2,
+                                  fill=ACCENT if lewat else FAINT, width=0)
+            if abs(tx - xt) < 26:
+                continue
+            self.create_text(tx, y + rail_h // 2 + 10, text=str(wpm),
+                             font=("Segoe UI", 8, "bold"),
+                             fill=FG if wpm == self._wpm else FAINT)
+        # thumb: bayangan lembut, lalu badan ANTIALIAS + squash & stretch
+        kecepatan = abs(self._v) if not self._drag else min(abs(self._v), 40.0)
+        sx = 1.0 + min(0.35, kecepatan * 0.012)
+        sy = max(0.72, 1.0 / sx)
+        r = 12 if (self._hover or self._drag) else 11
+        b_shadow = _blend(self._bg, "#000000", 0.38)
+        for extra, t in ((7, 0.14), (4, 0.26)):
+            self._aa_oval(xt, y + 6 + extra * 0.4, r + extra,
+                          (r + extra) * 0.5, _blend(self._bg, b_shadow, t),
+                          steps=2)
+        self._aa_oval(xt, y, r * sx, r * sy, "#f5f6f8", steps=4,
+                      outline=ACCENT if (self._hover or self._drag) else rail)
+        # titik pusat kecil: kesan presisi
+        self.create_oval(xt - 2, y - 2, xt + 2, y + 2, fill=ACCENT, width=0)

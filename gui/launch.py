@@ -711,7 +711,8 @@ class LaunchMixin:
                 self._log("Bot masih menyiapkan sesi sebelumnya. "
                           "Klik Stop, tunggu beberapa detik, lalu Start lagi.")
             return
-        self.on_speed()   # terapkan kecepatan terpilih/tersimpan
+        # terapkan kecepatan tersimpan (halus 85-300) ke engine
+        self.bot.SPEED_WPM = self._speed_wpm
         if not self.lisensi_ok:
             self._ask_online()
             return
@@ -872,19 +873,3 @@ class LaunchMixin:
             return
         self.bot.ASK_RECOVERY = True
         self._log("Memeriksa & memulihkan lesson...")
-
-
-    def on_speed(self, _=None):
-        # simpan pilihan walau bot belum Start (dulu: ganti kecepatan
-        # sebelum Start hilang begitu saja - on_speed langsung return)
-        self._save_settings()
-        if not self.bot:
-            return
-        m = re.search(r"(\d+)", self.speed_var.get() or "")
-        if not m:
-            return
-        wpm = int(m.group(1))
-        for i, (v, _n) in enumerate(self.bot.SPEEDS):
-            if v == wpm:
-                self.bot.SPEED_IDX = i
-                break

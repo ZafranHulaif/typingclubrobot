@@ -160,6 +160,15 @@ ACCENT = "#4f8cff"
 GREEN = "#3ecf6e"
 
 
+GREEN_HOVER = "#54d97f"   # hover tombol Start terisi
+
+
+YELLOW_DIM = "#31291a"    # latar ghost semantik (Pause)
+
+
+RED_DIM = "#332020"       # latar ghost semantik (Stop)
+
+
 YELLOW = "#e8b339"
 
 

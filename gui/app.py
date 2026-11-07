@@ -21,8 +21,8 @@ from tkinter.scrolledtext import ScrolledText
 
 from .licensing import _machine_code, _license_valid
 from . import anim
-from .theme import (APP_VERSION, ACCENT, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, PANEL, CREATOR, RED, SETTINGS_FILE, YELLOW, _asset_path, _build_stamp)
-from .widgets import Dropdown, _gelap_titlebar
+from .theme import (APP_VERSION, ACCENT, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, GREEN_HOVER, PANEL, CREATOR, RED, RED_DIM, SETTINGS_FILE, YELLOW, YELLOW_DIM, _asset_path, _build_stamp)
+from .widgets import Dropdown, SpeedSlider, _gelap_titlebar
 
 
 from .activity import ActivityMixin
@@ -136,11 +136,20 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
         ctrl = tk.Frame(root, bg=BG)
         ctrl.pack(fill="x", padx=18, pady=(8, 2))
-        self.btn_start = self._btn(ctrl, "▶  Start", GREEN, self.on_start, besar=True)
-        self.btn_pause = self._btn(ctrl, "⏸  Pause", YELLOW, self.on_pause, besar=True)
+        # gaya tombol ala dashboard gelap modern: SATU aksi utama terisi
+        # (Start hijau), aksi sekunder ghost dgn tint semantik tipis -
+        # dulu tiga tombol terisi hijau/kuning/merang menyala berdampingan
+        # (keluhan user: 'looks so bad').
+        self.btn_start = self._btn(ctrl, "▶  Start", GREEN, self.on_start,
+                                   besar=True, gaya="isi")
+        self.btn_pause = self._btn(ctrl, "⏸  Pause", YELLOW, self.on_pause,
+                                   besar=True, gaya="hantu")
         self.btn_pause["state"] = "disabled"
-        self.btn_stop = self._btn(ctrl, "⏹  Stop", RED, self.on_stop, besar=True)
+        self._style_btn(self.btn_pause)
+        self.btn_stop = self._btn(ctrl, "⏹  Stop", RED, self.on_stop,
+                                  besar=True, gaya="hantu")
         self.btn_stop["state"] = "disabled"
+        self._style_btn(self.btn_stop)
 
         # --- kartu browser persegi, di samping Stop (klik = ganti) ---
         # ukuran dihitung dari isi + jadi persegi (auto, tahan DPI: ukuran
@@ -161,57 +170,41 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # Dropdown Browser dihapus (permintaan user): pilihan browser lewat
         # kartu persegi kanan / popup kartu logo.
         setbar = tk.Frame(root, bg=BG)
-        setbar.pack(fill="x", padx=18, pady=(6, 8))
+        setbar.pack(fill="x", padx=18, pady=(2, 4))
 
         kotak2 = tk.Frame(setbar, bg=BG)
         kotak2.pack(side="left", expand=True, fill="x")
-        tk.Label(kotak2, text="Kecepatan", font=("Segoe UI", 9), fg=FAINT,
-                 bg=BG).pack(anchor="w", padx=2)
-        # chip tangga kecepatan + slider (permintaan user: 3 pilihan
-        # dropdown terasa terbatas). Tangga penuh 85-300 wpm: dulu di-cap
-        # 200 karena situs LAMA blank di atasnya - kini dicoba lagi di UI
-        # baru, recovery reload menutup kasus blank. Klik chip ATAU geser
-        # slider (mengunci ke tangga terdekat).
-        self.SPEED_TIERS = (("Santai", 85, 2), ("Normal", 140, 0),
-                            ("Cepat", 200, 1), ("Kilat", 225, 3),
-                            ("Ngebut", 250, 4), ("Gila", 275, 5),
-                            ("Maks", 300, 6))
-        self.speed_var = tk.StringVar(value="Cepat (200)")
-        chips = tk.Frame(kotak2, bg=BG)
-        chips.pack(anchor="w", pady=(2, 0))
-        self._speed_chips = {}
-        for _nama, _wpm, _idx in self.SPEED_TIERS:
-            _lbl = f"{_nama} ({_wpm})"
-            _c = tk.Label(chips, text=_lbl, font=("Segoe UI", 9),
-                          fg=FG, bg=CARD, padx=10, pady=5, cursor="hand2")
-            _c.pack(side="left", padx=(0, 6))
-            _c.bind("<Button-1>", lambda e, l=_lbl: self._pilih_speed(l))
-            _c.bind("<Enter>", lambda e, c=_c: c.configure(bg=CARD_HOVER))
-            _c.bind("<Leave>", lambda e, c=_c: self._speed_chip_warna(c))
-            self._speed_chips[_lbl] = _c
-        srow = tk.Frame(kotak2, bg=BG)
-        srow.pack(fill="x", pady=(6, 0))
-        self.speed_scale = tk.Scale(srow, from_=85, to=300, resolution=5,
-                                    orient="horizontal", showvalue=False,
-                                    bg=BG, fg=FG, highlightthickness=0,
-                                    troughcolor=CARD, activebackground=ACCENT,
-                                    bd=0, command=self._on_speed_slide)
-        self.speed_scale.pack(side="left")
-        self.speed_readout = tk.Label(srow, text="", font=("Segoe UI", 10, "bold"),
+        kepala = tk.Frame(kotak2, bg=BG)
+        kepala.pack(fill="x")
+        tk.Label(kepala, text="KECEPATAN", font=("Segoe UI", 8, "bold"),
+                 fg=FAINT, bg=BG).pack(side="left")
+        self.speed_readout = tk.Label(kepala, text="200 wpm",
+                                      font=("Segoe UI", 10, "bold"),
                                       fg=FG, bg=BG)
-        self.speed_readout.pack(side="left", padx=(16, 0))
-        # pulihkan kecepatan tersimpan (dulu pilihan kecepatan tidak
-        # disimpan sama sekali + tak berlaku sebelum Start)
+        self.speed_readout.pack(side="right")
+        # Slider HALUS: drag = nilai wpm mengalir live ke engine (permintaan
+        # user: snap instan terasa kasar - biar mengalir dulu, lepas baru
+        # spring ke tick terdekat dengan bounce kecil). Tangga 85-300 wpm:
+        # dulu di-cap 200 karena situs LAMA blank di atasnya - kini aman
+        # di UI baru, recovery reload menutup kasus blank.
+        self.SPEED_TIERS = (85, 140, 200, 225, 250, 275, 300)
+        self._speed_wpm = 200
+        tier_ui = [(str(w), w) for w in self.SPEED_TIERS]
         _spd = ""
         try:
-            _spd = json.load(open(SETTINGS_FILE, encoding="utf-8")).get("speed", "")
+            _spd = str(json.load(open(SETTINGS_FILE,
+                                      encoding="utf-8")).get("speed", ""))
         except Exception:
             pass
-        if _spd:
-            self.speed_var.set(_spd)
-        self._speed_applying = False
-        self.speed_scale.set(self._speed_wpm(self.speed_var.get()) or 200)
-        self._render_speed_pick()
+        _m = re.search(r"(\d+)", _spd)
+        if _m:
+            self._speed_wpm = max(85, min(300, int(_m.group(1))))
+        self.speed_slider = SpeedSlider(kotak2, tier_ui, self._speed_wpm,
+                                        bg=BG, width=430,
+                                        command=self._on_slider_wpm,
+                                        released=self._on_slider_release)
+        self.speed_slider.pack(side="left", pady=(2, 0))
+        self.speed_readout.configure(text=f"{self._speed_wpm} wpm")
 
         # Rentang level tidak lagi ada di jendela utama (diminta saat Start
         # atau otomatis dari lesson yang sedang terbuka).
@@ -276,32 +269,71 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         ekstra = "" if self.lisensi_ok else "  •  PERLU AKTIVASI"
         self.root.title(f"TypingBot{ekstra}")
 
-    def _btn(self, parent, text, color, cmd, besar=False, kecil=False):
+    def _btn(self, parent, text, color, cmd, besar=False, kecil=False,
+             gaya="isi"):
         if besar:
-            font, padx, pady = ("Segoe UI", 11, "bold"), 24, 9
+            font, padx, pady = ("Segoe UI", 11, "bold"), 26, 10
         elif kecil:
-            font, padx, pady = ("Segoe UI", 12, "bold"), 13, 8
+            font, padx, pady = ("Segoe UI", 12, "bold"), 14, 8
         else:
             font, padx, pady = ("Segoe UI", 10, "bold"), 16, 6
-        b = tk.Label(parent, text=text, font=font, fg=BTN_FG, bg=color,
-                     padx=padx, pady=pady, cursor="hand2")
-        if kecil:
-            b.configure(fg=FG, highlightthickness=1, highlightbackground=EDGE)
+        if kecil or gaya == "hantu":
+            # ghost: latar gelap + border tipis + teks berwarna semantik
+            b = tk.Label(parent, text=text, font=font, fg=color if gaya == "hantu" else FG,
+                         bg=PANEL, padx=padx, pady=pady, cursor="hand2",
+                         highlightthickness=1, highlightbackground=EDGE)
+            b._dim_bg = YELLOW_DIM if color == YELLOW else (
+                RED_DIM if color == RED else CARD_HOVER)
+            b._hover_border = color if gaya == "hantu" else EDGE
+        else:
+            # terisi: satu-satunya tombol penuh warna (aksi utama)
+            b = tk.Label(parent, text=text, font=font, fg=BTN_FG, bg=color,
+                         padx=padx, pady=pady, cursor="hand2")
         b.pack(side="left", padx=(0, 8) if besar or not kecil else (6, 0))
+        b._gaya = gaya
+        b._base_color = color
 
         def on_enter(_):
             if str(b["state"]) != "disabled":
-                b.configure(bg=CARD_HOVER if kecil else self._dim(color, 0.88))
+                if getattr(b, "_gaya", "isi") == "hantu" or kecil:
+                    b.configure(bg=b._dim_bg,
+                                highlightbackground=b._hover_border)
+                else:
+                    b.configure(bg=GREEN_HOVER if b._base_color == GREEN
+                                else self._dim(b._base_color, 1.15))
 
         def on_leave(_):
             if str(b["state"]) != "disabled":
-                b.configure(bg=color)
+                self._style_btn(b)
 
         b.bind("<Enter>", on_enter)
         b.bind("<Leave>", on_leave)
         b.bind("<Button-1>", lambda e: self._safe(cmd))
-        b._base_color = color
         return b
+
+    def _style_btn(self, b):
+        """Warna tombol sesuai gaya + state (disabled = redup)."""
+        if str(b["state"]) == "disabled":
+            b.configure(bg=PANEL, fg=FAINT)
+            if getattr(b, "_gaya", "isi") == "hantu":
+                b.configure(highlightbackground=EDGE)
+            return
+        if getattr(b, "_gaya", "isi") == "hantu":
+            warna = b._base_color
+            b.configure(bg=PANEL,
+                        fg=warna if warna != CARD else FG,
+                        highlightbackground=EDGE)
+        else:
+            b.configure(bg=b._base_color, fg=BTN_FG)
+
+    def _sync_btn_states(self):
+        """Set state Start/Pause/Stop dr status thread + rapikan warna."""
+        jalan = bool(self.bot_thread)
+        self.btn_start["state"] = "disabled" if jalan else "normal"
+        self.btn_pause["state"] = "normal" if jalan else "disabled"
+        self.btn_stop["state"] = "normal" if jalan else "disabled"
+        for b in (self.btn_start, self.btn_pause, self.btn_stop):
+            self._style_btn(b)
 
 
     @staticmethod
@@ -370,46 +402,26 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             pass
 
 
-    def _speed_wpm(self, lbl):
-        """Angka wpm dari label tier ('Cepat (200)' -> 200)."""
-        m = re.search(r"(\d+)", lbl or "")
-        return int(m.group(1)) if m else None
+    def _apply_speed(self, wpm, save=False):
+        """Terapkan wpm (halus, 85-300) ke readout, slider, dan engine.
+        save=True hanya di akhir interaksi (lepas drag) - jangan tulis
+        disk per pixel saat drag."""
+        wpm = int(wpm)
+        self._speed_wpm = wpm
+        self.speed_readout.configure(text=f"{wpm} wpm")
+        self.speed_slider.set_wpm(wpm)
+        if self.bot:
+            self.bot.SPEED_WPM = wpm
+        if save:
+            self._save_settings()
 
-    def _render_speed_pick(self):
-        """Warna chip, readout, dan posisi slider mengikuti speed_var."""
-        aktif = self.speed_var.get()
-        for lbl, c in self._speed_chips.items():
-            if lbl == aktif:
-                c.configure(bg=ACCENT, fg="#ffffff")
-            else:
-                c.configure(bg=CARD, fg=FG)
-        wpm = self._speed_wpm(aktif) or 200
-        nama = aktif.split(" (")[0]
-        self.speed_readout.configure(text=f"{nama} — {wpm} wpm")
-        # slider ikut; flag mencegah command slider memicu apply berulang
-        self._speed_applying = True
-        try:
-            self.speed_scale.set(wpm)
-        finally:
-            self._speed_applying = False
+    def _on_slider_wpm(self, wpm):
+        """Drag: nilai halus live (engine ikut, tanpa tulis disk)."""
+        self._apply_speed(wpm)
 
-    def _pilih_speed(self, lbl):
-        """Set tier kecepatan dari chip / snap slider."""
-        if self.speed_var.get() != lbl:
-            self.speed_var.set(lbl)
-            self._render_speed_pick()
-            self.on_speed()
-
-    def _on_speed_slide(self, _val=None):
-        """Slider digeser: kunci ke tier tangga terdekat."""
-        if self._speed_applying:
-            return
-        try:
-            wpm = int(float(_val)) if _val else int(self.speed_scale.get())
-        except Exception:
-            return
-        terbaik = min(self.SPEED_TIERS, key=lambda t: abs(t[1] - wpm))
-        self._pilih_speed(f"{terbaik[0]} ({terbaik[1]})")
+    def _on_slider_release(self, wpm):
+        """Lepas drag: simpan pilihan + spring animasi ke tick terdekat."""
+        self._apply_speed(wpm, save=True)
 
     def _toggle_hotkey(self):
         self._hotkey = not self._hotkey
@@ -431,7 +443,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             pass
         data["browser"] = self.browser_var.get()
         data["hotkey"] = bool(self._hotkey)
-        data["speed"] = self.speed_var.get()
+        data["speed"] = self._speed_wpm
         data["profile"] = self._profile
         data["profile_dir"] = self._profile_dir
         data["profile_label"] = self._profile_label

@@ -426,9 +426,11 @@ class ActivityMixin:
 
             self.btn_pause.configure(
                 text="⏸  Pause" if not bot.PAUSED else "▶  Lanjut")
-            self.btn_pause["state"] = "normal" if self.bot_thread else "disabled"
-            self.btn_stop["state"] = "normal" if self.bot_thread else "disabled"
-            self.btn_start["state"] = "disabled" if self.bot_thread else "normal"
+            self._sync_btn_states()
+            # slider kecepatan ikut kalau kecepatan diubah dari hotkey F10
+            w = getattr(self.bot, "SPEED_WPM", 0)
+            if w and w != getattr(self, "_speed_wpm", 0):
+                self._apply_speed(w)
         else:
             self._set_activity("Siap", "Klik Start untuk mulai.")
 

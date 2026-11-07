@@ -48,7 +48,7 @@ def _char_delay(slow=False, wpm_cap=None):
     jangan turun di bawah cadence aman (0.14-0.24 s).
     wpm_cap: batas atas kecepatan (tutorial: di atas 140 wpm edclub
     kadang menolak penyelesaian - level diulang tanpa layar skor)."""
-    wpm = SPEEDS[state.SPEED_IDX][0]
+    wpm = state.SPEED_WPM or SPEEDS[state.SPEED_IDX][0]
     if wpm_cap is not None and wpm > wpm_cap:
         wpm = wpm_cap
     if slow:

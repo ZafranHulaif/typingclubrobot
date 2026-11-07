@@ -33,6 +33,8 @@ def _toggle_pause():
 
 def _cycle_speed():
     state.SPEED_IDX = (state.SPEED_IDX + 1) % len(SPEEDS)
+    # sinkron kecepatan halus: slider GUI mengikuti preset hotkey
+    state.SPEED_WPM = SPEEDS[state.SPEED_IDX][0]
     print(f">>> KECEPATAN: {SPEEDS[state.SPEED_IDX][1]} <<<", flush=True)
 
 
