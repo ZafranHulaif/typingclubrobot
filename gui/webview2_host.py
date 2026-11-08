@@ -20,6 +20,7 @@ Alur:
 import ctypes
 import ctypes.wintypes as wintypes
 import os
+import time
 import tkinter as tk
 
 user32 = ctypes.windll.user32
@@ -31,6 +32,25 @@ WS_THICKFRAME = 0x00040000
 SWP_NOZORDER = 0x0004
 SWP_NOACTIVATE = 0x0010
 SWP_FRAMECHANGED = 0x0020
+
+# Suntikan per-dokumen: semua window.open & anchor target=_blank
+# dinavigasi DI HALAMAN UTAMA - popup WebView2/Edge tak pernah lahir,
+# jadi tak ada jendela kedua dgn address bar/tombol close yang harus
+# "dikustomisasi", dan input keyboard tetap di proses utama.
+_NO_POPUP_JS = """
+(function(){
+  try {
+    window.open = function(u){ if (u) { location.href = u; } return null; };
+  } catch (e) {}
+  document.addEventListener('click', function(e){
+    try {
+      var a = e.target && e.target.closest
+              ? e.target.closest('a[target="_blank"]') : null;
+      if (a) a.removeAttribute('target');
+    } catch (e2) {}
+  }, true);
+})();
+"""
 
 
 def tersedia():
@@ -189,7 +209,8 @@ class Wv2Host(tk.Frame):
         """Polling dari thread Tk (tanpa callback .NET -> Python):
         1. begitu CoreWebView2 ada: cabut handler popup pywebview (yang
            membuka link di browser OS / menimpa halaman utama - penyebab
-           dialog 'Get an app to open this link' saat login Google).
+           dialog 'Get an app to open this link' saat login Google) dan
+           suntik JS anti-popup (lihat _NO_POPUP_JS).
         2. adopsi jendela popup WebView2 (OAuth dll): jendela milik proses
            webview kita yang ber-owner ke kontrol utama -> jadi CHILD
            frame ini, penuh memenuhi area. Popup menutup dirinya sendiri
@@ -201,6 +222,29 @@ class Wv2Host(tk.Frame):
                 if core is not None:
                     core.NewWindowRequested -= self._ec.on_new_window_request
                     self._popup_unsub = True
+                    # suntik pembasmi popup SEKALI (CoreWebView2 baru pasti
+                    # ada di titik ini, panggilan dari thread Tk = aman).
+                    try:
+                        core.AddScriptToExecuteOnDocumentCreatedAsync(
+                            _NO_POPUP_JS)
+                    except Exception as ex:
+                        print(f"[WEBVIEW2] AddScript anti-popup gagal: "
+                              f"{ex!r} - pakai polling ExecuteScript.")
+            except Exception:
+                pass
+        # anti-popup utk kasus app DIAM (belum Start - engine belum
+        # terhubung & add_init_script engine belum terpasang): jalankan
+        # JS-nya ke dokumen AKTIF tiap ~1.5 dtk (panggilan .NET dari
+        # thread Tk = aman, bukan callback balik). Dokumen baru buta
+        # anti-popup maksimal 1.5 dtk - user tak sempat klik Google
+        # selah itu.
+        if self._ec and self._popup_unsub:
+            try:
+                if time.time() - getattr(self, "_anti_ct", 0) > 1.5:
+                    self._anti_ct = time.time()
+                    core = self._ec.webview.CoreWebView2
+                    if core is not None:
+                        core.ExecuteScriptAsync(_NO_POPUP_JS)
             except Exception:
                 pass
         temuan = []

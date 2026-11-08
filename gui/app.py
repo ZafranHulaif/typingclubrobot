@@ -296,7 +296,14 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             from engine.browser import (bersihkan_browser_embed,
                                         _check_debug_port, _port_bind_free)
             estate.EMBED_BROWSER = True
-            estate.FOCUS_BROWSER_AT = time.time()
+            # gates fokus AKTIF sejak sekarang (dulu: FOCUS_BROWSER_AT
+            # di-set DI SINI padahal _embed_aktif baru True setelah webview
+            # jadi - celah beberapa detik dgn gate terbuka -> poll memanggil
+            # _focus_browser_window saat app baru dibuka: Helium user yang
+            # fullscreen di-un-fullscreen, app 'minimize itself' - keluhan
+            # user. Di mode embedded tak ada browser luar yang perlu
+            # difokuskan - jangan senjatai tari-menari jendela sama sekali.)
+            self._embed_aktif = True
             # browser debug eksternal sisa sesi lama (profil khusus bot)
             # ditutup supaya tidak mengganggu - WebView2 kini browsernya
             bersihkan_browser_embed()
@@ -314,13 +321,13 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                     port, "https://www.edclub.com/", warna=PANEL)
                 if ok:
                     estate.BROWSER_WV2 = True
-                    self._embed_aktif = True
                     self._log(f"WebView2 siap di dalam app "
                               f"(port debug {port}).")
                     self.aktiv_sub.configure(
                         text="Browser aktif di dalam app.")
                 else:
-                    self.aktiv_sub.configure(
+                    self._embed_aktif = False   # balik ke browser luar:
+                    self.aktiv_sub.configure(   # dance fokus dibutuhkan lagi
                         text="WebView2 gagal - bot pakai browser terpisah.")
             self.root.after(0, buat_webview)
             # tunggu webview benar2 hidup sebelum lanjut (Start bisa saja

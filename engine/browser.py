@@ -32,6 +32,26 @@ def _debug_address():
 # Koneksi: cek port, bersihkan dari Edge, buka Brave otomatis, sambungkan
 # ---------------------------------------------------------------------------
 
+# Anti-popup: window.open & anchor target=_blank dinavigasi DI HALAMAN
+# UTAMA (dipasang via add_init_script - aktif di semua dokumen baru).
+# Tanpa ini, klik 'Sign in with Google' memicu popup = jendela EDGE
+# sungguhan (address bar, tombol close - tak bisa dicabut via Win32)
+# yang diadopsi lintas-proses ke app: klik jalan, KEYBOARD MATI (input
+# tak pernah sampai ke thread msedge - keluhan user).
+NO_POPUP_JS = """
+(function(){
+  try { window.open = function(u){ if (u) { location.href = u; } return null; }; }
+  catch (e) {}
+  document.addEventListener('click', function(e){
+    try {
+      var a = e.target && e.target.closest
+              ? e.target.closest('a[target="_blank"]') : null;
+      if (a) a.removeAttribute('target');
+    } catch (e2) {}
+  }, true);
+})();
+"""
+
 
 def _is_edclub_url(url):
     """Cek hostname ASLI (bukan substring!): URL Stripe yang di dalam
@@ -1155,6 +1175,13 @@ def ensure_browser():
         if not state.STOP:
             print("[SETUP] Set-up browser selesai - bot mulai bekerja.")
             _close_empty_tabs(browser, page)
+    # Anti-popup dipasang di sini (sesi bot): add_init_script utk semua
+    # dokumen baru + sekali untuk dokumen yang SUDAH terbuka.
+    try:
+        page.add_init_script(NO_POPUP_JS)
+        page.evaluate(NO_POPUP_JS)
+    except Exception:
+        pass
     return pw, browser, page
 
 
