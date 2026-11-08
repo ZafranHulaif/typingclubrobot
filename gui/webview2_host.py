@@ -205,19 +205,48 @@ class Wv2Host(tk.Frame):
                 pass
         temuan = []
         chwnd = self._chwnd
+        # pid proses msedge kita: dari widget Chromium utama yang sudah
+        # ditanam (anak chwnd). Popup WebView2 hidup di proses yang sama -
+        # LIVE: popup Google ternyata TOP-LEVEL owner=0 (bukan owned
+        # chwnd seperti duga lama) -> cek owner doang tak pernah cocok,
+        # popup melayang di luar app selamanya (keluhan user).
+        pid_kita = 0
+        if chwnd:
+            @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            def cari_anak(h, _l):
+                buf = ctypes.create_unicode_buffer(64)
+                user32.GetClassNameW(h, buf, 64)
+                if buf.value == "Chrome_WidgetWin_1":
+                    pid = wintypes.DWORD()
+                    user32.GetWindowThreadProcessId(h, ctypes.byref(pid))
+                    self._pid_utama = pid.value
+                    return False
+                return True
+            try:
+                self._pid_utama = getattr(self, "_pid_utama", 0)
+                user32.EnumChildWindows(chwnd, cari_anak, 0)
+                pid_kita = getattr(self, "_pid_utama", 0)
+            except Exception:
+                pid_kita = 0
 
         @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         def enum_cb(hwnd, _l):
             try:
                 if not user32.IsWindowVisible(hwnd):
                     return True
-                if user32.GetWindow(hwnd, GW_OWNER) != chwnd:
-                    return True
                 buf = ctypes.create_unicode_buffer(64)
                 user32.GetClassNameW(hwnd, buf, 64)
                 if buf.value != "Chrome_WidgetWin_1":
                     return True
-                temuan.append(hwnd)
+                # cocok: owned chwnd (kasus lama) ATAU satu proses msedge
+                # dengan widget utama kita (popup WebView2, owner=0)
+                cocok = user32.GetWindow(hwnd, GW_OWNER) == chwnd
+                if not cocok and pid_kita:
+                    pid = wintypes.DWORD()
+                    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                    cocok = pid.value == pid_kita
+                if cocok:
+                    temuan.append(hwnd)
             except Exception:
                 pass
             return True

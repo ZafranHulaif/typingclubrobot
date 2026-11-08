@@ -101,9 +101,18 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                 self._logo_img = None
         # title bar gelap ala Windows 11 - harus SETELAH jendela benar2
         # wujud (120ms sempat terlalu cepat -> hwnd belum siap, bar tetap
-        # putih; 300ms + ulang 1200ms = aman)
+        # putih; 300ms + ulang 1200ms = aman). DITAMBAH: aplikasi ulang
+        # pelan selamanya - atribut DWM ternyata di-RESET di tengah sesi
+        # (live: bar putih lagi setelah popup OAuth dibuat WebView2;
+        # panggilan ulang balikin gelap dalam 1x polling, murah).
         root.after(300, lambda: _gelap_titlebar(root))
         root.after(1200, lambda: _gelap_titlebar(root))
+
+        def _ulang_gelap():
+            _gelap_titlebar(root)
+            root.after(3000, _ulang_gelap)
+
+        root.after(2500, _ulang_gelap)
         self._title_bar()
 
         try:
