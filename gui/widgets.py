@@ -827,11 +827,12 @@ class SpeedDial(tk.Toplevel):
 
     def _angle_of(self, x, y):
         """Sudut pointer -> sweep [135,405]; celah bawah dijepit ke ujung
-        terdekat. Dipakai saat TEKAN di jalur cincin: nilai pindah persis
-        ke titik yang disentuh."""
+        TERDEKAT (dulu arahnya kebalik: klik di bawah thumb yang dekat
+        ujung malah mendarat di ujung lawan -> '85 bam teleport 300').
+        Dipakai saat TEKAN/balik ke jalur: nilai pindah ke titik kursor."""
         a = self._pointer_raw(x, y)
         if 45.0 < a < 135.0:                 # di celah: ujung terdekat
-            return 135.0 if a <= 90.0 else 405.0
+            return 405.0 if a <= 90.0 else 135.0
         if a < 45.0:
             a += 360.0                       # segmen atas = ekor sweep
         return min(405.0, max(135.0, a))
@@ -858,16 +859,22 @@ class SpeedDial(tk.Toplevel):
         if not self._drag:
             return
         if not self._dalam_jalur(e):
-            # keluar jalur cincin = seretan SELESAI (dulu: kursor jauh di
-            # luar masih memutar nilai, radius kecil = super sensitif -
-            # 'moving it when i'm not even close to it')
-            self._lepas()
+            # keluar jalur: TANGGU saja, JANGAN matikan drag (keluhan
+            # user: harus lepas-tahan lagi). Nilai beku sampai kursor
+            # balik ke jalur - motion di luar tak berefek apa-apa.
+            self._last_pointer = None
+            return
+        raw = self._pointer_raw(e.x, e.y)
+        if self._last_pointer is None:
+            # BALIK ke jalur saat masih menahan: nilai langsung nempel
+            # kursor (jangan lanjut delta lama - posisi lama tak relevan)
+            self._last_pointer = raw
+            self._ke(self._angle_of(e.x, e.y))
             return
         # dial ROTARY SEJATI: akumulasi DELTA sudut kecil, bukan sudut
         # absolut. Dulu pemetaan absolut + celah bawah bikin nilai melompat
         # 296->85 / 85->300 saat kursor nyabrang celah. Dengan delta
         # (+normalisasi wrap 180) tidak ada teleport; ujung dijepit.
-        raw = self._pointer_raw(e.x, e.y)
         delta = raw - self._last_pointer
         if delta > 180.0:
             delta -= 360.0
