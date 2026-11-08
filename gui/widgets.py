@@ -653,6 +653,8 @@ class SpeedDial(tk.Toplevel):
         self._ang = self._a_for(self._wpm)
         self._target_ang = self._ang
         self._drag = False
+        self._last_pointer = None
+        self._pernah_fokus = False   # app pernah pegang fokus OS?
         self._lahir = _time_monotonic()
         S = self._S = 300
         self._SS = 2                       # super-sample utk PIL
@@ -666,6 +668,7 @@ class SpeedDial(tk.Toplevel):
         # app kehilangan fokus -> popup nutup (jangan menghantui app lain)
         root = master.winfo_toplevel()
         self._fo_id = root.bind("<FocusOut>", self._root_keluar, add="+")
+        self._fi_id = root.bind("<FocusIn>", self._root_fokus, add="+")
 
         if _PIL_OK:
             self._base_big = self._render_base()
@@ -704,7 +707,9 @@ class SpeedDial(tk.Toplevel):
     # -- api --------------------------------------------------------------
     def tutup(self):
         try:
-            self.master.winfo_toplevel().unbind("<FocusOut>", self._fo_id)
+            root = self.master.winfo_toplevel()
+            root.unbind("<FocusOut>", self._fo_id)
+            root.unbind("<FocusIn>", self._fi_id)
         except Exception:
             pass
         try:
@@ -717,9 +722,16 @@ class SpeedDial(tk.Toplevel):
         self._ang = self._target_ang = self._a_for(self._wpm)
         self._gambar()
 
+    def _root_fokus(self, _e):
+        self._pernah_fokus = True
+
     def _root_keluar(self, _e):
         # tunda sedikit: fokus bisa 'berkedip' saat popup baru lahir;
-        # klik ke halaman web / app lain = FocusOut -> tutup rapih
+        # klik ke halaman web / app lain = FocusOut -> tutup rapih.
+        # TANPA pernah fokus (mis. jendela di latar) jangan tutup -
+        # dulu dial langsung mati sendiri saat di-probe dari latar.
+        if not self._pernah_fokus:
+            return
         if _time_monotonic() - self._lahir < 0.25:
             return
         try:
@@ -775,30 +787,35 @@ class SpeedDial(tk.Toplevel):
         self._kan.itemconfigure(self._t_unit, state="normal")
 
     # -- interaksi --------------------------------------------------------
+    def _pointer_raw(self, x, y):
+        """Sudut pointer mentah 0..360 (tanpa koreksi gap)."""
+        return _math.degrees(_math.atan2(y - self._cy, x - self._cx)) % 360.0
+
     def _on_down(self, e):
         dx, dy = e.x - self._cx, e.y - self._cy
         if _math.hypot(dx, dy) > self._r_ring + 30:
             self.tutup()          # klik jauh di luar dial = tutup
             return
         self._drag = True
-        self._ke(self._angle_of(e.x, e.y))
+        self._last_pointer = self._pointer_raw(e.x, e.y)
 
     def _on_move(self, e):
-        if self._drag:
-            self._ke(self._angle_of(e.x, e.y))
-
-    def _angle_of(self, x, y):
-        # sudut pointer dinormalisasi ke rentang sweep [135, 405]. Daerah
-        # celah bawah dijepit ke ujung TERDEKAT (dulu: selalu ke 405 =
-        # maksimal - keluhan 'too sensitive / langsung nempel')
-        a = _math.degrees(_math.atan2(y - self._cy, x - self._cx)) % 360.0
-        if 45.0 < a <= 90.0:
-            return 135.0                      # celah dekat mulut -> minimal
-        if 90.0 < a < 135.0:
-            return 405.0                      # celah dekat ekor -> maksimal
-        if a < 45.0:
-            a += 360.0                        # segmen atas = ekor sweep
-        return min(405.0, max(135.0, a))
+        if not self._drag:
+            return
+        # dial ROTARY SEJATI: akumulasi DELTA sudut kecil, bukan sudut
+        # absolut. Dulu pemetaan absolut + celah bawah bikin nilai melompat
+        # 296->85 / 85->300 saat kursor nyabrang celah, dan menggelisah
+        # 85<->300 saat kursor keluar lingkaran. Dengan delta (+normalisasi
+        # wrap 180) kursor bebas ke mana saja - melewati celah tidak pernah
+        # teleport; ujung min/max dijepit, mentok terasa mantap.
+        raw = self._pointer_raw(e.x, e.y)
+        delta = raw - self._last_pointer
+        if delta > 180.0:
+            delta -= 360.0
+        elif delta < -180.0:
+            delta += 360.0
+        self._last_pointer = raw
+        self._ke(min(405.0, max(135.0, self._ang + delta)))
 
     def _ke(self, ang):
         """Langsung 1:1: thumb persis di sudut kursor, tanpa animasi."""
@@ -818,6 +835,7 @@ class SpeedDial(tk.Toplevel):
         terdekat = min(self._tiers, key=lambda t: abs(t[1] - self._wpm))
         self._wpm = terdekat[1]
         self._ang = self._target_ang = self._a_for(self._wpm)
+        self._last_pointer = None
         if self._released:
             self._released(self._wpm)
         self._gambar()
