@@ -174,16 +174,98 @@ def _range_validate_step():
     return True
 
 
-def _goto_level_url(nomor):
-    """Buka lesson nomor N langsung dari peta (level_map.json)."""
-    url = state._level_map.get(str(nomor))
-    if not url:
+def _lesson_hidup(pg, batas=8.0):
+    """Lesson benar-benar dirender (canvas/video/isi teks muncul) - bukan
+    halaman kosong (URL 403/SPA mati: live: level 1 -> 116.play PUTIH,
+    config 404, 'reading sources')."""
+    mulai = time.time()
+    while time.time() - mulai < batas:
+        try:
+            n = pg.evaluate(
+                "() => ({c: document.querySelectorAll('canvas').length," 
+                "v: !!document.querySelector('video')," 
+                "b: document.body ? document.body.innerText.length : 0," 
+                "u: location.href})")
+        except Exception:
+            n = None
+        if n and ".play" in (n.get("u") or "") \
+                and (n.get("c") or n.get("v") or (n.get("b") or 0) > 400):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def _goto_level_via_daftar(nomor):
+    """Klik baris 'Lesson N' di daftar lesson (selector terverifikasi:
+    div.box-container + aria-label), tunggu URL .play, lalu REKAM ulang
+    peta - peta level menyembuhkan dirinya dari URL stale."""
+    if state.browser is None:
         return False
+    pg = state.PAGE
     try:
-        state.PAGE.goto(url, timeout=25000)
-        return True
+        pg.goto(LIST_URL, timeout=30000)
+        pg.wait_for_selector("div.box-container", timeout=15000)
     except Exception:
         return False
+    try:
+        idx = pg.evaluate(
+            """(n) => {
+              const rows = [...document.querySelectorAll('div.box-container')];
+              const re = new RegExp('Lesson\\\\s+' + n + '\\\\b');
+              const i = rows.findIndex(r =>
+                re.test(r.getAttribute('aria-label') || ''));
+              if (i >= 0) rows[i].click();
+              return i;
+            }""", nomor)
+    except Exception:
+        return False
+    if idx is None or idx < 0:
+        return False
+    url = None
+    for _ in range(40):
+        time.sleep(0.1)
+        try:
+            u = pg.evaluate("() => location.href")
+        except Exception:
+            continue
+        if u and ".play" in u:
+            url = u
+            break
+    if not url:
+        return False
+    if state._level_map.get(str(nomor)) != url:
+        _record_level_map(nomor, url)
+        print(f"[PETA] level {nomor} diperbarui via daftar: {url}")
+    return True
+
+
+def _goto_level_url(nomor):
+    """Buka lesson nomor N langsung dari peta (level_map.json).
+
+    v3.2: peta bisa STALE - course TypingClub direorganisasi (UI baru
+    Nov 2026): URL id lama kini 403/blank (live: level 1 = 116.play
+    putih terus). Setelah goto, lesson HARUS benar-benar hidup; kalau
+    tidak, jatuh ke klik baris daftar & peta diperbarui otomatis."""
+    url = state._level_map.get(str(nomor))
+    if url:
+        try:
+            state.PAGE.goto(url, timeout=25000)
+        except Exception:
+            pass
+        if _lesson_hidup(state.PAGE):
+            return True
+        print(f"[PETA] URL terpetakan level {nomor} tidak hidup "
+              "(course berubah?) - pakai daftar lesson...")
+    if _goto_level_via_daftar(nomor):
+        return _lesson_hidup(state.PAGE, 12.0)
+    # fallback terakhir: coba URL lama sekali lagi (daftar tak terbaca)
+    if url:
+        try:
+            state.PAGE.goto(url, timeout=25000)
+            return True
+        except Exception:
+            return False
+    return False
 
 
 def build_level_map():

@@ -95,7 +95,12 @@ class ActivityMixin:
             self.root.after(150, _focus_browser_window)
         elif not bot_thread_hidup:
             self._fokus_setup = False
-        if self._tunggu_pilih_halaman and not self._fokus_pilih:
+        if self._tunggu_pilih_halaman and not self._fokus_pilih \
+                and not getattr(self, "_embed_aktif", False):
+            # mode embedded: 'angkat jendela browser' = app sendiri -
+            # SwitchToThisWindow justru melempar fokus ke jendela browser
+            # MILIK user yang judulnya kebetulan edclub (app 'minimizing
+            # itself' - keluhan user). Halaman pilihan SUDAH terlihat.
             self._fokus_pilih = True
             self.root.after(150, _focus_browser_window)
         elif not self._tunggu_pilih_halaman:
@@ -254,6 +259,12 @@ class ActivityMixin:
                             # atas); AWAIT_RANGE tidak dilepas
                             self._tunggu_pilih_halaman = True
                         elif r:
+                            # Simpan MENANG atas 'Pilih di Halaman' yang
+                            # masih menggantung (dulu flag tunggu tidak
+                            # dibersihkan -> bot tetap 'Menunggu kamu'
+                            # padahal rentang sudah disimpan)
+                            self._tunggu_pilih_halaman = False
+                            bot.AWAIT_RANGE = False
                             bot.LEVEL_START = self._rentang_mulai
                             bot.LEVEL_END = self._rentang_akhir
                             bot.RANGE_DONE = False
