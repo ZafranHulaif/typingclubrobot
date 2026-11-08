@@ -707,9 +707,21 @@ class LaunchMixin:
             return
         if self.bot_thread:
             if self.bot_thread.is_alive():
-                self._log("Bot masih menyiapkan sesi sebelumnya. "
-                          "Klik Stop, tunggu beberapa detik, lalu Start lagi.")
-            return
+                # thread lama nyangkut di panggilan playwright yang lambat
+                # (live: skip berulang di lesson rusak) - setelah Stop +
+                # grace 12 dtk, lepaskan paksa supaya Start tidak malah
+                # menolak selamanya. Thread daemon: mati sendiri nanti.
+                if getattr(self.bot, "STOP", False) \
+                        and time.time() - getattr(self, "_stop_minta", 0) > 12:
+                    self._log("Sesi lama tidak selesai berhenti - dilepas "
+                              "paksa. Coba Start lagi.")
+                    self.bot_thread = None
+                else:
+                    self._log("Bot masih menyiapkan sesi sebelumnya. "
+                              "Klik Stop, tunggu beberapa detik, lalu Start lagi.")
+                    return
+            else:
+                self.bot_thread = None
         # terapkan kecepatan tersimpan (halus 85-300) ke engine
         self.bot.SPEED_WPM = self._speed_wpm
         if not self.lisensi_ok:
@@ -835,7 +847,10 @@ class LaunchMixin:
                 self._log("Bot berhenti. Klik Start untuk mulai lagi.")
             except Exception:
                 pass
-        self.bot_thread = None
+        # jangan nol-kan thread ORANG LAIN: thread lama yang bangun terlambat
+        # bisa menghapus referensi thread baru yang sedang jalan.
+        if self.bot_thread is threading.current_thread():
+            self.bot_thread = None
 
 
     def on_pause(self):
@@ -849,6 +864,7 @@ class LaunchMixin:
             self.bot.PAUSED = False
             self._tunggu_pilih_halaman = False
             self.bot.AWAIT_RANGE = False
+            self._stop_minta = time.time()
             self._log("Bot sedang berhenti... kalau masih menyambung, "
               "tunggu beberapa detik.")
 

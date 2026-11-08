@@ -74,6 +74,36 @@ def url_to_level(url):
     return None
 
 
+def _wait_daftar(pg):
+    """Buka daftar lesson & tunggu barisnya (UI baru ATAU lama)."""
+    pg.goto(LIST_URL, timeout=30000)
+    pg.wait_for_selector("a[aria-label^='Lesson '], div.box-container",
+                         timeout=20000)
+
+
+def _baca_unlock_js(pg):
+    """Set nomor level terbuka dari daftar (dua UI)."""
+    return set(pg.evaluate(r"""() => {
+        const parse = aria => { const m = (aria||'').match(/Lesson (\d+)/);
+          return m ? parseInt(m[1], 10) : 0; };
+        const out = [];
+        const baru = [...document.querySelectorAll('a[aria-label^="Lesson "]')];
+        if (baru.length) {
+            for (const a of baru)
+                if (!/is locked/i.test(a.getAttribute('aria-label')||'')) {
+                    const n = parse(a.getAttribute('aria-label')); if (n) out.push(n);
+                }
+        } else {
+            for (const r of document.querySelectorAll('div.box-container')) {
+                if (!((r.className||'') + '').includes('is_unlocked')) continue;
+                const m = (r.getAttribute('aria-label')||'').match(/Lesson (\d+)/);
+                if (m) out.push(parseInt(m[1], 10));
+            }
+        }
+        return out;
+    }""") or [])
+
+
 def _read_unlock_set():
     """Set nomor level yang TERKUNCI/TERBUKA: kumpulkan nomor lesson yang
     punya class 'is_unlocked' di daftar lesson. Akun baru/logout = hanya
@@ -89,21 +119,9 @@ def _read_unlock_set():
         return None
     kembali = asal if ".play" in asal else ""
     try:
-        pg.goto(LIST_URL, timeout=30000)
-        pg.wait_for_selector("div.box-container", timeout=15000)
+        _wait_daftar(pg)
         time.sleep(1.0)
-        data = pg.evaluate(r"""() => {
-            const rows = [...document.querySelectorAll('div.box-container')];
-            const out = [];
-            for (const r of rows) {
-                if (!(r.className || '').includes('is_unlocked')) continue;
-                const m = (r.getAttribute('aria-label') || '')
-                    .match(/Lesson (\d+)/);
-                if (m) out.push(parseInt(m[1], 10));
-            }
-            return out;
-        }""")
-        return set(data or [])
+        return _baca_unlock_js(pg)
     except Exception:
         return None
     finally:
@@ -177,9 +195,12 @@ def _range_validate_step():
 def _lesson_hidup(pg, batas=8.0):
     """Lesson benar-benar dirender (canvas/video/isi teks muncul) - bukan
     halaman kosong (URL 403/SPA mati: live: level 1 -> 116.play PUTIH,
-    config 404, 'reading sources')."""
+    config 404, 'reading sources'). Live level 2 = body 357 -> ambang
+    200, bukan 400."""
     mulai = time.time()
     while time.time() - mulai < batas:
+        if state.STOP:
+            return False
         try:
             n = pg.evaluate(
                 "() => ({c: document.querySelectorAll('canvas').length," 
@@ -189,50 +210,93 @@ def _lesson_hidup(pg, batas=8.0):
         except Exception:
             n = None
         if n and ".play" in (n.get("u") or "") \
-                and (n.get("c") or n.get("v") or (n.get("b") or 0) > 400):
+                and (n.get("c") or n.get("v") or (n.get("b") or 0) > 200):
+            return True
+        if n and ".play" in (n.get("u") or "") \
+                and _gate_atau_mulai(pg):
+            # lesson di balik gerbang audio ('Sound can only play once
+            # you start' + tombol Start, body cuma 59) = HALAMAN HIDUP
             return True
         time.sleep(0.5)
     return False
 
 
+def _gate_atau_mulai(pg):
+    """Gerbang audio / tombol Start terlihat di halaman lesson?"""
+    try:
+        return pg.evaluate(
+            r"""() => !!document.querySelector(
+                    'button[data-testid="audio-activation-gate"]')
+                 || /sound can only play once you start/i
+                    .test(document.body.innerText)""")
+    except Exception:
+        return False
+
+
 def _goto_level_via_daftar(nomor):
-    """Klik baris 'Lesson N' di daftar lesson (selector terverifikasi:
-    div.box-container + aria-label), tunggu URL .play, lalu REKAM ulang
-    peta - peta level menyembuhkan dirinya dari URL stale."""
+    """Klik baris/kartu 'Lesson N' di daftar lesson (UI baru & lama),
+    tunggu URL .play (dinormalisasi dari rute SPA baru), lalu REKAM
+    peta - peta level menyembuhkan dirinya dari URL stale. Level jauh
+    butuh SCROLL: UI baru lazy-load per bagian (live: baru 23 kartu
+    tampil, section 'Home Row' 1-23)."""
     if state.browser is None:
         return False
     pg = state.PAGE
     try:
-        pg.goto(LIST_URL, timeout=30000)
-        pg.wait_for_selector("div.box-container", timeout=15000)
+        _wait_daftar(pg)
     except Exception:
+        return False
+    ketemu = -1
+    for putaran in range(10):   # scroll sampai nomor ketemu / habis
+        if state.STOP:
+            return False
+        try:
+            ketemu = pg.evaluate(r"""(n) => {
+              const parse = aria => { const m = (aria||'').match(/Lesson (\d+)/);
+                return m ? parseInt(m[1], 10) : 0; };
+              const baru = [...document.querySelectorAll('a[aria-label^="Lesson "]')];
+              const rows = baru.length ? baru
+                : [...document.querySelectorAll('div.box-container')];
+              for (let i = 0; i < rows.length; i++) {
+                const aria = baru.length ? rows[i].getAttribute('aria-label')
+                                         : (rows[i].getAttribute('aria-label')||'');
+                if (parse(aria) === n) return i;
+              }
+              return -1;
+            }""", nomor)
+        except Exception:
+            ketemu = -1
+        if ketemu >= 0:
+            break
+        # belum ketemu: scroll bawah untuk memuat section berikutnya
+        try:
+            pg.evaluate(
+                "() => window.scrollTo(0, document.body.scrollHeight)")
+        except Exception:
+            break
+        time.sleep(1.0)
+    if ketemu < 0:
         return False
     try:
-        idx = pg.evaluate(
-            """(n) => {
-              const rows = [...document.querySelectorAll('div.box-container')];
-              const re = new RegExp('Lesson\\\\s+' + n + '\\\\b');
-              const i = rows.findIndex(r =>
-                re.test(r.getAttribute('aria-label') || ''));
-              if (i >= 0) rows[i].click();
-              return i;
-            }""", nomor)
+        pg.evaluate(_klik_baris_js(), ketemu)
     except Exception:
         return False
-    if idx is None or idx < 0:
+    url = _wait_play_url(pg)
+    if state.STOP:
         return False
-    url = None
-    for _ in range(40):
-        time.sleep(0.1)
-        try:
-            u = pg.evaluate("() => location.href")
-        except Exception:
-            continue
-        if u and ".play" in u:
-            url = u
-            break
     if not url:
         return False
+    # rute SPA baru kadang tidak mount lesson (live: body 61) - paksa
+    # rute .play klasik yang sudah terbukti buat mesin ketik.
+    try:
+        mentah = pg.evaluate("() => location.href") or ""
+    except Exception:
+        mentah = ""
+    if mentah and "/lesson/" in mentah and mentah != url:
+        try:
+            pg.goto(url, timeout=25000)
+        except Exception:
+            pass
     if state._level_map.get(str(nomor)) != url:
         _record_level_map(nomor, url)
         print(f"[PETA] level {nomor} diperbarui via daftar: {url}")
@@ -257,14 +321,10 @@ def _goto_level_url(nomor):
         print(f"[PETA] URL terpetakan level {nomor} tidak hidup "
               "(course berubah?) - pakai daftar lesson...")
     if _goto_level_via_daftar(nomor):
-        return _lesson_hidup(state.PAGE, 12.0)
-    # fallback terakhir: coba URL lama sekali lagi (daftar tak terbaca)
-    if url:
-        try:
-            state.PAGE.goto(url, timeout=25000)
-            return True
-        except Exception:
-            return False
+        # navigasi berhasil - halaman tetap kosong = LEVEL-nya yang rusak
+        # (asset 404, live: level 1 akun baru). Bukan gagal navigasi:
+        # biarkan supervisor TUNDA/skip yang menandai & melompati.
+        return True
     return False
 
 
@@ -287,16 +347,22 @@ def build_level_map():
         asal = ""
     baru = 0
     try:
-        pg.goto(LIST_URL, timeout=30000)
-        pg.wait_for_selector("div.box-container", timeout=15000)
-        total = pg.evaluate(
-            "() => document.querySelectorAll('div.box-container').length") or 0
+        _wait_daftar(pg)
+
+        def _jumlah_baris():
+            return pg.evaluate(
+                "() => document.querySelectorAll"
+                "('a[aria-label^=\"Lesson \"], div.box-container').length") or 0
+
+        total = _jumlah_baris()
         if not total:
             print("[PETA] daftar lesson tidak terbaca.")
             return 0
-        print(f"[PETA] membangun peta {total} level "
-              f"(estimasi {total * 1.4 / 60:.0f} menit, jangan tutup bot)...")
-        for i in range(total):
+        print("[PETA] membangun peta (scroll otomatis memuat semua "
+              "bagian - jangan tutup bot)...")
+        i = 0
+        mentok = 0
+        while i < total:
             while state.PAUSED and not state.STOP:
                 time.sleep(0.3)
             if state.STOP:
@@ -311,36 +377,34 @@ def build_level_map():
                         time.sleep(0.3)
                 except Exception:
                     pass
-                lbl = pg.evaluate(
-                    "(i)=>{const r=[...document.querySelectorAll"
-                    "('div.box-container')][i];"
-                    "return r ? (r.getAttribute('aria-label')||'') : '';}", i)
+                lbl = pg.evaluate(r"""(i) => {
+                  const baru = [...document.querySelectorAll(
+                    'a[aria-label^="Lesson "]')];
+                  const rows = baru.length ? baru
+                    : [...document.querySelectorAll('div.box-container')];
+                  return rows[i] ? (rows[i].getAttribute('aria-label') || '') : '';
+                }""", i)
                 m = re.match(r"Lesson\s+(\d+)", lbl or "")
                 nomor = int(m.group(1)) if m else i + 1
                 if str(nomor) in state._level_map:
+                    i += 1
                     continue   # sudah terpetakan (resume cepat tanpa klik)
-                pg.evaluate(
-                    "(i)=>{const r=[...document.querySelectorAll"
-                    "('div.box-container')][i]; if(r) r.click();}", i)
+                pg.evaluate(_klik_baris_js(), i)
                 url = None
                 for fase in range(40):
                     time.sleep(0.1)
                     u = pg.evaluate("() => location.href")
-                    if u and ".play" in u:
-                        url = u
+                    try:
+                        u2 = browser._lesson_play_url(u)
+                    except Exception:
+                        u2 = u
+                    if u2 and ".play" in u2:
+                        url = u2
                         break
-                    if fase == 12:
-                        # lesson terkunci: edclub menampilkan modal 'Are you
-                        # sure? ... jumping ahead' dengan tombol Continue -
-                        # klik lanjut supaya navigasi tetap terjadi .
-                        pg.evaluate("""() => {
-                            const t = [...document.querySelectorAll(
-                                'button, .btn, [role=button]')];
-                            const b = t.find(x =>
-                                /continue|lanjut/i.test(x.textContent || '')
-                                && x.offsetParent !== null);
-                            if (b) b.click();
-                        }""")
+                    if fase in (12, 28):
+                        # lesson terkunci: modal 'jumping ahead' (UI baru:
+                        # 'Skip anyways') - klik supaya navigasi tetap terjadi.
+                        pg.evaluate(_KLIK_LANJUT_JS)
                 if url and state._level_map.get(str(nomor)) != url:
                     _record_level_map(nomor, url)
                     baru += 1
@@ -350,16 +414,32 @@ def build_level_map():
                 # membawa tab ke about:blank dan builder nyangkut .
                 if url:
                     pg.go_back(timeout=15000)
-                    pg.wait_for_selector("div.box-container", timeout=15000)
+                    pg.wait_for_selector(
+                        "a[aria-label^='Lesson '], div.box-container",
+                        timeout=20000)
                 if (i + 1) % 25 == 0:
                     print(f"[PETA] {i + 1}/{total} level terpetakan...")
+                i += 1
+                if i >= total:
+                    # UI baru lazy-load per bagian: scroll bawah untuk
+                    # memuat section berikutnya; dua kali tanpa baris baru
+                    # = daftar habis.
+                    pg.evaluate(
+                        "() => window.scrollTo(0, document.body.scrollHeight)")
+                    time.sleep(1.2)
+                    total2 = _jumlah_baris()
+                    if total2 > total:
+                        total = total2
+                        mentok = 0
+                    else:
+                        mentok += 1
+                        if mentok >= 2:
+                            break
             except Exception:
                 pulih = False
                 for _ in range(3):
                     try:
-                        pg.goto(LIST_URL, timeout=30000)
-                        pg.wait_for_selector("div.box-container",
-                                            timeout=15000)
+                        _wait_daftar(pg)
                         pulih = True
                         break
                     except Exception:
@@ -414,8 +494,70 @@ return m ? m[1] : null;
     return lab
 
 
+_KLIK_LANJUT_JS = """() => {
+    const t = [...document.querySelectorAll('button, .btn, [role=button]')];
+    const b = t.find(x => /continue|lanjut|skip anyway/i.test(x.textContent || '')
+                        && x.offsetParent !== null);
+    if (b) { b.click(); return true; }
+    return false;
+}"""
+
+# Baris daftar lesson, DUA UI sekaligus (course TypingClub pindah ke SPA
+# baru Nov 2026 - live: program-3.game REDIRECT ke /student/course/3 dan
+# div.box-container = 0). UI baru: kartu <a aria-label="Lesson N: Judul.
+# Lesson is locked/completed">; UI lama: div.box-container aria 'Lesson N'
+# + class is_unlocked. Pemilih baris: terbuka pertama pada/awal, kalau
+# tidak ada sama sekali -> baris TERKUNCI pertama (urut ketat, tidak
+# pernah mundur; modal 'Skip anyways' edclub diklik pemanggil).
+_DAFTAR_JS = r"""(arg) => {
+  const parse = aria => { const m = (aria||'').match(/Lesson (\\d+)/);
+    return m ? parseInt(m[1], 10) : 0; };
+  const rows = [];
+  const baru = [...document.querySelectorAll('a[aria-label^="Lesson "]')];
+  if (baru.length) {
+    for (const a of baru) {
+      const aria = a.getAttribute('aria-label') || '';
+      rows.push({no: parse(aria), locked: /is locked/i.test(aria)});
+    }
+  } else {
+    for (const r of document.querySelectorAll('div.box-container')) {
+      const aria = r.getAttribute('aria-label') || '';
+      rows.push({no: parse(aria),
+                 locked: !((r.className||'') + '').includes('is_unlocked')});
+    }
+  }
+  let awal = arg.awal || 0;
+  if (arg.cari > 0) {
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].no === arg.cari) { awal = Math.max(awal, i + 1); break; }
+    }
+  }
+  let terkunci = -1;
+  for (let i = awal; i < rows.length; i++) {
+    if (arg.cari > 0 && rows[i].no && rows[i].no < arg.cari) continue;
+    if (!rows[i].locked) return i;
+    if (terkunci < 0) terkunci = i;
+  }
+  return terkunci;   // -1 = tidak ada baris setelah posisi ini
+}"""
+
+
+def _klik_baris_js():
+    """Klik baris daftar ke-i (UI baru = anchor, UI lama = lsn_name)."""
+    return r"""(i) => {
+  const baru = [...document.querySelectorAll('a[aria-label^="Lesson "]')];
+  const rows = baru.length ? baru
+    : [...document.querySelectorAll('div.box-container')];
+  const r = rows[i];
+  if (!r) return false;
+  const klik = (!baru.length && r.querySelector('div.lsn_name')) || r;
+  klik.click();
+  return true;
+}"""
+
+
 def _wait_play_url(newpg):
-    for _ in range(16):
+    for i in range(20):
         time.sleep(0.5)
         if state.STOP:
             return None
@@ -423,8 +565,23 @@ def _wait_play_url(newpg):
             u = newpg.evaluate("() => location.href")
         except Exception:
             u = None
-        if u and ".play" in u and browser._is_edclub_url(u):
-            return u
+        # rute SPA baru /student/course/<c>/lesson/<id> dinormalisasi ke
+        # .play (site pindah UI Nov 2026 - URL lama tetap hidup juga)
+        try:
+            u2 = browser._lesson_play_url(u)
+        except Exception:
+            u2 = u
+        if u2 and ".play" in u2 and browser._is_edclub_url(u2):
+            return u2
+        if i in (3, 9):
+            # baris terkunci: edclub menampilkan modal 'Are you sure? ...
+            # jumping ahead' (UI baru tombolnya 'Skip anyways') - klik
+            # supaya navigasi tetap terjadi. Akun baru: semua level
+            # kecuali level 1 terkunci, dan level 1 bisa jadi rusak.
+            try:
+                newpg.evaluate(_KLIK_LANJUT_JS)
+            except Exception:
+                pass
     return None
 
 
@@ -449,45 +606,36 @@ def _goto_next_lesson_in_list(newpg, current_url):
         except Exception:
             lvl_now = 0
     row = 0
-    for _ in range(6):
+    for _ in range(3):
         if state.STOP:
             return None
         try:
-            newpg.goto(LIST_URL, timeout=25000)
-            newpg.wait_for_selector("div.box-container div.lsn_name",
-                                    timeout=15000)
+            _wait_daftar(newpg)
         except Exception:
             continue
-        idx = newpg.evaluate(r"""(arg) => {
-            const rows = [...document.querySelectorAll('div.box-container')];
-            const nomor = r => {
-                const m = (r.getAttribute('aria-label') || '').match(/Lesson (\d+)/);
-                return m ? parseInt(m[1], 10) : 0;
-            };
-            let awal = arg[0];
-            if (arg[1] > 0) {
-                for (let i = 0; i < rows.length; i++) {
-                    if (nomor(rows[i]) === arg[1]) {
-                        awal = Math.max(awal, i + 1);
-                        break;
-                    }
-                }
-            }
-            for (let i = awal; i < rows.length; i++) {
-                const cls = rows[i].className || '';
-                if (!cls.includes('is_unlocked')) continue;
-                if (arg[1] > 0 && nomor(rows[i]) && nomor(rows[i]) < arg[1]) continue;
-                const nm = rows[i].querySelector('div.lsn_name');
-                if (nm) { nm.click(); return i; }
-            }
-            return -1;
-        }""", [row, lvl_now])
+        try:
+            idx = newpg.evaluate(_DAFTAR_JS, {"awal": row, "cari": lvl_now})
+        except Exception:
+            continue
         if idx is None or idx < 0:
             continue
+        newpg.evaluate(_klik_baris_js(), idx)
         row = idx + 1
         url = _wait_play_url(newpg)
         if not url:
             continue
+        # rute SPA baru kadang TIDAK mount lesson-nya (live: body 61
+        # terus di /lesson/117) - paksa rute .play klasik yang sudah
+        # terbukti buat mesin ketik.
+        try:
+            mentah = newpg.evaluate("() => location.href") or ""
+        except Exception:
+            mentah = ""
+        if mentah and "/lesson/" in mentah and mentah != url:
+            try:
+                newpg.goto(url, timeout=25000)
+            except Exception:
+                pass
         lid = _lesson_id(url)
         if lid != cur and lid not in state._broken_lessons:
             return url
