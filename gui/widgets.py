@@ -593,18 +593,35 @@ class SpeedSlider(tk.Canvas):
 # ------------------------------------------------------------- dial kecepatan
 import math as _math
 
+# ------------------------------------------------------------- dial kecepatan
+import math as _math
+
+try:
+    from PIL import Image as _PImage, ImageDraw as _PDraw, ImageTk as _PImageTk
+    _PIL_OK = True
+except Exception:
+    _PIL_OK = False
+
 _ARC_1 = "#7db4ff"      # arc: ujung awal (biru terang)
 _ARC_2 = "#1d3fb8"      # arc: mendekati thumb (biru gelap pekat)
+_ARC_W = 15             # tebal arc (px tampilan)
+
+
+def _rgb(hexs, a=255):
+    return (int(hexs[1:3], 16), int(hexs[3:5], 16), int(hexs[5:7], 16), a)
 
 
 class SpeedDial(tk.Toplevel):
     """Popup dial kecepatan ala kontrol 'pod' (ref: dial bulat month).
 
-    - lingkaran putih tengah: ANGKA wpm sekarang + label 'wpm'
-    - cincin titik: posisi tier; titik sudah dilewati menyala
-    - arc merah muda tebal + thumb putih glow menempel di ujung arc
-    - seret memutar: nilai mengalir live ke engine; lepas: spring ke
-      tier terdekat dengan goyangan kecil
+    Dirender dengan PIL SUPER-SAMPLE lalu di-downsample -> halus, tanpa
+    gigi pixel (permintaan user: 'so pixelated'). Tk hanya menggambar
+    teks (angka + wpm) supaya tetap tajam.
+
+    - lingkaran tengah putih: ANGKA wpm sekarang + label 'wpm'
+    - cincin titik tier; titik yang dilewati menyala biru
+    - arc biru gradasi + thumb putih glow; seret memutar = nilai
+      mengalir live ke engine; lepas = spring ke tier terdekat
     - Esc / klik di luar menutup popup
     """
 
@@ -616,11 +633,14 @@ class SpeedDial(tk.Toplevel):
         self._command = command
         self._released = released
         self._wpm = int(value)
-        self._ang = self._target_ang = self._a_for(self._wpm)
+        self._ang = self._a_for(self._wpm)
+        self._v = 0.0
+        self._target_ang = self._ang
         self._drag = False
         self._pulse = 0.0
         self._tick_job = None
         S = self._S = 300
+        self._SS = 2                       # super-sample utk PIL
         kan = self._kan = tk.Canvas(self, width=S, height=S, bg="#171921",
                                     highlightthickness=0)
         kan.pack(padx=14, pady=14)
@@ -631,6 +651,20 @@ class SpeedDial(tk.Toplevel):
         # klik di luar popup menutup (grab: semua klik masuk ke popup);
         # grab butuh window sudah viewable -> tunda setelah muncul
         self.after(80, self._grab_aman)
+
+        if _PIL_OK:
+            self._base_big = self._render_base()
+            self._img_base = self._to_photo(self._base_big)
+            kan.create_image(0, 0, image=self._img_base, anchor="nw")
+            self._img_dyn = None
+            self._dyn_item = kan.create_image(0, 0, anchor="nw")
+        self._t_num = kan.create_text(0, 0, text=str(self._wpm),
+                                      font=("Segoe UI", 44, "bold"),
+                                      fill="#161821", state="hidden")
+        self._t_unit = kan.create_text(0, 0, text="wpm",
+                                       font=("Segoe UI", 12, "bold"),
+                                       fill="#9a9eaa", state="hidden")
+        self._pos_text()
 
         # posisi dekat pemanggil (chip) di layar
         try:
@@ -648,7 +682,6 @@ class SpeedDial(tk.Toplevel):
             self.focus_force()
         except Exception:
             pass
-        self._draw()
         self._tick()
 
     # -- geometri ---------------------------------------------------------
@@ -683,6 +716,13 @@ class SpeedDial(tk.Toplevel):
     def _xy(self, ang, r):
         rad = _math.radians(ang)
         return self._cx + r * _math.cos(rad), self._cx + r * _math.sin(rad)
+
+    def _pos_text(self):
+        cx = self._cx
+        self._kan.coords(self._t_num, cx, cx - 12)
+        self._kan.coords(self._t_unit, cx, cx + 36)
+        self._kan.itemconfigure(self._t_num, state="normal")
+        self._kan.itemconfigure(self._t_unit, state="normal")
 
     # -- interaksi --------------------------------------------------------
     def _on_down(self, e):
@@ -742,7 +782,6 @@ class SpeedDial(tk.Toplevel):
 
     def _tick(self):
         k, c = (0.45, 0.42) if self._drag else (0.16, 0.62)
-        self._v = getattr(self, "_v", 0.0)
         self._v += k * (self._target_ang - self._ang) - c * self._v
         self._ang += self._v
         self._pulse *= 0.82
@@ -754,7 +793,7 @@ class SpeedDial(tk.Toplevel):
             self._pulse = 1.0
             if not self._drag:
                 self._tick_job = None
-                self._draw()
+                self._gambar()
                 return
         else:
             wpm = int(round(max(self._tiers[0][1],
@@ -764,72 +803,105 @@ class SpeedDial(tk.Toplevel):
                 self._wpm = wpm
                 if self._command:
                     self._command(wpm)
-        self._draw()
+        self._gambar()
         self._tick_job = self.after(16, self._tick)
 
-    # -- gambar -----------------------------------------------------------
-    def _blend(self, c1, c2, t):
-        r1, g1, b1 = (int(c1[i:i + 2], 16) for i in (1, 3, 5))
-        r2, g2, b2 = (int(c2[i:i + 2], 16) for i in (1, 3, 5))
-        return "#%02x%02x%02x" % (
-            round(r1 + (r2 - r1) * t), round(g1 + (g2 - g1) * t),
-            round(b1 + (b2 - b1) * t))
+    # -- render PIL ---------------------------------------------------------
+    def _to_photo(self, img_big):
+        img = img_big.resize((self._S, self._S), _PImage.LANCZOS)
+        return _PImageTk.PhotoImage(img, master=self)
 
-    def _aa_oval(self, kan, cx, cy, r, fill, bgc="#171921", feather=3,
-                 steps=4, outline=None):
-        """Lingkaran ANTIALIAS: bulu halus `feather` px di tepi (bukan
-        cincin raksasa - dulu t=multiplicatif bikin cincin abu lebar)."""
-        for i in range(steps, 0, -1):
-            k = i / (steps + 1)
-            rr = r + feather * k
-            kan.create_oval(cx - rr, cy - rr, cx + rr, cy + rr,
-                            fill=self._blend(bgc, fill, 1 - k), width=0)
-        kan.create_oval(cx - r, cy - r, cx + r, cy + r,
-                        fill=fill, width=0, outline=outline or fill)
+    def _render_base(self):
+        """Lapisan statis: piringan gelap + titik tier redup (sekali)."""
+        ss = self._SS
+        img = _PImage.new("RGBA", (self._S * ss, self._S * ss),
+                          (23, 25, 33, 255))
+        d = _PDraw.Draw(img)
+        c = self._cx * ss
 
-    def _draw(self):
-        kan = self._kan
-        kan.delete("all")
-        cx = cy = self._cx
-        # piringan luar gelap (tema gelap app) + bayangan tipis
-        self._aa_oval(kan, cx, cy + 6, 132, "#0c0d11", bgc="#171921",
-                      feather=5, steps=3)
-        self._aa_oval(kan, cx, cy, 130, "#23252e", bgc="#171921", feather=4)
-        self._aa_oval(kan, cx, cy, 122, "#2a2d38", bgc="#23252e", feather=3)
-        # cincin titik tier
-        a_cur = self._ang
+        def ell(r, fill):
+            d.ellipse([c - r * ss, c - r * ss, c + r * ss, c + r * ss],
+                      fill=fill)
+
+        ell(132, (10, 11, 15, 255))          # bayangan
+        ell(130, (35, 37, 46, 255))          # piringan
+        ell(122, (42, 45, 56, 255))          # bibir dalam
+        ell(80, (255, 255, 255, 255))        # pelat nilai putih
+        d.ellipse([c - 78 * ss, c - 78 * ss, c + 78 * ss, c + 78 * ss],
+                  outline=(228, 230, 238, 255), width=ss)
         for _n, wpm in self._tiers:
             a = self._a_for(wpm)
-            x, y = self._xy(a, self._r_ring)
-            lewat = a <= a_cur + 0.5
+            rad = _math.radians(a)
+            x = c + self._r_ring * ss * _math.cos(rad)
+            y = c + self._r_ring * ss * _math.sin(rad)
+            d.ellipse([x - 2 * ss, y - 2 * ss, x + 2 * ss, y + 2 * ss],
+                      fill=(96, 100, 114, 255))
+        return img
+
+    def _render_dyn(self):
+        """Lapisan dinamis (RGBA transparan): arc + titik menyala + glow
+        + thumb. Digambar di resolusi super-sample lalu ditekan halus."""
+        ss = self._SS
+        img = _PImage.new("RGBA", (self._S * ss, self._S * ss), (0, 0, 0, 0))
+        d = _PDraw.Draw(img)
+        c = self._cx * ss
+        a0, a1 = 135.0, self._ang
+        w = _ARC_W * ss
+        bbox = [c - self._r_ring * ss - w / 2, c - self._r_ring * ss - w / 2,
+                c + self._r_ring * ss + w / 2, c + self._r_ring * ss + w / 2]
+        if a1 > a0 + 1:
+            n = max(2, int((a1 - a0) / 9))
+            for i in range(n):
+                s0 = a0 + (a1 - a0) * i / n
+                s1 = a0 + (a1 - a0) * (i + 1) / n + 0.6   # tumpang utk mulus
+                t = (s0 - 135) / 270.0
+                col = _blend_rgb(_ARC_1, _ARC_2, min(1.0, t * 1.12))
+                d.arc(bbox, s0, s1, fill=col, width=int(w))
+        # titik tier menyala (yang sudah dilewati / aktif)
+        for _n, wpm in self._tiers:
+            a = self._a_for(wpm)
+            if a > a1 + 0.5:
+                continue
+            rad = _math.radians(a)
+            x = c + self._r_ring * ss * _math.cos(rad)
+            y = c + self._r_ring * ss * _math.sin(rad)
             aktif = wpm == self._wpm
-            r = 5 if aktif else 3.5
-            warna = _ARC_2 if lewat else "#c9ccd4"
-            kan.create_oval(x - r, y - r, x + r, y + r, fill=warna, width=0)
-        # arc tebal 'beaded' dari 135deg ke thumb (gradasi pink -> merah)
-        a0, a1 = 135.0, a_cur
-        if a1 > a0 + 2:
-            n = max(2, int((a1 - a0) / 3.5))
-            for i in range(n + 1):
-                a = a0 + (a1 - a0) * i / n
-                t = (a - 135) / 270.0
-                x, y = self._xy(a, self._r_ring)
-                warna = self._blend(_ARC_1, _ARC_2, min(1.0, t * 1.15))
-                kan.create_oval(x - 8, y - 8, x + 8, y + 8,
-                                fill=warna, width=0)
-        # thumb: glow pink + butir putih dgn squash halus saat mendarat
-        xt, yt = self._xy(a_cur, self._r_ring)
+            r = (4.5 if aktif else 3) * ss
+            col = _rgb(_ARC_2 if wpm == self._tiers[-1][1] else _ARC_1)
+            d.ellipse([x - r, y - r, x + r, y + r], fill=col)
+        # thumb: glow konsentris + butir putih + squash saat mendarat
+        rad = _math.radians(a1)
+        xt = c + self._r_ring * ss * _math.cos(rad)
+        yt = c + self._r_ring * ss * _math.sin(rad)
         squash = min(0.3, self._pulse * 0.15)
-        r_th = 17 - squash * 3
-        self._aa_oval(kan, xt, yt, 24, self._blend(_ARC_2, "#171921", 0.2),
-                      bgc="#2a2d38", feather=5, steps=3)
-        self._aa_oval(kan, xt, yt, 19, _ARC_1, bgc="#2a2d38", feather=4,
-                      steps=3)
-        self._aa_oval(kan, xt, yt, r_th, "#ffffff", bgc=_ARC_1, feather=3)
-        # piringan nilai
-        self._aa_oval(kan, cx, cy, self._r_plate, "#ffffff", bgc="#2a2d38",
-                      feather=4, outline="#e4e6ec")
-        kan.create_text(cx, cy - 14, text=str(self._wpm),
-                        font=("Segoe UI", 44, "bold"), fill="#161821")
-        kan.create_text(cx, cy + 34, text="wpm",
-                        font=("Segoe UI", 12, "bold"), fill="#9a9eaa")
+        r_th = (17 - squash * 3) * ss
+        for i in range(6, 0, -1):
+            gr = (r_th + 3 + i * 2.2 * ss)
+            alpha = int(70 * (1 - i / 7))
+            d.ellipse([xt - gr, yt - gr, xt + gr, yt + gr],
+                      fill=(29, 63, 184, alpha))
+        d.ellipse([xt - r_th - 2 * ss, yt - r_th - 2 * ss,
+                   xt + r_th + 2 * ss, yt + r_th + 2 * ss],
+                  fill=(125, 180, 255, 255))
+        d.ellipse([xt - r_th, yt - r_th, xt + r_th, yt + r_th],
+                  fill=(255, 255, 255, 255))
+        out = self._base_big.copy()
+        out.alpha_composite(img)
+        return out
+
+    def _gambar(self):
+        if not _PIL_OK:
+            return
+        try:
+            self._img_dyn = self._to_photo(self._render_dyn())
+            self._kan.itemconfigure(self._dyn_item, image=self._img_dyn)
+            self._kan.itemconfigure(self._t_num, text=str(self._wpm))
+        except Exception:
+            pass
+
+
+def _blend_rgb(h1, h2, t):
+    r1, g1, b1 = (int(h1[i:i + 2], 16) for i in (1, 3, 5))
+    r2, g2, b2 = (int(h2[i:i + 2], 16) for i in (1, 3, 5))
+    return (round(r1 + (r2 - r1) * t), round(g1 + (g2 - g1) * t),
+            round(b1 + (b2 - b1) * t), 255)
