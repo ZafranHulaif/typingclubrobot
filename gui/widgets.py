@@ -743,6 +743,10 @@ class SpeedDial(tk.Toplevel):
         return self._S / 2
 
     @property
+    def _cy(self):
+        return self._S / 2
+
+    @property
     def _r_ring(self):
         return 112
 
