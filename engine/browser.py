@@ -376,6 +376,66 @@ def _port_held_by_other_browser():
     return pemegang
 
 
+def _matikan_restore_profil():
+    """Mode app + restore sesi = jendela NORMAL yang di-restore ikut
+    muncul (dengan tab strip + toolbar) dan justru dipilih sebagai
+    jendela embed (judulnya edclub) - hasilnya UI browser kelihatan.
+    Matikan 'lanjutkan sesi' di profil khusus bot supaya peluncuran
+    embed hanya menghasilkan SATU jendela app: murni halaman web."""
+    root = state.DEDICATED_PROFILE
+    if not os.path.isdir(root):
+        return
+    for nama in ("Default", "Profile 1", "Profile 2"):
+        pref = os.path.join(root, nama, "Preferences")
+        if not os.path.isfile(pref):
+            continue
+        try:
+            with open(pref, encoding="utf-8") as f:
+                data = json.load(f)
+            data.setdefault("session", {})["restore_on_startup"] = 5
+            prof = data.setdefault("profile", {})
+            prof["exit_type"] = "Normal"
+            with open(pref, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        except Exception:
+            pass
+
+
+def bersihkan_browser_embed():
+    """v3.1: browser debug sisa sesi sebelumnya berjalan dalam mode NORMAL
+    (tab strip + toolbar terlihat di dalam app). Supaya tampilan murni
+    halaman web (mode app), pemegang port yang PASTI milik bot (cmdline
+    memakai profil khusus DEDICATED_PROFILE) dimatikan dulu - ensure
+    berikutnya meluncurkan ulang dalam mode app. Browser pribadi user
+    (profil saya) tidak disentuh."""
+    _matikan_restore_profil()
+    pemegang = _port_holders()
+    if not pemegang:
+        return False
+    ded = state.DEDICATED_PROFILE.replace("/", "\\").lower()
+    dibunuh = False
+    for pid, _nama in pemegang:
+        try:
+            out = _run_hidden(
+                ["powershell", "-NoProfile", "-Command",
+                 f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}')"
+                 ".CommandLine"],
+                capture_output=True, text=True, timeout=12).stdout or ""
+            if ded and ded in out.lower():
+                _run_hidden(["taskkill", "/F", "/T", "/PID", str(pid)],
+                            capture_output=True, timeout=8)
+                dibunuh = True
+        except Exception:
+            pass
+    if dibunuh:
+        for _ in range(20):
+            time.sleep(0.5)
+            if not _check_debug_port():
+                break
+        print("Browser debug lama ditutup untuk ganti ke tampilan app...")
+    return dibunuh
+
+
 def _restart_browser_debug():
     """Pemulihan terakhir: browser debug hidup di HTTP tetapi websocket
     DevTools-nya menggantung (Brave lama yang jarang dipakai ditidurkan
@@ -430,7 +490,16 @@ def _popen_latar(args):
     """Luncurkan browser TANPA mencuri fokus: jendela muncul di belakang
     (minimized tanpa aktivasi). Filosofi alur: fokus browser hanya saat
     ada yang harus dikerjakan user di sana (login, pilih level, set-up)
-    - engine mengibarkan FOCUS_BROWSER_AT untuk kasus itu."""
+    - engine mengibarkan FOCUS_BROWSER_AT untuk kasus itu.
+    v3: saat browser ditanam di app (EMBED_BROWSER), jendela diluncurkan
+    dalam MODE APP (--app): tanpa tab strip, tanpa toolbar, tanpa
+    bookmark - yang tampak di dalam app hanya halaman web. Tab-tab latar
+    CDP tetap hidup sebagai target tersembunyi di jendela yang sama
+    (teruji: createTarget & ctx.new_page tidak membuat jendela baru)."""
+    if getattr(state, "EMBED_BROWSER", False):
+        args = [a for a in args if a != "--restore-last-session"]
+        if not any(a.startswith("--app=") for a in args):
+            args.append("--app=about:blank")
     lama = _hwnd_browser_visible()
     si = subprocess.STARTUPINFO()
     si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -603,6 +672,13 @@ def _tab_latar(ctx):
             baru = ctx.new_page()
         except Exception:
             return None
+    if getattr(state, "EMBED_BROWSER", False) and baru is not None:
+        # app mode: tab latar tidak otomatis tampil - angkat halaman yang
+        # akan dikerjakan bot supaya user melihat progres yang benar
+        try:
+            baru.bring_to_front()
+        except Exception:
+            pass
     if not state.NEEDS_LOGIN:
         _kecilkan_jendela_bot()
     return baru
@@ -682,20 +758,33 @@ def ensure_browser():
     ditangani dengan izin user, bukan asal ditutup."""
     if state.STOP:
         sys.exit(0)
-    _pick_port()
-    browser_on_port = _check_debug_port()
+    wv2 = bool(getattr(state, "BROWSER_WV2", False))
+    if wv2:
+        # v3.2: browsernya WebView2 milik GUI (chromeless di dalam app)
+        # - TIDAK ada peluncuran browser eksternal sama sekali. GUI sudah
+        # menyiapkan port debug sebelum tombol Start bisa diklik.
+        state.BROWSER = {"name": "WebView2", "exe": "", "proc": ""}
+        browser_on_port = _check_debug_port()
+        if not browser_on_port:
+            print("WebView2 dalam app belum siap - tunggu 1-2 detik, "
+                  "klik Start lagi.")
+            sys.exit(1)
+        print(f"Menyambungkan Playwright ke WebView2 dalam app...")
+    else:
+        _pick_port()
+        browser_on_port = _check_debug_port()
 
     # otomatis pintar: port sudah dipegang browser terpasang -> pakai browser
     # itu langsung (dulu Otomatis selalu Brave -> 'port dipegang browser lain'
     # -> minta izin menutup Chrome/Edge padahal tinggal ditempeli).
     otomatis = not ((state.FORCE_BROWSER or os.environ.get("TYPINGBOT_BROWSER", "")).strip())
-    reuse = _browser_from_port_holder() if otomatis else None
+    reuse = _browser_from_port_holder() if (otomatis and not wv2) else None
     if reuse is not None:
         state.BROWSER = reuse
         print(f"[OTOMATIS] {reuse['name']} sudah jalan dengan port debug - "
               "dipakai langsung tanpa menutup apa pun.")
 
-    if "Edg" in browser_on_port and reuse is None:
+    if not wv2 and "Edg" in browser_on_port and reuse is None:
         # Bisa Edge betulan, bisa juga WebView2 milik aplikasi lain (mis.
         # Adobe) yang membalas /json/version dengan string "Edg/...".
         print("Port 9222 dipegang proses berbasis Edge/WebView, "
@@ -708,7 +797,7 @@ def ensure_browser():
             sys.exit(1)
         print("Port 9222 berhasil dibebaskan.")
 
-    if browser_on_port and reuse is None:
+    if browser_on_port and reuse is None and not wv2:
         # Port hidup, tapi dipegang browser lain dari pilihan user? (mis.
         # user pilih Chrome sementara jendela debug Brave lama masih nyala
         # atau menggantung) -> tutup pemegangnya (dengan izin) supaya
@@ -726,6 +815,10 @@ def ensure_browser():
                       "Tutup jendela browser lama, lalu klik Start lagi.")
                 sys.exit(1)
 
+    if wv2 and not browser_on_port:
+        # tak punya apa pun untuk dibuka: WebView2 mati (app crash/restart)
+        print("WebView2 dalam app tidak hidup - buka ulang appnya.")
+        sys.exit(1)
     if not browser_on_port:
         if _port_holders():
             print("Port 9222 dipakai proses lain (bukan browser debug)...")
@@ -845,7 +938,7 @@ def ensure_browser():
         return None, None, pesan
 
     pw, browser, pesan = _tangga_connect()
-    if browser is None and _check_debug_port():
+    if browser is None and _check_debug_port() and not wv2:
         # Port hidup di HTTP tetapi websocket menolak = DevTools browser
         # menggantung (idle lama). Restart browser debug lalu coba lagi.
         # kill + relaunch debug browser -> connect langsung ok.

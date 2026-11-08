@@ -23,7 +23,7 @@ from .licensing import _machine_code, _license_valid
 from . import anim
 from .theme import (APP_VERSION, ACCENT, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, GREEN_HOVER, PANEL, CREATOR, RED, RED_DIM, SETTINGS_FILE, YELLOW, YELLOW_DIM, _asset_path, _build_stamp)
 from .widgets import Dropdown, SpeedSlider, _gelap_titlebar
-from .browser_host import BrowserHost
+from .webview2_host import Wv2Host, tersedia as wv2_tersedia, jalankan_sta
 
 
 from .activity import ActivityMixin
@@ -158,22 +158,13 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self._btn(self.kanan, "Pulihkan", CARD, self.on_recovery, kecil=True)
         self._btn(self.kanan, "❓", CARD, self.on_tips, kecil=True)
 
-        # ---------- baris pengaturan: kecepatan ----------
-        # Dropdown Browser dihapus (permintaan user): pilihan browser lewat
-        # kartu persegi kanan / popup kartu logo.
-        setbar = tk.Frame(root, bg=BG)
-        setbar.pack(fill="x", padx=18, pady=(2, 4))
-
-        kotak2 = tk.Frame(setbar, bg=BG)
-        kotak2.pack(side="left", expand=True, fill="x")
-        kepala = tk.Frame(kotak2, bg=BG)
-        kepala.pack(fill="x")
-        tk.Label(kepala, text="KECEPATAN", font=("Segoe UI", 8, "bold"),
-                 fg=FAINT, bg=BG).pack(side="left")
-        self.speed_readout = tk.Label(kepala, text="200 wpm",
-                                      font=("Segoe UI", 10, "bold"),
-                                      fg=FG, bg=BG)
-        self.speed_readout.pack(side="right")
+        # ---------- grup kecepatan: SEBARIS dengan tombol ----------
+        # (v3.2 permintaan user: makin sedikit baris kontrol = makin tinggi
+        # ruang halaman web di bawah. Caption kecil + slider + readout.)
+        grp = tk.Frame(ctrl, bg=BG)
+        grp.pack(side="left", padx=(16, 0))
+        tk.Label(grp, text="KECEPATAN", font=("Segoe UI", 8, "bold"),
+                 fg=FAINT, bg=BG).pack(side="left", pady=(0, 26), padx=(0, 8))
         # Slider HALUS: drag = nilai wpm mengalir live ke engine (permintaan
         # user: snap instan terasa kasar - biar mengalir dulu, lepas baru
         # spring ke tick terdekat dengan bounce kecil). Tangga 85-300 wpm:
@@ -181,7 +172,6 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # di UI baru, recovery reload menutup kasus blank.
         self.SPEED_TIERS = (85, 140, 200, 225, 250, 275, 300)
         self._speed_wpm = 200
-        tier_ui = [(str(w), w) for w in self.SPEED_TIERS]
         _spd = ""
         try:
             _spd = str(json.load(open(SETTINGS_FILE,
@@ -191,12 +181,16 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         _m = re.search(r"(\d+)", _spd)
         if _m:
             self._speed_wpm = max(85, min(300, int(_m.group(1))))
-        self.speed_slider = SpeedSlider(kotak2, tier_ui, self._speed_wpm,
-                                        bg=BG, width=430,
+        tier_ui = [(str(w), w) for w in self.SPEED_TIERS]
+        self.speed_slider = SpeedSlider(grp, tier_ui, self._speed_wpm,
+                                        bg=BG, width=380,
                                         command=self._on_slider_wpm,
                                         released=self._on_slider_release)
-        self.speed_slider.pack(side="left", pady=(2, 0))
-        self.speed_readout.configure(text=f"{self._speed_wpm} wpm")
+        self.speed_slider.pack(side="left", pady=(0, 16))
+        self.speed_readout = tk.Label(grp, text=f"{self._speed_wpm} wpm",
+                                      font=("Segoe UI", 10, "bold"),
+                                      fg=FG, bg=BG)
+        self.speed_readout.pack(side="left", padx=(12, 0), pady=(0, 26))
 
         # Rentang level tidak lagi ada di jendela utama (diminta saat Start
         # atau otomatis dari lesson yang sedang terbuka).
@@ -223,20 +217,16 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                                    fg=DIM, bg=BG, anchor="w", wraplength=900)
         self.ticker_lbl.pack(side="bottom", fill="x", padx=18, pady=(0, 4))
 
-        # ---------- host browser (mengisi sisa ruang tengah) ----------
-        # v3: browser TIDAK lagi jadi jendela terpisah - ditanam di frame
-        # ini via SetParent (lihat gui/browser_host.py). Overlay di atasnya
-        # menampilkan status besar sebelum browser siap; begitu browser
-        # tertanam, overlay disingkirkan dan kalimat aktivitas pindah ke
-        # ticker tipis di bawah.
-        self.host = BrowserHost(root)
+        # ---------- host web (mengisi sisa ruang tengah) ----------
+        # v3.2: WebView2 chromeless ditanam di frame ini - yang tampak
+        # HANYA halaman web, tanpa UI browser apa pun (tab/URL/bookmark).
+        # Overlay menampilkan status besar sebelum WebView2 siap.
+        self.host = Wv2Host(
+            root, os.path.expandvars(r"%LOCALAPPDATA%\TypingBot\wv2profile"))
         self.host.pack(fill="both", expand=True, padx=18, pady=(0, 2))
-        self.host.set_status_cb(self._host_lapor)
         self._aktiv_sub_teks = ""
         self._aktiv_nama = ""
-        overlay = tk.Frame(self.host, bg=PANEL)
-        tengah = tk.Frame(overlay, bg=PANEL)
-        tengah.place(relx=0.5, rely=0.5, anchor="center")
+        tengah = tk.Frame(self.host, bg=PANEL)
         # panggung animasi status: sprite per status + crossfade antar status
         self._stage_kan = tk.Canvas(tengah, width=460, height=56, bg=PANEL,
                                     highlightthickness=0)
@@ -251,7 +241,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                                   font=("Segoe UI", 10), fg=DIM, bg=PANEL,
                                   wraplength=560, justify="center")
         self.aktiv_sub.pack(pady=(6, 0))
-        self.host.set_overlay(overlay)
+        self.host.set_overlay(tengah)
         self.host.pack_propagate(False)
 
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -271,43 +261,61 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         ekstra = "" if self.lisensi_ok else "  •  PERLU AKTIVASI"
         self.root.title(f"TypingBot{ekstra}")
 
-    # --------------------------------------------------- host browser v3
+    # ------------------------------------------------- host web v3.2
     def _browser_latar(self):
-        """Buka browser debug + tanam di dalam jendela (thread latar).
-        Gagal apa pun tidak boleh mematikan app - browser tetap bisa
-        dibuka jalan sendiri (perilaku lama) saat Start."""
+        """Siapkan WebView2 chromeless + port debug + profil dedikasi
+        (thread latar; pembuatan widget tetap di thread UI via after).
+        Gagal apa pun tidak boleh mematikan app - jalur browser eksternal
+        lama tetap jalan saat Start."""
         if not self.lisensi_ok:
+            return
+        if not wv2_tersedia():
+            self._log("WebView2 tidak tersedia - pakai browser terpisah.")
+            self.root.after(0, lambda: self.aktiv_sub.configure(
+                text="WebView2 tidak ada - bot pakai browser terpisah."))
             return
         try:
             from engine import state as estate
-            from engine.browser import ensure_browser, _check_debug_port
+            from engine.browser import (bersihkan_browser_embed,
+                                        _check_debug_port, _port_bind_free)
             estate.EMBED_BROWSER = True
-            # watcher 'kecilkan jendela baru' langsung pamit (jendela
-            # akan kita tanam, bukan dikecilkan)
             estate.FOCUS_BROWSER_AT = time.time()
-            ensure_browser()   # blokir sampai port debug hidup
-            if estate.STOP:
-                return
-            self.host.embed_async(
-                self._host_lapor, None,
-                lambda: _check_debug_port().startswith("Chrome"))
+            # browser debug eksternal sisa sesi lama (profil khusus bot)
+            # ditutup supaya tidak mengganggu - WebView2 kini browsernya
+            bersihkan_browser_embed()
+            # pilih port bebas (WebView2 perlu port sendiri, bebas konflik)
+            port = estate.DEBUG_PORT
+            if not _port_bind_free(port):
+                for kandidat in range(9223, 9323):
+                    if _port_bind_free(kandidat):
+                        port = kandidat
+                        break
+            estate.DEBUG_PORT = port
+
+            def buat_webview():
+                ok = self.host.buka(
+                    port, "https://www.edclub.com/", warna=PANEL)
+                if ok:
+                    estate.BROWSER_WV2 = True
+                    self._embed_aktif = True
+                    self._log(f"WebView2 siap di dalam app "
+                              f"(port debug {port}).")
+                    self.aktiv_sub.configure(
+                        text="Browser aktif di dalam app.")
+                else:
+                    self.aktiv_sub.configure(
+                        text="WebView2 gagal - bot pakai browser terpisah.")
+            self.root.after(0, buat_webview)
+            # tunggu webview benar2 hidup sebelum lanjut (Start bisa saja
+            # diklik cepat - connect() butuh port debug sudah merespons)
+            for _ in range(40):
+                time.sleep(0.5)
+                if _check_debug_port():
+                    break
         except SystemExit:
             pass
         except Exception as ex:
-            self._log(f"[GUI] browser latar: {ex}")
-
-    def _host_lapor(self, teks):
-        """Laporan thread tanam -> marshall ke UI thread."""
-        def kerja():
-            if teks == "__embed__":
-                self.host.plant()
-                self._embed_aktif = True
-                self._log("Browser ditanam di dalam jendela app.")
-                self.aktiv_sub.configure(text="Browser aktif di dalam app.")
-            else:
-                self._log(teks)
-                self.aktiv_sub.configure(text=teks)
-        self.root.after(0, kerja)
+            self._log(f"[GUI] webview latar: {ex}")
 
     def _btn(self, parent, text, color, cmd, besar=False, kecil=False,
              gaya="isi"):
@@ -503,7 +511,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             self.bot.STOP = True
             self.bot.PAUSED = False
         try:
-            self.host.release()   # pisahkan browser sebelum jendela hancur
+            self.host.release()   # matikan WebView2 rapi sebelum destroy
         except Exception:
             pass
         time.sleep(0.2)
@@ -513,28 +521,33 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
 
 if __name__ == "__main__":
-    # DPI awareness wajib sebelum Tk dibuat: tanpa ini Windows merender app
-    # di 96dpi lalu meregangnya bitmap-style -> GUI terlihat buram/low-res
-    # di layar dengan scaling 125%/150% (laptop modern).
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)   # PER_MONITOR_AWARE
-    except Exception:
+    def _main():
+        # DPI awareness wajib sebelum Tk dibuat: tanpa ini Windows merender app
+        # di 96dpi lalu meregangnya bitmap-style -> GUI terlihat buram/low-res
+        # di layar dengan scaling 125%/150% (laptop modern).
         try:
-            ctypes.windll.user32.SetProcessDPIAware()
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)   # PER_MONITOR_AWARE
+        except Exception:
+            try:
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
+        root = tk.Tk()
+        try:
+            from tkinter import font as tkfont
+            default_font = tkfont.nametofont("TkDefaultFont")
+            default_font.configure(family="Segoe UI", size=10)
         except Exception:
             pass
-    root = tk.Tk()
-    try:
-        from tkinter import font as tkfont
-        default_font = tkfont.nametofont("TkDefaultFont")
-        default_font.configure(family="Segoe UI", size=10)
-    except Exception:
-        pass
-    App(root)
-    # buka langsung maksimal (permintaan user) - di entrypoint, bukan di
-    # App: test UI bikin App dengan geometri kecil sendiri
-    try:
-        root.state("zoomed")
-    except Exception:
-        pass
-    root.mainloop()
+        App(root)
+        # buka langsung maksimal (permintaan user) - di entrypoint, bukan di
+        # App: test UI bikin App dengan geometri kecil sendiri
+        try:
+            root.state("zoomed")
+        except Exception:
+            pass
+        root.mainloop()
+    # v3.2: seluruh app jalan di CLR thread STA - syarat WebView2 (tanpa
+    # itu CoreWebView2 gagal RPC_E_CHANGED_MODE). Tanpa pythonnet, jalan
+    # di thread utama seperti biasa (jalur WebView2 otomatis nonaktif).
+    jalankan_sta(_main)

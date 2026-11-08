@@ -91,6 +91,10 @@ PROFILE_LABEL = ""     # nama tampilan profil utk pesan ramah (mis. 'Student')
 # jendela milik app dan harus tetap tampak di dalamnya.
 EMBED_BROWSER = False
 
+# v3.2: True = browsernya WebView2 chromeless milik GUI (dalam app);
+# ensure_browser melewati semua peluncuran dan langsung attach CDP.
+BROWSER_WV2 = False
+
 # Port debug bisa berubah saat runtime: kalau 9222 kebetulan dipakai
 # aplikasi lain (widget sistem bawaan laptop, WebView milik Adobe dll.),
 # bot cukup memakai port berikutnya - aplikasi itu tidak perlu ditutup.
