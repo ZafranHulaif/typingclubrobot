@@ -48,14 +48,14 @@ NO_POPUP_JS = """
   // HALAMAN UTAMA (OAuth jalan full-page di dalam app, tanpa jendela
   // kedua - address bar & tombol close hilang, keyboard hidup).
   function buatStub(u0){
-    var target = u0 || 'about:blank';
+    var cur = u0 || 'about:blank';
     var loc = {};
     Object.defineProperty(loc, 'href', {
-      set: function(v){ location.href = v; },
-      get: function(){ return target; }
+      set: function(v){ cur = String(v); location.href = v; },
+      get: function(){ return cur; }
     });
-    loc.replace = function(x){ location.replace(x); };
-    loc.assign  = function(x){ location.href = x; };
+    loc.replace = function(x){ cur = String(x); location.replace(x); };
+    loc.assign  = function(x){ cur = String(x); location.href = x; };
     loc.reload  = function(){ location.reload(); };
     var w = {
       closed: false, name: '_blank', opener: window,
@@ -71,7 +71,8 @@ NO_POPUP_JS = """
     };
     Object.defineProperty(w, 'location', {
       get: function(){ return loc; },
-      set: function(v){ location.href = (v && v.href) ? v.href : v; }
+      set: function(v){ var t = (v && v.href) ? String(v.href) : String(v);
+                        cur = t; location.href = t; }
     });
     return w;
   }

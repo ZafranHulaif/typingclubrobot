@@ -39,17 +39,23 @@ SWP_FRAMECHANGED = 0x0020
 # Kembalikan stub yang siap di-set location-nya; semua penugasan lokasi
 # = navigasi HALAMAN UTAMA (OAuth full-page di dalam app, tanpa jendela
 # kedua dgn address bar & tombol close, dan keyboard tetap hidup).
+# href getter harus mengembalikan URL yang BARU di-assign (bukan
+# about:blank terus): halaman signin edclub punya watchdog ~5 dtk -
+# win.location.href yang tak pernah berubah = "popup mati" -> halaman
+# utama dilempar ke sportal/program-3.game (keluhan live: pencet login
+# balik lagi ke halaman awal). Real popup asli: baca href lintas-origin
+# = THROW (dianggap sehat); stub kita "sehat" = href berubah.
 _NO_POPUP_JS = """
 (function(){
   function buatStub(u0){
-    var target = u0 || 'about:blank';
+    var cur = u0 || 'about:blank';
     var loc = {};
     Object.defineProperty(loc, 'href', {
-      set: function(v){ location.href = v; },
-      get: function(){ return target; }
+      set: function(v){ cur = String(v); location.href = v; },
+      get: function(){ return cur; }
     });
-    loc.replace = function(x){ location.replace(x); };
-    loc.assign  = function(x){ location.href = x; };
+    loc.replace = function(x){ cur = String(x); location.replace(x); };
+    loc.assign  = function(x){ cur = String(x); location.href = x; };
     loc.reload  = function(){ location.reload(); };
     var w = {
       closed: false, name: '_blank', opener: window,
@@ -65,7 +71,8 @@ _NO_POPUP_JS = """
     };
     Object.defineProperty(w, 'location', {
       get: function(){ return loc; },
-      set: function(v){ location.href = (v && v.href) ? v.href : v; }
+      set: function(v){ var t = (v && v.href) ? String(v.href) : String(v);
+                        cur = t; location.href = t; }
     });
     return w;
   }
