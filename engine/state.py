@@ -86,6 +86,11 @@ PROFILE_DIR = ""       # 'Default' / 'Profile 1' / ... (mode 'saya')
 
 PROFILE_LABEL = ""     # nama tampilan profil utk pesan ramah (mis. 'Student')
 
+# v3: GUI menanam jendela browser di dalam app (SetParent). Saat
+# True, engine berhenti mengecilkan/mengangkat jendela browser -
+# jendela milik app dan harus tetap tampak di dalamnya.
+EMBED_BROWSER = False
+
 # Port debug bisa berubah saat runtime: kalau 9222 kebetulan dipakai
 # aplikasi lain (widget sistem bawaan laptop, WebView milik Adobe dll.),
 # bot cukup memakai port berikutnya - aplikasi itu tidak perlu ditutup.

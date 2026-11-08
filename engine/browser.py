@@ -488,7 +488,8 @@ def _kecilkan_jendela_baru(lama, batas=12.0):
     mulai = time.time()
     tenggat = time.perf_counter() + batas
     while time.perf_counter() < tenggat:
-        if state.STOP or state.FOCUS_BROWSER_AT > mulai:
+        if state.STOP or state.EMBED_BROWSER \
+                or state.FOCUS_BROWSER_AT > mulai:
             return
         baru = _hwnd_browser_visible() - lama
         if state.STOP or state.FOCUS_BROWSER_AT > mulai:
@@ -506,7 +507,11 @@ def _kecilkan_jendela_bot():
     latar: Chromium TETAP mengaktifkan dirinya walau Target.createTarget
     memakai background=True (keluhan live: jendela melompat ke depan
     sesaat). Judul dinormalisasi tanpa spasi - judul situs bisa
-    'Typing Club' / 'EdClub'. Hanya jendela bot yang disentuh."""
+    'Typing Club' / 'EdClub'. Hanya jendela bot yang disentuh.
+    v3: bila GUI menanam browser di app (EMBED_BROWSER), jendela tidak
+    disentuh sama sekali - user sedang menonton bot bekerja di dalam app."""
+    if getattr(state, "EMBED_BROWSER", False):
+        return
     try:
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32

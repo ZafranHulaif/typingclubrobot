@@ -334,7 +334,7 @@ class _Dialog(tk.Toplevel):
 
 
 
-# ------------------------------------------------------------ slider modern
+# ------------------------------------------------------- slider liquid glass
 def _blend(c1, c2, t):
     """Campur dua warna hex (#rrggbb), t=0 -> c1, t=1 -> c2."""
     r1, g1, b1 = (int(c1[i:i + 2], 16) for i in (1, 3, 5))
@@ -345,18 +345,17 @@ def _blend(c1, c2, t):
 
 
 class SpeedSlider(tk.Canvas):
-    """Slider kecepatan berbasis Canvas - halus, tebal, anti-pixel.
+    """Slider kecepatan 'liquid glass' - tebal, kaca, ber fisika.
 
-    Tampak & rasa (permintaan user: 'simple tapi detail terkecil
-    diperhatikan'):
-    - rail tebal dengan bayangan halus, isian accent, tick tier berlabel.
-    - thumb bulat ANTIALIAS (lingkaran konsentris blended, bukan satu
-      oval keras) + bayangan lembut + SQUASH & STRETCH mengikuti
-      kecepatan gerak (rasa fisik: ditarik cepat memanjang, mantul
-      saat mendarat).
-    - drag = nilai halus mengalir (command per wpm berubah, engine ikut
-      live). Lepas = spring menuju tick terdekat DENGAN overshoot kecil
-      (bukan snap instan). set_wpm() dari luar juga menganimasi spring.
+    Rasa yang diminta user (ref: kontrol pill 'lost & found' OSIS):
+    - RAIL TEBAL dengan bayangan; thumb kaca (rim terang, sheen atas,
+      bayangan dalam bawah, specular kecil) yang terasa seperti tetesan.
+    - Thumb TIDAK menempel kaku ke pointer: mengalir tertinggal sedikit
+      (spring ikut saat drag) - rasa cair.
+    - LEPAS = recoil: spring lebih lunak dengan 1-2 goyangan balik +
+      denyut squash saat mendarat - bukan snap instan.
+    - Drag mengalirkan nilai wpm live ke engine (command per frame saat
+      nilai berubah). set_wpm() dari luar ikut dianimasikan.
     """
 
     H = 64          # ruang bayangan + rail tebal + label tick bawah
@@ -369,12 +368,13 @@ class SpeedSlider(tk.Canvas):
         self._command = command      # dipanggil saat nilai halus berubah
         self._released = released    # dipanggil dengan tick target saat lepas
         self._bg = bg
-        # posisi thumb (px canvas), velocity, dan target utk spring
-        self._x = 0.0
-        self._v = 0.0
-        self._target_x = 0.0
+        self._x = 0.0                # posisi thumb aktual (px)
+        self._v = 0.0                # kecepatan thumb
+        self._target_x = 0.0         # tujuan spring
+        self._drag_x = 0.0           # posisi pointer saat drag
         self._drag = False
         self._hover = False
+        self._pulse = 0.0            # denyut mendarat (recoil squash)
         self._wpm = value
         self._tick_job = None
         self.bind("<Button-1>", self._on_down)
@@ -425,60 +425,71 @@ class SpeedSlider(tk.Canvas):
     def _on_down(self, e):
         self._drag = True
         self._v = 0.0
-        self._x = float(e.x)
-        self._target_x = self._x
-        self._live()
+        self._drag_x = float(e.x)
+        self._target_x = self._drag_x
+        self._start_tick()
 
     def _on_move(self, e):
         if self._drag:
-            self._v = e.x - self._x       # kecepatan pointer utk squash
-            self._x = float(e.x)
-            self._target_x = self._x
-            self._live()
+            self._drag_x = float(e.x)
 
     def _on_up(self, _e):
         self._drag = False
-        # tick terdekat jadi target; spring mengantar dengan bounce kecil
+        # tick terdekat jadi target; spring lunak mengantar + recoil
         nearest = min(self._tiers,
-                      key=lambda t: abs(self._x_for(t[1]) - self._x))
+                      key=lambda t: abs(self._x_for(t[1]) - self._drag_x))
         self._wpm = nearest[1]
         self._target_x = self._x_for(self._wpm)
         self._start_tick()
         if self._released:
             self._released(self._wpm)
 
-    def _live(self):
-        """Saat drag: nilai halus mengalir + gambar real-time."""
-        wpm = int(round(max(self._tiers[0][1],
-                            min(self._tiers[-1][1], self._wpm_for(self._x)))))
-        if wpm != self._wpm:
-            self._wpm = wpm
-            if self._command:
-                self._command(wpm)
-        self._draw()
-
     # -- spring physics ---------------------------------------------------
     def _snap_now(self):
         """Posisikan thumb langsung (awal/resize) tanpa animasi."""
-        self._x = self._target_x = self._x_for(self._wpm)
+        self._x = self._target_x = self._drag_x = self._x_for(self._wpm)
         self._v = 0.0
+        self._pulse = 0.0
+        self._tick_job = None
         self._draw()
 
     def _start_tick(self):
         if self._tick_job is None:
+            self._tick_job = True
             self._tick()
 
     def _tick(self):
-        # spring teredam: masih ada overshoot kecil (bounce alami)
-        k, c = 0.14, 0.74
+        if self._drag:
+            # ikut pointer dengan keterlambatan cair (bukan tempel kaku)
+            k, c = 0.45, 0.42
+            self._target_x = self._drag_x
+        else:
+            # spring lunak: 1-2 goyangan balik (recoil) sebelum tenang
+            k, c = 0.13, 0.60
         self._v += k * (self._target_x - self._x) - c * self._v
         self._x += self._v
+        # denyut mendarat meluruh tiap frame
+        self._pulse *= 0.82
+        if self._pulse < 0.01:
+            self._pulse = 0.0
         if abs(self._target_x - self._x) < 0.3 and abs(self._v) < 0.05:
             self._x = self._target_x
             self._v = 0.0
-            self._tick_job = None
-            self._draw()
-            return
+            # mendarat -> denyut squash (rasa tetesan jatuh)
+            self._pulse = 1.0
+            if not self._drag:
+                self._tick_job = None
+                self._draw()
+                return
+        # drag: nilai halus mengalir mengikuti posisi thumb aktual
+        if self._drag:
+            wpm = int(round(max(self._tiers[0][1],
+                                min(self._tiers[-1][1],
+                                    self._wpm_for(self._x)))))
+            if wpm != self._wpm:
+                self._wpm = wpm
+                if self._command:
+                    self._command(wpm)
         self._draw()
         self._tick_job = self.after(16, self._tick)
 
@@ -500,13 +511,13 @@ class SpeedSlider(tk.Canvas):
         w = max(60, self.winfo_width() or 430)
         x0, x1 = 16, w - 16
         y = self._rail_y
-        rail_h = 10
+        rail_h = 16          # tebal: terasa 'glass channel', bukan garis
         rail = _blend(self._bg, "#ffffff", 0.07)
         rail_hi = _blend(self._bg, "#ffffff", 0.13)
         # bayangan rail lembut di bawahnya
         sh = _blend(self._bg, "#000000", 0.30)
         self.create_rectangle(x0 + 2, y + rail_h // 2 + 1, x1 - 2,
-                              y + rail_h // 2 + 4, fill=sh, width=0)
+                              y + rail_h // 2 + 5, fill=sh, width=0)
         # rail dasar (tebal) + ujung bulat + garis highlight atas utk depth
         self.create_rectangle(x0, y - rail_h // 2, x1, y + rail_h // 2,
                               fill=rail, width=0)
@@ -515,8 +526,8 @@ class SpeedSlider(tk.Canvas):
         self.create_oval(x1 - rail_h // 2, y - rail_h // 2,
                          x1 + rail_h // 2, y + rail_h // 2, fill=rail, width=0)
         self.create_rectangle(x0 + 3, y - rail_h // 2 + 1, x1 - 3,
-                              y - rail_h // 2 + 3, fill=rail_hi, width=0)
-        # isian accent sampai thumb (ujung bulat juga)
+                              y - rail_h // 2 + 4, fill=rail_hi, width=0)
+        # isian accent sampai thumb (ujung bulat juga) + pendar di ujung
         xt = max(x0, min(self._x, x1))
         if xt > x0 + 6:
             self.create_rectangle(x0, y - rail_h // 2, xt, y + rail_h // 2,
@@ -525,9 +536,13 @@ class SpeedSlider(tk.Canvas):
                              x0 + rail_h // 2, y + rail_h // 2,
                              fill=ACCENT, width=0)
             self.create_rectangle(x0 + 3, y - rail_h // 2 + 1, xt - 1,
-                                  y - rail_h // 2 + 3,
+                                  y - rail_h // 2 + 4,
                                   fill=_blend(ACCENT, "#ffffff", 0.25),
                                   width=0)
+            self.create_oval(xt - 10, y - rail_h // 2, xt + 2,
+                             y + rail_h // 2, fill=_blend(ACCENT, "#ffffff",
+                                                          0.35),
+                             width=0, stipple="gray50")
         # tick tier + label (angka disembunyikan bila tertutup thumb -
         # nilainya sudah tampil di readout kanan atas)
         for _nama, wpm in self._tiers:
@@ -538,20 +553,40 @@ class SpeedSlider(tk.Canvas):
                                   fill=ACCENT if lewat else FAINT, width=0)
             if abs(tx - xt) < 26:
                 continue
-            self.create_text(tx, y + rail_h // 2 + 10, text=str(wpm),
+            self.create_text(tx, y + rail_h // 2 + 12, text=str(wpm),
                              font=("Segoe UI", 8, "bold"),
                              fill=FG if wpm == self._wpm else FAINT)
-        # thumb: bayangan lembut, lalu badan ANTIALIAS + squash & stretch
+        # ---- thumb kaca: bayangan, badan frosted, rim, sheen, specular --
         kecepatan = abs(self._v) if not self._drag else min(abs(self._v), 40.0)
-        sx = 1.0 + min(0.35, kecepatan * 0.012)
-        sy = max(0.72, 1.0 / sx)
-        r = 12 if (self._hover or self._drag) else 11
+        squash = min(0.30, self._pulse * 0.16)          # denyut mendarat
+        sx = 1.0 + min(0.35, kecepatan * 0.012) + squash * 0.6
+        sy = max(0.70, 1.0 / sx) - squash * 0.4
+        r = 14 if (self._hover or self._drag) else 13
         b_shadow = _blend(self._bg, "#000000", 0.38)
         for extra, t in ((7, 0.14), (4, 0.26)):
-            self._aa_oval(xt, y + 6 + extra * 0.4, r + extra,
+            self._aa_oval(xt, y + 6 + extra * 0.4, (r + extra) * sx,
                           (r + extra) * 0.5, _blend(self._bg, b_shadow, t),
                           steps=2)
-        self._aa_oval(xt, y, r * sx, r * sy, "#f5f6f8", steps=4,
-                      outline=ACCENT if (self._hover or self._drag) else rail)
-        # titik pusat kecil: kesan presisi
-        self.create_oval(xt - 2, y - 2, xt + 2, y + 2, fill=ACCENT, width=0)
+        # badan: frosted glass = campuran terang transparan di atas gelap
+        kaca = _blend(self._bg, "#dfe4ec", 0.58)
+        self._aa_oval(xt, y, r * sx, r * sy, kaca, steps=4)
+        # bayangan dalam bawah (kesan ketebalan kaca)
+        self.create_oval(xt - r * sx * 0.8, y - r * sy * 0.75,
+                         xt + r * sx * 0.8, y + r * sy * 1.05,
+                         fill=_blend(kaca, "#000000", 0.22), width=0,
+                         stipple="gray25")
+        # sheen atas: half-oval lebih terang (pantulan cahaya langit-langit)
+        self.create_oval(xt - r * sx * 0.82, y - r * sy * 1.02,
+                         xt + r * sx * 0.82, y + r * sy * 0.1,
+                         fill=_blend(kaca, "#ffffff", 0.5), width=0,
+                         stipple="gray50")
+        # rim terang: tepi kaca memantulkan cahaya
+        self.create_oval(xt - r * sx, y - r * sy, xt + r * sx, y + r * sy,
+                         outline=_blend(self._bg, "#ffffff", 0.62), width=2)
+        # specular kecil kiri-atas: titik kilau
+        self.create_oval(xt - r * sx * 0.62, y - r * sy * 0.72,
+                         xt - r * sx * 0.22, y - r * sy * 0.32,
+                         fill="#ffffff", width=0, stipple="gray25")
+        # titik pusat accent: kesan presisi di tengah tetesan
+        self.create_oval(xt - 2, y - 2, xt + 2, y + 2,
+                         fill=_blend(ACCENT, "#ffffff", 0.15), width=0)

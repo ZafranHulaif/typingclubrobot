@@ -521,6 +521,10 @@ class LaunchMixin:
         except Exception as ex:
             self._log(f"[GUI] deteksi browser gagal: {ex}")
         self._detected = det
+        # v3: browser langsung disiapkan + ditanam di jendela (login sekali,
+        # langsung terlihat di dalam app). Hanya lewat jalur ini supaya
+        # test suite yang men-stub _load_bot tidak meluncurkan browser.
+        threading.Thread(target=self._browser_latar, daemon=True).start()
         pilihan = ["Otomatis"] + [n for n, _ in det]
         # browser dropdown sudah dihapus dari jendela utama; stub menelan
         # set_values dari kode lama
@@ -552,15 +556,10 @@ class LaunchMixin:
 
 
     def _update_browser_chip(self):
-        """Gambar ulang kartu browser persegi (kanan atas): logo besar +
-        nama pilihan (Otomatis menampilkan browser aktual yang dipakai).
-        Semua widget anak ikut di-bind klik (label/canvas menelan klik
-        kalau hanya frame yang di-bind - dulu chip tak bisa diklik)."""
-        try:
-            for w in self.chip.winfo_children():
-                w.destroy()
-        except Exception:
-            return
+        """v3: kartu browser dihapus dari UI utama (browser kini tertanam
+        di dalam jendela - tidak ada lagi pemilihan browser untuk user).
+        Method dipertahankan sebagai no-op supaya pemanggil lama aman."""
+        return
         pilih = self.browser_var.get()
         det = dict(self._detected)
         path, label, sub = "", pilih, "klik untuk ganti"
@@ -752,23 +751,10 @@ class LaunchMixin:
         # flag browser-ditutup sisa sesi sebelumnya tidak boleh bocor ke
         # sesi baru (dulu: Start mem-flash 'Browser ditutup' sebelum cek login)
         bot.BROWSER_CLOSED = False
-        # Popup pilih browser hanya pertama kali (belum ada pengaturan).
-        # Setelah itu pilihan tersimpan; ganti lewat chip di tengah atas.
+        # Popup pilih browser DIHAPUS di v3: browser kini ditanam di
+        # dalam jendela app dan pilihan selalu Otomatis (deteksi kandidat
+        # bawaan). User cukup login sekali di browser yang tampil di app.
         if self._first_run:
-            hasil = dialog_pick_browser(self.root, self._detected,
-                                         self.browser_var.get(), self._profile)
-            if not (isinstance(hasil, tuple) and len(hasil) == 2):
-                return
-            self.browser_var.set(hasil[0])
-            self._profile = hasil[1]
-            if self._profile == "saya":
-                p = self._pick_profile_for(self._browser_profile_name())
-                if p:
-                    self._profile_dir = p["dir"]
-                    self._profile_label = p["nama"]
-                else:
-                    self._profile = "bot"
-                    self._profile_dir = self._profile_label = ""
             self._first_run = False
         pilih = self.browser_var.get()
         # mode profil: berlaku ke engine sebelum koneksi dibuat
@@ -792,9 +778,12 @@ class LaunchMixin:
         port_hidup = bool(bot._check_debug_port())
         pemegang = bot._port_holders() if port_hidup else []
         nama_pemegang = " ".join(n.lower() for _, n in pemegang)
-        akan_buka = (not port_hidup) or (not pemegang) \
-            or (proc != "" and proc not in nama_pemegang \
-                and pilih != "Otomatis")
+        # v3: saat browser sudah tertanam di app, popup 'buka browser?'
+        # tidak berguna lagi - jendelanya sudah terlihat di dalam app.
+        akan_buka = (not getattr(self, "_embed_aktif", False)) and \
+            ((not port_hidup) or (not pemegang) \
+             or (proc != "" and proc not in nama_pemegang \
+                 and pilih != "Otomatis"))
         if akan_buka:
             det = {n: p for n, p in self._detected}
             nm = pilih if pilih in det else deteksi.get("name", "browser")

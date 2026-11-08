@@ -23,6 +23,7 @@ from .licensing import _machine_code, _license_valid
 from . import anim
 from .theme import (APP_VERSION, ACCENT, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, GREEN_HOVER, PANEL, CREATOR, RED, RED_DIM, SETTINGS_FILE, YELLOW, YELLOW_DIM, _asset_path, _build_stamp)
 from .widgets import Dropdown, SpeedSlider, _gelap_titlebar
+from .browser_host import BrowserHost
 
 
 from .activity import ActivityMixin
@@ -57,6 +58,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self._fokus_setup = False    # fokus browser 1x saat perlu set-up first-run
         self._fokus_pilih = False    # fokus browser 1x saat alur pilih-level-sendiri
         self._rentang_jawab = 0.0    # waktu user selesai memilih rentang (grace state)
+        self._embed_aktif = False    # browser sudah tertanam di app (v3)
         self._profile = "bot"        # 'bot' khusus | 'saya' profil browser user
         self._profile_dir = ""       # 'Default' / 'Profile 1' ... (mode saya)
         self._profile_label = ""     # nama tampilan profil (mis. 'Student')
@@ -151,16 +153,6 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self.btn_stop["state"] = "disabled"
         self._style_btn(self.btn_stop)
 
-        # --- kartu browser persegi, di samping Stop (klik = ganti) ---
-        # ukuran dihitung dari isi + jadi persegi (auto, tahan DPI: ukuran
-        # fix 132x96 px + font yang ikut scaling 125-150% = teks terpotong)
-        self.chip = tk.Frame(ctrl, bg=CARD, highlightthickness=1,
-                             highlightbackground=EDGE, cursor="hand2",
-                             width=132, height=96)
-        self.chip.pack(side="left", padx=(14, 0))
-        self.chip.pack_propagate(False)
-        self._update_browser_chip()
-
         self.kanan = tk.Frame(ctrl, bg=BG)
         self.kanan.pack(side="right")
         self._btn(self.kanan, "Pulihkan", CARD, self.on_recovery, kecil=True)
@@ -225,17 +217,25 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self.hotkey_lbl.pack(side="bottom", fill="x", pady=(0, 8))
         self.hotkey_lbl.bind("<Button-1>", lambda e: self._safe(self._toggle_hotkey))
         self._update_hotkey_label()
+        # ticker status: satu baris tipis di atas footer - meneruskan
+        # kalimat aktivitas saat browser sudah menempati kartu tengah
+        self.ticker_lbl = tk.Label(root, text="", font=("Segoe UI", 9),
+                                   fg=DIM, bg=BG, anchor="w", wraplength=900)
+        self.ticker_lbl.pack(side="bottom", fill="x", padx=18, pady=(0, 4))
 
-        # ---------- kartu aktivitas (mengisi sisa ruang tengah) ----------
-        # Pengganti log lama (permintaan: user awam tidak perlu lihat log):
-        # satu kalimat besar bahasa awam - apa yang bot kerjakan sekarang.
-        # Rincian teknis tetap tersimpan di bot.log untuk pemilik (Dev).
+        # ---------- host browser (mengisi sisa ruang tengah) ----------
+        # v3: browser TIDAK lagi jadi jendela terpisah - ditanam di frame
+        # ini via SetParent (lihat gui/browser_host.py). Overlay di atasnya
+        # menampilkan status besar sebelum browser siap; begitu browser
+        # tertanam, overlay disingkirkan dan kalimat aktivitas pindah ke
+        # ticker tipis di bawah.
+        self.host = BrowserHost(root)
+        self.host.pack(fill="both", expand=True, padx=18, pady=(0, 2))
+        self.host.set_status_cb(self._host_lapor)
         self._aktiv_sub_teks = ""
         self._aktiv_nama = ""
-        aktiv = tk.Frame(root, bg=PANEL, highlightthickness=1,
-                         highlightbackground=EDGE)
-        aktiv.pack(fill="both", expand=True, padx=18, pady=(0, 6))
-        tengah = tk.Frame(aktiv, bg=PANEL)
+        overlay = tk.Frame(self.host, bg=PANEL)
+        tengah = tk.Frame(overlay, bg=PANEL)
         tengah.place(relx=0.5, rely=0.5, anchor="center")
         # panggung animasi status: sprite per status + crossfade antar status
         self._stage_kan = tk.Canvas(tengah, width=460, height=56, bg=PANEL,
@@ -247,10 +247,12 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                                   font=("Segoe UI", 16, "bold"), fg=FG,
                                   bg=PANEL, wraplength=560, justify="center")
         self.aktiv_lbl.pack()
-        self.aktiv_sub = tk.Label(tengah, text="Klik Start untuk mulai.",
+        self.aktiv_sub = tk.Label(tengah, text="Menyiapkan browser...",
                                   font=("Segoe UI", 10), fg=DIM, bg=PANEL,
                                   wraplength=560, justify="center")
         self.aktiv_sub.pack(pady=(6, 0))
+        self.host.set_overlay(overlay)
+        self.host.pack_propagate(False)
 
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -268,6 +270,44 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
     def _title_bar(self):
         ekstra = "" if self.lisensi_ok else "  •  PERLU AKTIVASI"
         self.root.title(f"TypingBot{ekstra}")
+
+    # --------------------------------------------------- host browser v3
+    def _browser_latar(self):
+        """Buka browser debug + tanam di dalam jendela (thread latar).
+        Gagal apa pun tidak boleh mematikan app - browser tetap bisa
+        dibuka jalan sendiri (perilaku lama) saat Start."""
+        if not self.lisensi_ok:
+            return
+        try:
+            from engine import state as estate
+            from engine.browser import ensure_browser, _check_debug_port
+            estate.EMBED_BROWSER = True
+            # watcher 'kecilkan jendela baru' langsung pamit (jendela
+            # akan kita tanam, bukan dikecilkan)
+            estate.FOCUS_BROWSER_AT = time.time()
+            ensure_browser()   # blokir sampai port debug hidup
+            if estate.STOP:
+                return
+            self.host.embed_async(
+                self._host_lapor, None,
+                lambda: _check_debug_port().startswith("Chrome"))
+        except SystemExit:
+            pass
+        except Exception as ex:
+            self._log(f"[GUI] browser latar: {ex}")
+
+    def _host_lapor(self, teks):
+        """Laporan thread tanam -> marshall ke UI thread."""
+        def kerja():
+            if teks == "__embed__":
+                self.host.plant()
+                self._embed_aktif = True
+                self._log("Browser ditanam di dalam jendela app.")
+                self.aktiv_sub.configure(text="Browser aktif di dalam app.")
+            else:
+                self._log(teks)
+                self.aktiv_sub.configure(text=teks)
+        self.root.after(0, kerja)
 
     def _btn(self, parent, text, color, cmd, besar=False, kecil=False,
              gaya="isi"):
@@ -352,10 +392,13 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
 
     def _set_activity(self, utama, sub):
-        """Kartu aktivitas: kalimat besar bahasa awam + keterangan kecil."""
+        """Kartu aktivitas (overlay host) + ticker tipis di bawah host:
+        kalimat besar bahasa awam + keterangan kecil."""
         try:
             self.aktiv_lbl.configure(text=utama)
             self.aktiv_sub.configure(text=sub)
+            baris = utama + (f"  •  {sub}" if sub else "")
+            self.ticker_lbl.configure(text=baris)
         except Exception:
             pass
 
@@ -459,6 +502,10 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         if self.bot:
             self.bot.STOP = True
             self.bot.PAUSED = False
+        try:
+            self.host.release()   # pisahkan browser sebelum jendela hancur
+        except Exception:
+            pass
         time.sleep(0.2)
         self.root.destroy()
 
