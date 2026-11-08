@@ -593,8 +593,8 @@ class SpeedSlider(tk.Canvas):
 # ------------------------------------------------------------- dial kecepatan
 import math as _math
 
-_PINK_1 = "#ff5c8a"      # arc: ujung awal (terang)
-_PINK_2 = "#e0245e"      # arc: mendekati thumb (pekat) - rasa 'heat'
+_ARC_1 = "#7db4ff"      # arc: ujung awal (biru terang)
+_ARC_2 = "#1d3fb8"      # arc: mendekati thumb (biru gelap pekat)
 
 
 class SpeedDial(tk.Toplevel):
@@ -804,7 +804,7 @@ class SpeedDial(tk.Toplevel):
             lewat = a <= a_cur + 0.5
             aktif = wpm == self._wpm
             r = 5 if aktif else 3.5
-            warna = _PINK_2 if lewat else "#c9ccd4"
+            warna = _ARC_2 if lewat else "#c9ccd4"
             kan.create_oval(x - r, y - r, x + r, y + r, fill=warna, width=0)
         # arc tebal 'beaded' dari 135deg ke thumb (gradasi pink -> merah)
         a0, a1 = 135.0, a_cur
@@ -814,18 +814,18 @@ class SpeedDial(tk.Toplevel):
                 a = a0 + (a1 - a0) * i / n
                 t = (a - 135) / 270.0
                 x, y = self._xy(a, self._r_ring)
-                warna = self._blend(_PINK_1, _PINK_2, min(1.0, t * 1.15))
+                warna = self._blend(_ARC_1, _ARC_2, min(1.0, t * 1.15))
                 kan.create_oval(x - 8, y - 8, x + 8, y + 8,
                                 fill=warna, width=0)
         # thumb: glow pink + butir putih dgn squash halus saat mendarat
         xt, yt = self._xy(a_cur, self._r_ring)
         squash = min(0.3, self._pulse * 0.15)
         r_th = 17 - squash * 3
-        self._aa_oval(kan, xt, yt, 24, self._blend(_PINK_2, "#171921", 0.2),
+        self._aa_oval(kan, xt, yt, 24, self._blend(_ARC_2, "#171921", 0.2),
                       bgc="#2a2d38", feather=5, steps=3)
-        self._aa_oval(kan, xt, yt, 19, _PINK_1, bgc="#2a2d38", feather=4,
+        self._aa_oval(kan, xt, yt, 19, _ARC_1, bgc="#2a2d38", feather=4,
                       steps=3)
-        self._aa_oval(kan, xt, yt, r_th, "#ffffff", bgc=_PINK_1, feather=3)
+        self._aa_oval(kan, xt, yt, r_th, "#ffffff", bgc=_ARC_1, feather=3)
         # piringan nilai
         self._aa_oval(kan, cx, cy, self._r_plate, "#ffffff", bgc="#2a2d38",
                       feather=4, outline="#e4e6ec")
