@@ -675,7 +675,6 @@ class SpeedDial(tk.Toplevel):
         # app, dial sendiri, atau jendela milik app (owner chain).
         self._root_hwnd = 0
         self._fg_ever = False
-        self._wv_hwnd = 0
         self._fokus_job = self.after(400, self._jaga_fg)
 
         if _PIL_OK:
@@ -749,6 +748,32 @@ class SpeedDial(tk.Toplevel):
             if not self._root_hwnd:
                 self._root_hwnd = u32.GetAncestor(
                     self.master.winfo_toplevel().winfo_id(), 2)  # GA_ROOT
+            # klik BARU (bit 0x0001 GetAsyncKeyState = ditekan sejak
+            # panggilan terakhir) & kursor di luar kartu = user klik
+            # halaman/app di luar dial -> tutup. CARA INI TAK TERGANTUNG
+            # FOKUS: klik webview ternyata TIDAK selalu memindahkan fokus
+            # keyboard Win32 (Chromium menunda) - cek GetGUIThreadInfo
+            # gagal bekerja (keluhan user: dial tetap terbuka). Polling
+            # 120ms supaya klik pendek tidak terlewat. PANGGIL SELALU
+            # (menghabiskan bit tepi) tapi baru BERTINDAK setelah grace
+            # 0.6 dtk - klik pembuka chip menyisakan bit tepi yang belum
+            # habis dipakai saat poll pertama; kalau poll melewatkannya
+            # (grace lama), bit itu hidup sampai poll pasca-grace dan
+            # dial bunuh diri seusir lahir (live!).
+            pt = wintypes.POINT()
+            lahir_lama = _time_monotonic() - self._lahir >= 0.6
+            for vk in (0x01, 0x02):   # VK_LBUTTON, VK_RBUTTON
+                if u32.GetAsyncKeyState(vk) & 0x0001:
+                    if not lahir_lama:
+                        continue
+                    u32.GetCursorPos(ctypes.byref(pt))
+                    x0 = self.winfo_rootx() - 6
+                    y0 = self.winfo_rooty() - 6
+                    x1 = x0 + self.winfo_width() + 12
+                    y1 = y0 + self.winfo_height() + 12
+                    if not (x0 <= pt.x <= x1 and y0 <= pt.y <= y1):
+                        self.tutup()
+                        return
             fg = u32.GetForegroundWindow()
             if fg:
                 if fg in (self._root_hwnd, self.winfo_id()):
@@ -756,75 +781,9 @@ class SpeedDial(tk.Toplevel):
                 elif self._fg_ever and u32.GetWindow(fg, 4) != self._root_hwnd:
                     self.tutup()      # app lain pegang foreground
                     return
-                # klik DI HALAMAN WEB (di luar kartu dial) = tutup: fokus
-                # keyboard pindah ke hwnd webview & kursor di luar kartu.
-                # (keluhan user: 'klik di luar popup, dia nggak hilang')
-                wv = self._webview_hwnd()
-                if self._fg_ever and wv:
-                    fokus = self._hwnd_fokus()
-                    if fokus and (fokus == wv or u32.IsChild(wv, fokus)):
-                        pt = wintypes.POINT()
-                        u32.GetCursorPos(ctypes.byref(pt))
-                        x0 = self.winfo_rootx() - 6
-                        y0 = self.winfo_rooty() - 6
-                        x1 = x0 + self.winfo_width() + 12
-                        y1 = y0 + self.winfo_height() + 12
-                        if not (x0 <= pt.x <= x1 and y0 <= pt.y <= y1):
-                            self.tutup()
-                            return
         except Exception:
             pass
-        self._fokus_job = self.after(300, self._jaga_fg)
-
-    def _hwnd_fokus(self):
-        """Hwnd yang memegang fokus keyboard saat ini (GetGUIThreadInfo)."""
-        import ctypes
-        from ctypes import wintypes as _wt
-
-        class _GTI(ctypes.Structure):
-            _fields_ = [("cbSize", ctypes.c_uint), ("flags", ctypes.c_uint),
-                        ("hwndActive", ctypes.c_void_p),
-                        ("hwndFocus", ctypes.c_void_p),
-                        ("hwndCapture", ctypes.c_void_p),
-                        ("hwndInIME", ctypes.c_void_p),
-                        ("hwndIMEStatus", ctypes.c_void_p),
-                        ("hwndIMEComp", ctypes.c_void_p),
-                        ("hwndIMECompStatus", ctypes.c_void_p),
-                        ("rcCaret", _wt.RECT)]
-        gti = _GTI()
-        gti.cbSize = ctypes.sizeof(_GTI)
-        if ctypes.windll.user32.GetGUIThreadInfo(0, ctypes.byref(gti)):
-            return gti.hwndFocus or 0
-        return 0
-
-    def _webview_hwnd(self):
-        """Hwnd webview utama (Chrome_WidgetWin_1, anak root app)."""
-        import ctypes
-        from ctypes import wintypes as _wt
-        u32 = ctypes.windll.user32
-        if self._wv_hwnd and u32.IsWindow(self._wv_hwnd):
-            return self._wv_hwnd
-        temuan = []
-        root = self._root_hwnd
-
-        @ctypes.WINFUNCTYPE(_wt.BOOL, _wt.HWND, _wt.LPARAM)
-        def enum_anak(hwnd, _l):
-            try:
-                buf = ctypes.create_unicode_buffer(64)
-                u32.GetClassNameW(hwnd, buf, 64)
-                if buf.value == "Chrome_WidgetWin_1":
-                    temuan.append(hwnd)
-                    return False
-            except Exception:
-                pass
-            return True
-
-        try:
-            u32.EnumChildWindows(root, enum_anak, 0)
-        except Exception:
-            pass
-        self._wv_hwnd = temuan[0] if temuan else 0
-        return self._wv_hwnd
+        self._fokus_job = self.after(120, self._jaga_fg)
 
     def _root_keluar(self, _e):
         # tunda sedikit: fokus bisa 'berkedip' saat popup baru lahir;
