@@ -632,8 +632,10 @@ class SpeedDial(tk.Toplevel):
 
     - lingkaran tengah putih: ANGKA wpm sekarang + label 'wpm'
     - cincin titik tier; titik yang dilewati menyala biru
-    - arc biru gradasi + thumb putih glow; seret memutar = nilai
-      mengalir live ke engine; lepas = spring ke tier terdekat
+    - arc biru gradasi + thumb putih glow; seret = thumb IKUT kursor
+      1:1 (tanpa spring/fisika - keluhan user: kadang terlalu sensitif,
+      kadang diam lalu melompat), nilai live ke engine; lepas = langsung
+      nempel tier terdekat, TANPA pantulan
     """
 
     def __init__(self, master, tiers, value, command=None, released=None):
@@ -649,11 +651,8 @@ class SpeedDial(tk.Toplevel):
         self._released = released
         self._wpm = int(value)
         self._ang = self._a_for(self._wpm)
-        self._v = 0.0
         self._target_ang = self._ang
         self._drag = False
-        self._pulse = 0.0
-        self._tick_job = None
         self._lahir = _time_monotonic()
         S = self._S = 300
         self._SS = 2                       # super-sample utk PIL
@@ -700,7 +699,7 @@ class SpeedDial(tk.Toplevel):
             self.lift()
         except Exception:
             pass
-        self._tick()
+        self._gambar()
 
     # -- api --------------------------------------------------------------
     def tutup(self):
@@ -715,8 +714,8 @@ class SpeedDial(tk.Toplevel):
 
     def set_wpm(self, wpm):
         self._wpm = int(wpm)
-        self._target_ang = self._a_for(self._wpm)
-        self._start_tick()
+        self._ang = self._target_ang = self._a_for(self._wpm)
+        self._gambar()
 
     def _root_keluar(self, _e):
         # tunda sedikit: fokus bisa 'berkedip' saat popup baru lahir;
@@ -782,67 +781,46 @@ class SpeedDial(tk.Toplevel):
             self.tutup()          # klik jauh di luar dial = tutup
             return
         self._drag = True
-        self._arah_ke(self._angle_of(e.x, e.y))
+        self._ke(self._angle_of(e.x, e.y))
 
     def _on_move(self, e):
         if self._drag:
-            self._arah_ke(self._angle_of(e.x, e.y))
+            self._ke(self._angle_of(e.x, e.y))
 
     def _angle_of(self, x, y):
-        a = _math.degrees(_math.atan2(y - self._cy, x - self._cx))
-        # normalisasi ke [135, 495): daerah celah bawah (0..135) dijepit
-        while a < 135:
-            a += 360
-        return min(405.0, a)
+        # sudut pointer dinormalisasi ke rentang sweep [135, 405]. Daerah
+        # celah bawah dijepit ke ujung TERDEKAT (dulu: selalu ke 405 =
+        # maksimal - keluhan 'too sensitive / langsung nempel')
+        a = _math.degrees(_math.atan2(y - self._cy, x - self._cx)) % 360.0
+        if 45.0 < a <= 90.0:
+            return 135.0                      # celah dekat mulut -> minimal
+        if 90.0 < a < 135.0:
+            return 405.0                      # celah dekat ekor -> maksimal
+        if a < 45.0:
+            a += 360.0                        # segmen atas = ekor sweep
+        return min(405.0, max(135.0, a))
 
-    def _arah_ke(self, ang):
-        self._target_ang = ang
-        if self._tick_job is None:
-            self._tick()
+    def _ke(self, ang):
+        """Langsung 1:1: thumb persis di sudut kursor, tanpa animasi."""
+        self._ang = self._target_ang = ang
+        wpm = int(round(self._wpm_for(ang)))
+        if wpm != self._wpm:
+            self._wpm = wpm
+            if self._command:
+                self._command(wpm)
+        self._gambar()
 
     def _on_up(self, _e):
         if not self._drag:
             return
         self._drag = False
-        wpm = int(round(self._wpm_for(self._target_ang)))
-        terdekat = min(self._tiers, key=lambda t: abs(t[1] - wpm))
+        # lepas: nempel tier terdekat SEKALI, tanpa pantulan
+        terdekat = min(self._tiers, key=lambda t: abs(t[1] - self._wpm))
         self._wpm = terdekat[1]
-        self._target_ang = self._a_for(self._wpm)
+        self._ang = self._target_ang = self._a_for(self._wpm)
         if self._released:
             self._released(self._wpm)
-        self._start_tick()
-
-    # -- spring -----------------------------------------------------------
-    def _start_tick(self):
-        if self._tick_job is None:
-            self._tick_job = True
-            self._tick()
-
-    def _tick(self):
-        k, c = (0.45, 0.42) if self._drag else (0.16, 0.62)
-        self._v += k * (self._target_ang - self._ang) - c * self._v
-        self._ang += self._v
-        self._pulse *= 0.82
-        if self._pulse < 0.01:
-            self._pulse = 0.0
-        if abs(self._target_ang - self._ang) < 0.3 and abs(self._v) < 0.05:
-            self._ang = self._target_ang
-            self._v = 0.0
-            self._pulse = 1.0
-            if not self._drag:
-                self._tick_job = None
-                self._gambar()
-                return
-        else:
-            wpm = int(round(max(self._tiers[0][1],
-                                min(self._tiers[-1][1],
-                                    self._wpm_for(self._ang)))))
-            if wpm != self._wpm:
-                self._wpm = wpm
-                if self._command:
-                    self._command(wpm)
         self._gambar()
-        self._tick_job = self.after(16, self._tick)
 
     # -- render PIL ---------------------------------------------------------
     def _to_photo(self, img_big):
@@ -914,12 +892,11 @@ class SpeedDial(tk.Toplevel):
             r = (4.5 if aktif else 3) * ss
             col = _rgb(_ARC_2 if wpm == self._tiers[-1][1] else _ARC_1)
             d.ellipse([x - r, y - r, x + r, y + r], fill=col)
-        # thumb: glow konsentris + butir putih + squash saat mendarat
+        # thumb: glow konsentris + butir putih (tanpa squash pantulan)
         rad = _math.radians(a1)
         xt = c + self._r_ring * ss * _math.cos(rad)
         yt = c + self._r_ring * ss * _math.sin(rad)
-        squash = min(0.3, self._pulse * 0.15)
-        r_th = (17 - squash * 3) * ss
+        r_th = 17 * ss
         for i in range(6, 0, -1):
             gr = (r_th + 3 + i * 2.2 * ss)
             alpha = int(70 * (1 - i / 7))
