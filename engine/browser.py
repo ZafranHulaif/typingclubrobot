@@ -625,10 +625,23 @@ def _tab_latar(ctx):
     bekerja, padahal user sedang tidak perlu melihat apa pun). Lewat CDP
     Target.createTarget(background=True) tab tetap di belakang; kalau CDP
     gagal, jatuh ke new_page() biasa. Hanya untuk context default - context
-    lain butuh browserContextId, pakai jalur lama. Karena Chromium kadang
-    tetap menaikkan jendela walau background=True, jendela bot kembali
-    dikecilkan setelah tab dibuat (kecuali bot sedang menunggu login -
-    jendela memang harus terangkat untuk user)."""
+    lain butuh browserContextId, pakai jalur lama.
+    v3.2: di mode WebView2 (browser DI DALAM app) createTarget = jendela
+    POPUP BARU yang menumpuk & tak pernah tertutup (browser single-window)
+    - selalu pakai halaman utama yang sama; engine melanjutkan dengannya."""
+    if getattr(state, "BROWSER_WV2", False):
+        pg = getattr(state, "PAGE", None)
+        if pg is None:
+            try:
+                pg = ctx.pages[0]
+            except Exception:
+                pg = None
+        if pg is not None:
+            try:
+                pg.bring_to_front()
+            except Exception:
+                pass
+            return pg
     lama = []
     try:
         lama = list(ctx.pages)

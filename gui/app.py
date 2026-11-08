@@ -480,7 +480,8 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         if self._dial is not None and self._dial.winfo_exists():
             self._dial.tutup()
             return
-        self._dial = SpeedDial(self.speed_chip, self.SPEED_TIERS,
+        self._dial = SpeedDial(self.speed_chip,
+                               [(str(w), w) for w in self.SPEED_TIERS],
                                self._speed_wpm,
                                command=self._on_dial_wpm,
                                released=self._on_dial_release)

@@ -106,6 +106,7 @@ class Wv2Host(tk.Frame):
         self._on_ready = None
         self._jaga_job = None
         self._popup_unsub = False
+        self._blank_ct = {}     # popup about:blank -> hitung siklus utk WM_CLOSE
         # overlay placeholder (tampil sebelum halaman siap)
         self._overlay = tk.Frame(self, bg=bg)
         self._overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
@@ -123,6 +124,13 @@ class Wv2Host(tk.Frame):
         HARUS dipanggil di thread UI (CLR STA) setelah jendela tampil."""
         try:
             import webview
+            # popup/target=_blank (OAuth Google dkk): jangan buka di browser
+            # OS - navigasi halaman utama saja (tetap di dalam app, tanpa
+            # jendela melayang; alur redirect OAuth tetap selesai di sini)
+            try:
+                webview.settings['OPEN_EXTERNAL_LINKS_IN_BROWSER'] = False
+            except Exception:
+                pass
             from webview.platforms.edgechromium import EdgeChrome
             from webview.window import Window
             from System.Windows.Forms import Control
@@ -217,6 +225,16 @@ class Wv2Host(tk.Frame):
         user32.EnumWindows(enum_cb, 0)
         for hwnd in temuan:
             try:
+                judul = ctypes.create_unicode_buffer(128)
+                user32.GetWindowTextW(hwnd, judul, 128)
+                if judul.value.strip().lower() in ("about:blank", ""):
+                    # popup kosong sisa alur lama -> tutup, jangan numpuk
+                    self._blank_ct[hwnd] = self._blank_ct.get(hwnd, 0) + 1
+                    if self._blank_ct[hwnd] >= 4:
+                        user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+                        self._blank_ct.pop(hwnd, None)
+                    continue
+                self._blank_ct.pop(hwnd, None)
                 style = user32.GetWindowLongW(hwnd, GWL_STYLE)
                 style &= ~(WS_CAPTION | WS_THICKFRAME)
                 style |= WS_CHILD | WS_VISIBLE

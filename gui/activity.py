@@ -132,14 +132,18 @@ class ActivityMixin:
             di_halaman_login = any(k in url_now
                                    for k in ("signin", "login", "signup"))
             if getattr(bot, "NEEDS_LOGIN", False):
-                # popup PERTAMA episode login selalu muncul, walaupun
-                # browser sedang berada di halaman login (dulu: popup
-                # ditahan selama URL mengandung 'signin' - live: popup
-                # baru muncul menit berikutnya ketika kebetulan ada probe
-                # yang memindahkan tab). Penahanan halaman login hanya
-                # untuk RE-popup setelah user menutup / memilih buka login
-                # (jangan muncul lagi di tengah user mengetik sandi).
-                if (self._login_win is None and not self._login_dismiss
+                if getattr(self, "_embed_aktif", False):
+                    # v3.2: browser DI DALAM app - popup 'login dulu' sudah
+                    # tidak relevan. Akun ada = sesi lanjut sendiri; tidak
+                    # ada = halaman di atas otomatis diarahkan ke login.
+                    # Tanpa fokus-minimize dance apa pun.
+                    if time.time() > self._login_grace:
+                        bot.ASK_LOGIN_URL = getattr(bot,
+                                                    "LOGIN_URL_INDIVIDUAL", "")
+                        bot.ASK_LOGIN_NAV = True
+                        self._login_grace = time.time() + 180
+                        self._log("[LOGIN] Menuju halaman login di app...")
+                elif (self._login_win is None and not self._login_dismiss
                         and not self._rentang_terbuka
                         and time.time() > self._login_grace
                         and (not self._login_ever or not di_halaman_login)):
