@@ -593,9 +593,6 @@ class SpeedSlider(tk.Canvas):
 # ------------------------------------------------------------- dial kecepatan
 import math as _math
 
-# ------------------------------------------------------------- dial kecepatan
-import math as _math
-
 try:
     from PIL import Image as _PImage, ImageDraw as _PDraw, ImageTk as _PImageTk
     _PIL_OK = True
@@ -605,30 +602,48 @@ except Exception:
 _ARC_1 = "#7db4ff"      # arc: ujung awal (biru terang)
 _ARC_2 = "#1d3fb8"      # arc: mendekati thumb (biru gelap pekat)
 _ARC_W = 15             # tebal arc (px tampilan)
+_DIAL_MAGIC = "#010203"  # warna ajaib utk sudut kartu benar2 transparan
 
 
 def _rgb(hexs, a=255):
     return (int(hexs[1:3], 16), int(hexs[3:5], 16), int(hexs[5:7], 16), a)
 
 
-class SpeedDial(tk.Toplevel):
-    """Popup dial kecepatan ala kontrol 'pod' (ref: dial bulat month).
+def _blend_rgb(h1, h2, t):
+    r1, g1, b1 = (int(h1[i:i + 2], 16) for i in (1, 3, 5))
+    r2, g2, b2 = (int(h2[i:i + 2], 16) for i in (1, 3, 5))
+    return (round(r1 + (r2 - r1) * t), round(g1 + (g2 - g1) * t),
+            round(b1 + (b2 - b1) * t), 255)
 
-    Dirender dengan PIL SUPER-SAMPLE lalu di-downsample -> halus, tanpa
-    gigi pixel (permintaan user: 'so pixelated'). Tk hanya menggambar
+
+class SpeedDial(tk.Toplevel):
+    """Popup dial kecepatan ala kontrol 'pod'.
+
+    PERILAKU POPUP (keluhan live: kotak hitam ngambang di atas app lain
+    & tak bisa diklik): ini popup MILIK app - muncul di atas jendela app,
+    tapi begitu app kehilangan fokus (user pindah ke app lain / minimi-
+    mize / klik halaman web) dia LANGSUNG menutup. Tanpa grab global
+    (dulu semua klik di layar diculik popup -> terasa 'uninteractable').
+
+    Dirender dengan PIL SUPER-SAMPLE lalu di-downsample -> halus; kartu
+    membulat di atas _DIAL_MAGIC + attributes('-transparentcolor') ->
+    sudut benar2 tembus pandang (bukan kotak lagi). Tk hanya menggambar
     teks (angka + wpm) supaya tetap tajam.
 
     - lingkaran tengah putih: ANGKA wpm sekarang + label 'wpm'
     - cincin titik tier; titik yang dilewati menyala biru
     - arc biru gradasi + thumb putih glow; seret memutar = nilai
       mengalir live ke engine; lepas = spring ke tier terdekat
-    - Esc / klik di luar menutup popup
     """
 
     def __init__(self, master, tiers, value, command=None, released=None):
-        super().__init__(master, bg="#171921")
+        super().__init__(master, bg=_DIAL_MAGIC)
         self.overrideredirect(True)
         self.transient(master.winfo_toplevel())
+        try:
+            self.attributes("-transparentcolor", _DIAL_MAGIC)
+        except Exception:
+            pass
         self._tiers = sorted(list(tiers), key=lambda t: t[1])
         self._command = command
         self._released = released
@@ -639,18 +654,19 @@ class SpeedDial(tk.Toplevel):
         self._drag = False
         self._pulse = 0.0
         self._tick_job = None
+        self._lahir = _time_monotonic()
         S = self._S = 300
         self._SS = 2                       # super-sample utk PIL
-        kan = self._kan = tk.Canvas(self, width=S, height=S, bg="#171921",
-                                    highlightthickness=0)
-        kan.pack(padx=14, pady=14)
+        kan = self._kan = tk.Canvas(self, width=S, height=S,
+                                    bg=_DIAL_MAGIC, highlightthickness=0)
+        kan.pack()
         self.bind("<Escape>", lambda e: self.tutup())
         kan.bind("<Button-1>", self._on_down)
         kan.bind("<B1-Motion>", self._on_move)
         kan.bind("<ButtonRelease-1>", self._on_up)
-        # klik di luar popup menutup (grab: semua klik masuk ke popup);
-        # grab butuh window sudah viewable -> tunda setelah muncul
-        self.after(80, self._grab_aman)
+        # app kehilangan fokus -> popup nutup (jangan menghantui app lain)
+        root = master.winfo_toplevel()
+        self._fo_id = root.bind("<FocusOut>", self._root_keluar, add="+")
 
         if _PIL_OK:
             self._base_big = self._render_base()
@@ -666,31 +682,62 @@ class SpeedDial(tk.Toplevel):
                                        fill="#9a9eaa", state="hidden")
         self._pos_text()
 
-        # posisi dekat pemanggil (chip) di layar
+        # posisi: tepat di bawah chip pemanggil, dijepit dalam layar
         try:
             x = master.winfo_rootx() + master.winfo_width() // 2 - S // 2
             y = master.winfo_rooty() + master.winfo_height() + 10
-            scr_w = self.winfo_screenwidth()
-            self.geometry(f"+{max(8, min(x, scr_w - S - 28))}+{y}")
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            x = max(8, min(x, sw - S - 8))
+            y = max(8, min(y, sh - S - 60))
+            self.geometry(f"+{x}+{y}")
         except Exception:
             pass
-        # popup overlay HARUS selalu di atas (tanpa ini ia muncul DI
-        # BELAKANG jendela app - quirk overrideredirect/transient Windows)
-        self.attributes("-topmost", True)
-        self.lift()
+        # popup milik app harus tetap di atas app (quirk overrideredirect:
+        # kadang muncul DI BELAKANG owner) - aman karena FocusOut menutup
         try:
-            self.focus_force()
+            self.attributes("-topmost", True)
+            self.lift()
         except Exception:
             pass
         self._tick()
 
-    # -- geometri ---------------------------------------------------------
-    def _grab_aman(self):
+    # -- api --------------------------------------------------------------
+    def tutup(self):
         try:
-            self.grab_set()
+            self.master.winfo_toplevel().unbind("<FocusOut>", self._fo_id)
+        except Exception:
+            pass
+        try:
+            self.destroy()
         except Exception:
             pass
 
+    def set_wpm(self, wpm):
+        self._wpm = int(wpm)
+        self._target_ang = self._a_for(self._wpm)
+        self._start_tick()
+
+    def _root_keluar(self, _e):
+        # tunda sedikit: fokus bisa 'berkedip' saat popup baru lahir;
+        # klik ke halaman web / app lain = FocusOut -> tutup rapih
+        if _time_monotonic() - self._lahir < 0.25:
+            return
+        try:
+            self.after(120, lambda: (self.winfo_exists()
+                                     and self._keluar_benar()))
+        except Exception:
+            pass
+
+    def _keluar_benar(self):
+        try:
+            fokus = self.master.winfo_toplevel().focus_get()
+        except Exception:
+            fokus = None
+        if fokus is None or not str(fokus).startswith(str(self)):
+            self.tutup()
+
+    # -- geometri ---------------------------------------------------------
     @property
     def _cx(self):
         return self._S / 2
@@ -761,19 +808,6 @@ class SpeedDial(tk.Toplevel):
             self._released(self._wpm)
         self._start_tick()
 
-    def tutup(self):
-        try:
-            self.grab_release()
-        except Exception:
-            pass
-        self.destroy()
-
-    # -- api --------------------------------------------------------------
-    def set_wpm(self, wpm):
-        self._wpm = int(wpm)
-        self._target_ang = self._a_for(self._wpm)
-        self._start_tick()
-
     # -- spring -----------------------------------------------------------
     def _start_tick(self):
         if self._tick_job is None:
@@ -809,21 +843,28 @@ class SpeedDial(tk.Toplevel):
     # -- render PIL ---------------------------------------------------------
     def _to_photo(self, img_big):
         img = img_big.resize((self._S, self._S), _PImage.LANCZOS)
-        return _PImageTk.PhotoImage(img, master=self)
+        # komposit di atas warna ajaib -> piksel sudut PERSIS magic maka
+        # '-transparentcolor' membuatnya tembus pandang (kartu membulat)
+        latar = _PImage.new("RGB", img.size, _rgb(_DIAL_MAGIC)[:3])
+        latar.paste(img, (0, 0), img)
+        return _PImageTk.PhotoImage(latar, master=self)
 
     def _render_base(self):
-        """Lapisan statis: piringan gelap + titik tier redup (sekali)."""
+        """Lapisan statis: kartu membulat + piringan + titik tier (sekali)."""
         ss = self._SS
-        img = _PImage.new("RGBA", (self._S * ss, self._S * ss),
-                          (23, 25, 33, 255))
+        img = _PImage.new("RGBA", (self._S * ss, self._S * ss), (0, 0, 0, 0))
         d = _PDraw.Draw(img)
+        S = self._S * ss
+        # kartu popup membulat (bukan kotak; sudut dibereskan transparentcolor)
+        d.rounded_rectangle([ss, ss, S - ss, S - ss], radius=26 * ss,
+                            fill=(23, 25, 33, 255),
+                            outline=(56, 61, 78, 255), width=ss)
         c = self._cx * ss
 
         def ell(r, fill):
             d.ellipse([c - r * ss, c - r * ss, c + r * ss, c + r * ss],
                       fill=fill)
 
-        ell(132, (10, 11, 15, 255))          # bayangan
         ell(130, (35, 37, 46, 255))          # piringan
         ell(122, (42, 45, 56, 255))          # bibir dalam
         ell(80, (255, 255, 255, 255))        # pelat nilai putih
@@ -900,8 +941,6 @@ class SpeedDial(tk.Toplevel):
             pass
 
 
-def _blend_rgb(h1, h2, t):
-    r1, g1, b1 = (int(h1[i:i + 2], 16) for i in (1, 3, 5))
-    r2, g2, b2 = (int(h2[i:i + 2], 16) for i in (1, 3, 5))
-    return (round(r1 + (r2 - r1) * t), round(g1 + (g2 - g1) * t),
-            round(b1 + (b2 - b1) * t), 255)
+def _time_monotonic():
+    import time
+    return time.monotonic()
