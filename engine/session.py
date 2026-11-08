@@ -186,7 +186,11 @@ def _probe_redirect_login(timeout_s=14.0):
         except Exception:
             pass
         if (not pindah and not hasil
+                and not getattr(state, "BROWSER_WV2", False)
                 and time.time() - mulai > 3.5):
+            # redirect pulang-pergi = navigasi yang terlihat user; di mode
+            # embedded itu terjadi DI DALAM app (kilatan putih saat start)
+            # - dilarang. Penanda di halaman terlihat memang kebenaran.
             print("[LOGIN] penanda login tak ada di halaman ini - "
                   "pinjam tab sebentar ke dashboard...")
             try:
@@ -234,16 +238,25 @@ def _probe_tab_login(timeout_s=15.0):
     menjawab status untuk halaman apapun yang sedang aktif (mis. lesson
     .play yang navbarnya tidak pernah tampil).
 
-    HYDRATION RACE (bug live 08:33): dashboard yang baru dimuat merender
-    navbar versi LOGOUT dulu ('Login' link), lalu setelah cek sesi (~1-3
-    dtk) diganti nama user. Dulu poll pertama langsung percaya 'out' ->
-    popup 'belum login' padahal user sudah login. Sekarang 'out' harus
-    STABIL 2 poll berurutan; 'in' (nama user muncul) selalu pasti ->
-    langsung. Redirect URL ke /signin = keputusan server, pasti logout.
+    v3.2: mode WebView2 TIDAK BOLEH pakai tab cadangan - _tab_latar
+    mengembalikan HALAMAN UTAMA yang sedang dilihat user, goto sportal
+    = halaman app jadi PUTIH & pengguna tidak bisa klik apa-apa (keluhan
+    live). Halaman yang terlihat MEMANG kebenaran di mode embedded:
+    user login di situ, dashboard-nya mengandung penanda -> pemulihan
+    jalan via _login_profile() biasa. Return None = tunggu poll berikut."""
+    if getattr(state, "BROWSER_WV2", False):
+        return None
 
-    Timeout 15 dtk: browser dingin + Cloudflare + iklan bisa >10 dtk
-    (dulu None -> patroli menunggu throttle 30-60 dtk berikutnya = cek
-    login pertama terasa lama). Return 'in'/'out'/None."""
+    # HYDRATION RACE (bug live 08:33): dashboard yang baru dimuat merender
+    # navbar versi LOGOUT dulu ('Login' link), lalu setelah cek sesi (~1-3
+    # dtk) diganti nama user. Dulu poll pertama langsung percaya 'out' ->
+    # popup 'belum login' padahal user sudah login. Sekarang 'out' harus
+    # STABIL 2 poll berurutan; 'in' (nama user muncul) selalu pasti ->
+    # langsung. Redirect URL ke /signin = keputusan server, pasti logout.
+    #
+    # Timeout 15 dtk: browser dingin + Cloudflare + iklan bisa >10 dtk
+    # (dulu None -> patroli menunggu throttle 30-60 dtk berikutnya = cek
+    # login pertama terasa lama). Return 'in'/'out'/None.
     try:
         tab = browser._tab_latar(state.PAGE.context)
     except Exception:

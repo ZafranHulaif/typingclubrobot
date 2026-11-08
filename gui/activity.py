@@ -78,14 +78,19 @@ class ActivityMixin:
         # (bukan saat masih blank: dulu user menatap layar kosong dan
         # ragu bot hidup atau tidak)
         _fokus_at = getattr(bot, "FOCUS_BROWSER_AT", 0.0) if bot else 0.0
-        if _fokus_at and _fokus_at > self._fokus_browser_at:
+        # mode embedded: browser = app ini sendiri - 'fokus jendela
+        # browser' cuma akan mencuri/mengalihkan fokus jendela app lain
+        # (bahkan jendela browser MILIK user yang kebetulan membuka
+        # typingclub -> app 'minimizing itself' ala user)
+        if (_fokus_at and _fokus_at > self._fokus_browser_at
+                and not getattr(self, "_embed_aktif", False)):
             self._fokus_browser_at = _fokus_at
             self.root.after(150, _focus_browser_window)
         # fokus browser HANYA saat ada yang harus dikerjakan user di sana:
         # set-up first-run dan alur 'pilih level sendiri di browser'.
         # (peluncuran browser sendiri kini di belakang - engine.browser)
         if bot_thread_hidup and getattr(bot, "WAITING_SETUP", False) \
-                and not self._fokus_setup:
+                and not self._fokus_setup and not getattr(self, "_embed_aktif", False):
             self._fokus_setup = True
             self.root.after(150, _focus_browser_window)
         elif not bot_thread_hidup:
@@ -136,12 +141,15 @@ class ActivityMixin:
                     # v3.2: browser DI DALAM app - popup 'login dulu' sudah
                     # tidak relevan. Akun ada = sesi lanjut sendiri; tidak
                     # ada = halaman di atas otomatis diarahkan ke login.
-                    # Tanpa fokus-minimize dance apa pun.
-                    if time.time() > self._login_grace:
+                    # Tanpa fokus-minimize dance apa pun. RE-ASK dilarang
+                    # selagi halaman SUDAH di login/signup - dulu goto
+                    # ulang mereset form di tengah user daftar akun baru.
+                    if (time.time() > self._login_grace
+                            and not di_halaman_login):
                         bot.ASK_LOGIN_URL = getattr(bot,
                                                     "LOGIN_URL_INDIVIDUAL", "")
                         bot.ASK_LOGIN_NAV = True
-                        self._login_grace = time.time() + 180
+                        self._login_grace = time.time() + 300
                         self._log("[LOGIN] Menuju halaman login di app...")
                 elif (self._login_win is None and not self._login_dismiss
                         and not self._rentang_terbuka
@@ -158,7 +166,8 @@ class ActivityMixin:
                 # login selesai = tidak ada lagi yang perlu di browser:
                 # kecilkan lagi ke belakang (bot mengetik via CDP), app
                 # tidak perlu merebut fokus - statusnya yang bercerita
-                self.root.after(600, _minimize_browser_windows)
+                if not getattr(self, "_embed_aktif", False):
+                    self.root.after(600, _minimize_browser_windows)
             elif self._login_dismiss:
                 self._login_dismiss = False
             else:
@@ -194,7 +203,8 @@ class ActivityMixin:
                         bot.AWAIT_RANGE = False
                         # level pilihan terbuka = kerja pindah ke bot:
                         # browser kembali ke belakang
-                        self.root.after(600, _minimize_browser_windows)
+                        if not getattr(self, "_embed_aktif", False):
+                            self.root.after(600, _minimize_browser_windows)
                         if lvl_p:
                             self._rentang_mulai = lvl_p
                             self._save_range_settings()
@@ -252,7 +262,9 @@ class ActivityMixin:
                             # rentang terjawab = bot yang kerja (lompat ke
                             # level awal) - browser kembali ke belakang,
                             # sama seperti alur pilih-sendiri-di-browser
-                            self.root.after(1500, _minimize_browser_windows)
+                            if not getattr(self, "_embed_aktif", False):
+                                self.root.after(1500,
+                                                _minimize_browser_windows)
                         else:
                             # dilewati = jalan dari posisi sekarang; rentang
                             # lama tidak boleh dipakai (live: bot pernah
