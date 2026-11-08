@@ -33,15 +33,46 @@ SWP_NOZORDER = 0x0004
 SWP_NOACTIVATE = 0x0010
 SWP_FRAMECHANGED = 0x0020
 
-# Suntikan per-dokumen: semua window.open & anchor target=_blank
-# dinavigasi DI HALAMAN UTAMA - popup WebView2/Edge tak pernah lahir,
-# jadi tak ada jendela kedua dgn address bar/tombol close yang harus
-# "dikustomisasi", dan input keyboard tetap di proses utama.
+# Suntikan per-dokumen: window.open dipanggil edclub dgn URL KOSONG
+# (('', '_blank', ...)) lalu kode edclub set win.location.href = url
+# google - kalau open() mengembalikan null muncul error 'allow pop-ups'.
+# Kembalikan stub yang siap di-set location-nya; semua penugasan lokasi
+# = navigasi HALAMAN UTAMA (OAuth full-page di dalam app, tanpa jendela
+# kedua dgn address bar & tombol close, dan keyboard tetap hidup).
 _NO_POPUP_JS = """
 (function(){
-  try {
-    window.open = function(u){ if (u) { location.href = u; } return null; };
-  } catch (e) {}
+  function buatStub(u0){
+    var target = u0 || 'about:blank';
+    var loc = {};
+    Object.defineProperty(loc, 'href', {
+      set: function(v){ location.href = v; },
+      get: function(){ return target; }
+    });
+    loc.replace = function(x){ location.replace(x); };
+    loc.assign  = function(x){ location.href = x; };
+    loc.reload  = function(){ location.reload(); };
+    var w = {
+      closed: false, name: '_blank', opener: window,
+      focus: function(){}, blur: function(){}, close: function(){},
+      print: function(){}, moveTo: function(){}, moveBy: function(){},
+      resizeTo: function(){}, resizeBy: function(){},
+      scrollTo: function(){}, scrollBy: function(){},
+      postMessage: function(){}, addEventListener: function(){},
+      removeEventListener: function(){},
+      dispatchEvent: function(){ return true; },
+      document: { write: function(){}, writeln: function(){},
+                  open: function(){}, close: function(){} }
+    };
+    Object.defineProperty(w, 'location', {
+      get: function(){ return loc; },
+      set: function(v){ location.href = (v && v.href) ? v.href : v; }
+    });
+    return w;
+  }
+  window.open = function(u){
+    if (u) { location.href = u; }
+    return buatStub(u);
+  };
   document.addEventListener('click', function(e){
     try {
       var a = e.target && e.target.closest

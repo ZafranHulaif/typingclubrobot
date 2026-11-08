@@ -40,8 +40,45 @@ def _debug_address():
 # tak pernah sampai ke thread msedge - keluhan user).
 NO_POPUP_JS = """
 (function(){
-  try { window.open = function(u){ if (u) { location.href = u; } return null; }; }
-  catch (e) {}
+  // window.open edclub dipanggil dgn URL KOSONG dulu (live:
+  // window.open('', '_blank', 'location=no,toolbar=yes')) lalu kodenya
+  // set win.location.href = url google. Kalau open() mengembalikan null
+  // -> edclub menampilkan 'allow pop-ups'. Maka: kembalikan STUB jujur
+  // yang siap di-set location-nya; semua penugasan lokasi = navigasi
+  // HALAMAN UTAMA (OAuth jalan full-page di dalam app, tanpa jendela
+  // kedua - address bar & tombol close hilang, keyboard hidup).
+  function buatStub(u0){
+    var target = u0 || 'about:blank';
+    var loc = {};
+    Object.defineProperty(loc, 'href', {
+      set: function(v){ location.href = v; },
+      get: function(){ return target; }
+    });
+    loc.replace = function(x){ location.replace(x); };
+    loc.assign  = function(x){ location.href = x; };
+    loc.reload  = function(){ location.reload(); };
+    var w = {
+      closed: false, name: '_blank', opener: window,
+      focus: function(){}, blur: function(){}, close: function(){},
+      print: function(){}, moveTo: function(){}, moveBy: function(){},
+      resizeTo: function(){}, resizeBy: function(){},
+      scrollTo: function(){}, scrollBy: function(){},
+      postMessage: function(){}, addEventListener: function(){},
+      removeEventListener: function(){},
+      dispatchEvent: function(){ return true; },
+      document: { write: function(){}, writeln: function(){},
+                  open: function(){}, close: function(){} }
+    };
+    Object.defineProperty(w, 'location', {
+      get: function(){ return loc; },
+      set: function(v){ location.href = (v && v.href) ? v.href : v; }
+    });
+    return w;
+  }
+  window.open = function(u){
+    if (u) { location.href = u; }
+    return buatStub(u);
+  };
   document.addEventListener('click', function(e){
     try {
       var a = e.target && e.target.closest
