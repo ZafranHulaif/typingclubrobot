@@ -18,10 +18,19 @@ Alur:
 """
 
 import ctypes
+import ctypes.wintypes as wintypes
 import os
 import tkinter as tk
 
 user32 = ctypes.windll.user32
+GWL_STYLE = -16
+WS_CHILD = 0x40000000
+WS_VISIBLE = 0x10000000
+WS_CAPTION = 0x00C00000
+WS_THICKFRAME = 0x00040000
+SWP_NOZORDER = 0x0004
+SWP_NOACTIVATE = 0x0010
+SWP_FRAMECHANGED = 0x0020
 
 
 def tersedia():
@@ -95,6 +104,8 @@ class Wv2Host(tk.Frame):
         self._ec = None          # EdgeChrome (pywebview)
         self._chwnd = None       # hwnd kontrol WinForms
         self._on_ready = None
+        self._jaga_job = None
+        self._popup_unsub = False
         # overlay placeholder (tampil sebelum halaman siap)
         self._overlay = tk.Frame(self, bg=bg)
         self._overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
@@ -134,13 +145,92 @@ class Wv2Host(tk.Frame):
             user32.SetParent(self._chwnd, self.winfo_id())
             self._pas_ukuran()
             self._overlay.place_forget()
+            # PENTING (stabilitas): lepas SEMUA handler event pywebview.
+            # Handler itu callback Python dari thread .NET - kombinasi dgn
+            # mainloop Tk memicu crash GIL (PyEval_RestoreThread) saat init
+            # webview selesai. Interaksi .NET hanya lewat polling dari
+            # thread Tk (lihat _jaga) - tanpa callback balik sama sekali.
+            wv = ec.webview
+            for ev_name, fn in (("CoreWebView2InitializationCompleted",
+                                 "on_webview_ready"),
+                                ("NavigationStarting", "on_navigation_start"),
+                                ("NavigationCompleted",
+                                 "on_navigation_completed"),
+                                ("WebMessageReceived", "on_script_notify")):
+                try:
+                    getattr(wv, ev_name).__isub__(getattr(ec, fn))
+                except Exception:
+                    pass
+            # popup (Google/Clever OAuth): handler popup pywebview akan
+            # dicabut di _jaga begitu CoreWebView2 siap - popup WebView2
+            # asli lalu kita adopsi ke dalam app
             ec.load_url(url)
+            self._jaga()
             return True
         except Exception as ex:
             print(f"[WEBVIEW2] gagal dibuat ({str(ex)[:100]}) - pakai "
                   "browser eksternal.")
             self._ec = None
             return False
+
+    def _core_ready(self, sender, _args):
+        """TIDAK DIPAKAI: callback .NET -> Python dari thread asing
+        memicu crash GIL. Penanganan init dilakukan lewat polling _jaga."""
+
+    def _jaga(self):
+        """Polling dari thread Tk (tanpa callback .NET -> Python):
+        1. begitu CoreWebView2 ada: cabut handler popup pywebview (yang
+           membuka link di browser OS / menimpa halaman utama - penyebab
+           dialog 'Get an app to open this link' saat login Google).
+        2. adopsi jendela popup WebView2 (OAuth dll): jendela milik proses
+           webview kita yang ber-owner ke kontrol utama -> jadi CHILD
+           frame ini, penuh memenuhi area. Popup menutup dirinya sendiri
+           saat OAuth selesai (relasi opener tetap utuh)."""
+        GW_OWNER = 4
+        if self._ec and not self._popup_unsub:
+            try:
+                core = self._ec.webview.CoreWebView2
+                if core is not None:
+                    core.NewWindowRequested -= self._ec.on_new_window_request
+                    self._popup_unsub = True
+            except Exception:
+                pass
+        temuan = []
+        chwnd = self._chwnd
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def enum_cb(hwnd, _l):
+            try:
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                if user32.GetWindow(hwnd, GW_OWNER) != chwnd:
+                    return True
+                buf = ctypes.create_unicode_buffer(64)
+                user32.GetClassNameW(hwnd, buf, 64)
+                if buf.value != "Chrome_WidgetWin_1":
+                    return True
+                temuan.append(hwnd)
+            except Exception:
+                pass
+            return True
+
+        user32.EnumWindows(enum_cb, 0)
+        for hwnd in temuan:
+            try:
+                style = user32.GetWindowLongW(hwnd, GWL_STYLE)
+                style &= ~(WS_CAPTION | WS_THICKFRAME)
+                style |= WS_CHILD | WS_VISIBLE
+                user32.SetWindowLongW(hwnd, GWL_STYLE, style)
+                user32.SetParent(hwnd, self.winfo_id())
+                user32.SetWindowPos(hwnd, 0, 0, 0,
+                                    max(self.winfo_width(), 50),
+                                    max(self.winfo_height(), 50),
+                                    SWP_NOZORDER | SWP_NOACTIVATE |
+                                    SWP_FRAMECHANGED)
+            except Exception:
+                pass
+        if self._ec:
+            self._jaga_job = self.after(400, self._jaga)
 
     def release(self):
         """Lepas WebView2 saat app ditutup (browser process ikut mati -

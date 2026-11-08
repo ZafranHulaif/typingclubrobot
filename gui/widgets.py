@@ -590,3 +590,246 @@ class SpeedSlider(tk.Canvas):
         # titik pusat accent: kesan presisi di tengah tetesan
         self.create_oval(xt - 2, y - 2, xt + 2, y + 2,
                          fill=_blend(ACCENT, "#ffffff", 0.15), width=0)
+# ------------------------------------------------------------- dial kecepatan
+import math as _math
+
+_PINK_1 = "#ff5c8a"      # arc: ujung awal (terang)
+_PINK_2 = "#e0245e"      # arc: mendekati thumb (pekat) - rasa 'heat'
+
+
+class SpeedDial(tk.Toplevel):
+    """Popup dial kecepatan ala kontrol 'pod' (ref: dial bulat month).
+
+    - lingkaran putih tengah: ANGKA wpm sekarang + label 'wpm'
+    - cincin titik: posisi tier; titik sudah dilewati menyala
+    - arc merah muda tebal + thumb putih glow menempel di ujung arc
+    - seret memutar: nilai mengalir live ke engine; lepas: spring ke
+      tier terdekat dengan goyangan kecil
+    - Esc / klik di luar menutup popup
+    """
+
+    def __init__(self, master, tiers, value, command=None, released=None):
+        super().__init__(master, bg="#171921")
+        self.overrideredirect(True)
+        self.transient(master.winfo_toplevel())
+        self._tiers = sorted(list(tiers), key=lambda t: t[1])
+        self._command = command
+        self._released = released
+        self._wpm = int(value)
+        self._ang = self._target_ang = self._a_for(self._wpm)
+        self._drag = False
+        self._pulse = 0.0
+        self._tick_job = None
+        S = self._S = 300
+        kan = self._kan = tk.Canvas(self, width=S, height=S, bg="#171921",
+                                    highlightthickness=0)
+        kan.pack(padx=14, pady=14)
+        self.bind("<Escape>", lambda e: self.tutup())
+        kan.bind("<Button-1>", self._on_down)
+        kan.bind("<B1-Motion>", self._on_move)
+        kan.bind("<ButtonRelease-1>", self._on_up)
+        # klik di luar popup menutup (grab: semua klik masuk ke popup);
+        # grab butuh window sudah viewable -> tunda setelah muncul
+        self.after(80, self._grab_aman)
+
+        # posisi dekat pemanggil (chip) di layar
+        try:
+            x = master.winfo_rootx() + master.winfo_width() // 2 - S // 2
+            y = master.winfo_rooty() + master.winfo_height() + 10
+            scr_w = self.winfo_screenwidth()
+            self.geometry(f"+{max(8, min(x, scr_w - S - 28))}+{y}")
+        except Exception:
+            pass
+        # popup overlay HARUS selalu di atas (tanpa ini ia muncul DI
+        # BELAKANG jendela app - quirk overrideredirect/transient Windows)
+        self.attributes("-topmost", True)
+        self.lift()
+        try:
+            self.focus_force()
+        except Exception:
+            pass
+        self._draw()
+        self._tick()
+
+    # -- geometri ---------------------------------------------------------
+    def _grab_aman(self):
+        try:
+            self.grab_set()
+        except Exception:
+            pass
+
+    @property
+    def _cx(self):
+        return self._S / 2
+
+    @property
+    def _r_ring(self):
+        return 112
+
+    @property
+    def _r_plate(self):
+        return 78
+
+    def _a_for(self, wpm):
+        lo, hi = self._tiers[0][1], self._tiers[-1][1]
+        f = (wpm - lo) / max(1, hi - lo)
+        return 135 + f * 270.0        # 135deg (kiri-bawah) -> 405deg
+
+    def _wpm_for(self, ang):
+        lo, hi = self._tiers[0][1], self._tiers[-1][1]
+        f = max(0.0, min(1.0, (ang - 135) / 270.0))
+        return lo + f * (hi - lo)
+
+    def _xy(self, ang, r):
+        rad = _math.radians(ang)
+        return self._cx + r * _math.cos(rad), self._cx + r * _math.sin(rad)
+
+    # -- interaksi --------------------------------------------------------
+    def _on_down(self, e):
+        dx, dy = e.x - self._cx, e.y - self._cy
+        if _math.hypot(dx, dy) > self._r_ring + 30:
+            self.tutup()          # klik jauh di luar dial = tutup
+            return
+        self._drag = True
+        self._arah_ke(self._angle_of(e.x, e.y))
+
+    def _on_move(self, e):
+        if self._drag:
+            self._arah_ke(self._angle_of(e.x, e.y))
+
+    def _angle_of(self, x, y):
+        a = _math.degrees(_math.atan2(y - self._cy, x - self._cx))
+        # normalisasi ke [135, 495): daerah celah bawah (0..135) dijepit
+        while a < 135:
+            a += 360
+        return min(405.0, a)
+
+    def _arah_ke(self, ang):
+        self._target_ang = ang
+        if self._tick_job is None:
+            self._tick()
+
+    def _on_up(self, _e):
+        if not self._drag:
+            return
+        self._drag = False
+        wpm = int(round(self._wpm_for(self._target_ang)))
+        terdekat = min(self._tiers, key=lambda t: abs(t[1] - wpm))
+        self._wpm = terdekat[1]
+        self._target_ang = self._a_for(self._wpm)
+        if self._released:
+            self._released(self._wpm)
+        self._start_tick()
+
+    def tutup(self):
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        self.destroy()
+
+    # -- api --------------------------------------------------------------
+    def set_wpm(self, wpm):
+        self._wpm = int(wpm)
+        self._target_ang = self._a_for(self._wpm)
+        self._start_tick()
+
+    # -- spring -----------------------------------------------------------
+    def _start_tick(self):
+        if self._tick_job is None:
+            self._tick_job = True
+            self._tick()
+
+    def _tick(self):
+        k, c = (0.45, 0.42) if self._drag else (0.16, 0.62)
+        self._v = getattr(self, "_v", 0.0)
+        self._v += k * (self._target_ang - self._ang) - c * self._v
+        self._ang += self._v
+        self._pulse *= 0.82
+        if self._pulse < 0.01:
+            self._pulse = 0.0
+        if abs(self._target_ang - self._ang) < 0.3 and abs(self._v) < 0.05:
+            self._ang = self._target_ang
+            self._v = 0.0
+            self._pulse = 1.0
+            if not self._drag:
+                self._tick_job = None
+                self._draw()
+                return
+        else:
+            wpm = int(round(max(self._tiers[0][1],
+                                min(self._tiers[-1][1],
+                                    self._wpm_for(self._ang)))))
+            if wpm != self._wpm:
+                self._wpm = wpm
+                if self._command:
+                    self._command(wpm)
+        self._draw()
+        self._tick_job = self.after(16, self._tick)
+
+    # -- gambar -----------------------------------------------------------
+    def _blend(self, c1, c2, t):
+        r1, g1, b1 = (int(c1[i:i + 2], 16) for i in (1, 3, 5))
+        r2, g2, b2 = (int(c2[i:i + 2], 16) for i in (1, 3, 5))
+        return "#%02x%02x%02x" % (
+            round(r1 + (r2 - r1) * t), round(g1 + (g2 - g1) * t),
+            round(b1 + (b2 - b1) * t))
+
+    def _aa_oval(self, kan, cx, cy, r, fill, bgc="#171921", feather=3,
+                 steps=4, outline=None):
+        """Lingkaran ANTIALIAS: bulu halus `feather` px di tepi (bukan
+        cincin raksasa - dulu t=multiplicatif bikin cincin abu lebar)."""
+        for i in range(steps, 0, -1):
+            k = i / (steps + 1)
+            rr = r + feather * k
+            kan.create_oval(cx - rr, cy - rr, cx + rr, cy + rr,
+                            fill=self._blend(bgc, fill, 1 - k), width=0)
+        kan.create_oval(cx - r, cy - r, cx + r, cy + r,
+                        fill=fill, width=0, outline=outline or fill)
+
+    def _draw(self):
+        kan = self._kan
+        kan.delete("all")
+        cx = cy = self._cx
+        # piringan luar gelap (tema gelap app) + bayangan tipis
+        self._aa_oval(kan, cx, cy + 6, 132, "#0c0d11", bgc="#171921",
+                      feather=5, steps=3)
+        self._aa_oval(kan, cx, cy, 130, "#23252e", bgc="#171921", feather=4)
+        self._aa_oval(kan, cx, cy, 122, "#2a2d38", bgc="#23252e", feather=3)
+        # cincin titik tier
+        a_cur = self._ang
+        for _n, wpm in self._tiers:
+            a = self._a_for(wpm)
+            x, y = self._xy(a, self._r_ring)
+            lewat = a <= a_cur + 0.5
+            aktif = wpm == self._wpm
+            r = 5 if aktif else 3.5
+            warna = _PINK_2 if lewat else "#c9ccd4"
+            kan.create_oval(x - r, y - r, x + r, y + r, fill=warna, width=0)
+        # arc tebal 'beaded' dari 135deg ke thumb (gradasi pink -> merah)
+        a0, a1 = 135.0, a_cur
+        if a1 > a0 + 2:
+            n = max(2, int((a1 - a0) / 3.5))
+            for i in range(n + 1):
+                a = a0 + (a1 - a0) * i / n
+                t = (a - 135) / 270.0
+                x, y = self._xy(a, self._r_ring)
+                warna = self._blend(_PINK_1, _PINK_2, min(1.0, t * 1.15))
+                kan.create_oval(x - 8, y - 8, x + 8, y + 8,
+                                fill=warna, width=0)
+        # thumb: glow pink + butir putih dgn squash halus saat mendarat
+        xt, yt = self._xy(a_cur, self._r_ring)
+        squash = min(0.3, self._pulse * 0.15)
+        r_th = 17 - squash * 3
+        self._aa_oval(kan, xt, yt, 24, self._blend(_PINK_2, "#171921", 0.2),
+                      bgc="#2a2d38", feather=5, steps=3)
+        self._aa_oval(kan, xt, yt, 19, _PINK_1, bgc="#2a2d38", feather=4,
+                      steps=3)
+        self._aa_oval(kan, xt, yt, r_th, "#ffffff", bgc=_PINK_1, feather=3)
+        # piringan nilai
+        self._aa_oval(kan, cx, cy, self._r_plate, "#ffffff", bgc="#2a2d38",
+                      feather=4, outline="#e4e6ec")
+        kan.create_text(cx, cy - 14, text=str(self._wpm),
+                        font=("Segoe UI", 44, "bold"), fill="#161821")
+        kan.create_text(cx, cy + 34, text="wpm",
+                        font=("Segoe UI", 12, "bold"), fill="#9a9eaa")

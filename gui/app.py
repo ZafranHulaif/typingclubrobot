@@ -22,7 +22,7 @@ from tkinter.scrolledtext import ScrolledText
 from .licensing import _machine_code, _license_valid
 from . import anim
 from .theme import (APP_VERSION, ACCENT, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, GREEN_HOVER, PANEL, CREATOR, RED, RED_DIM, SETTINGS_FILE, YELLOW, YELLOW_DIM, _asset_path, _build_stamp)
-from .widgets import Dropdown, SpeedSlider, _gelap_titlebar
+from .widgets import Dropdown, SpeedDial, _gelap_titlebar
 from .webview2_host import Wv2Host, tersedia as wv2_tersedia, jalankan_sta
 
 
@@ -182,15 +182,23 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         if _m:
             self._speed_wpm = max(85, min(300, int(_m.group(1))))
         tier_ui = [(str(w), w) for w in self.SPEED_TIERS]
-        self.speed_slider = SpeedSlider(grp, tier_ui, self._speed_wpm,
-                                        bg=BG, width=380,
-                                        command=self._on_slider_wpm,
-                                        released=self._on_slider_release)
-        self.speed_slider.pack(side="left", pady=(0, 16))
-        self.speed_readout = tk.Label(grp, text=f"{self._speed_wpm} wpm",
-                                      font=("Segoe UI", 10, "bold"),
-                                      fg=FG, bg=BG)
-        self.speed_readout.pack(side="left", padx=(12, 0), pady=(0, 26))
+        # v3.2: chip ringkas - klik membuka DIAL bulat (ref visual user:
+        # 'pod' bulat dgn titik tier + arc merah muda + thumb glow). Baris
+        # kontrol tetap satu baris & ramping.
+        self._dial = None            # popup SpeedDial aktif (None = tutup)
+        self.speed_chip = tk.Label(grp, text=f"⚡  {self._speed_wpm} wpm",
+                                   font=("Segoe UI", 10, "bold"), fg=FG,
+                                   bg=PANEL, padx=16, pady=8, cursor="hand2",
+                                   highlightthickness=1,
+                                   highlightbackground=EDGE)
+        self.speed_chip.pack(side="left", padx=(0, 4), pady=(0, 16))
+        self.speed_chip.bind("<Button-1>",
+                             lambda e: self._safe(self._toggle_dial))
+        self.speed_chip.bind("<Enter>", lambda e: self.speed_chip.configure(
+            bg=CARD_HOVER) if str(self.speed_chip["state"]) != "disabled"
+            else None)
+        self.speed_chip.bind("<Leave>",
+                             lambda e: self.speed_chip.configure(bg=PANEL))
 
         # Rentang level tidak lagi ada di jendela utama (diminta saat Start
         # atau otomatis dari lesson yang sedang terbuka).
@@ -454,24 +462,35 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
 
     def _apply_speed(self, wpm, save=False):
-        """Terapkan wpm (halus, 85-300) ke readout, slider, dan engine.
-        save=True hanya di akhir interaksi (lepas drag) - jangan tulis
-        disk per pixel saat drag."""
+        """Terapkan wpm (halus, 85-300) ke chip, dial (bila terbuka), dan
+        engine. save=True hanya di akhir interaksi (lepas drag) - jangan
+        tulis disk per pixel saat drag."""
         wpm = int(wpm)
         self._speed_wpm = wpm
-        self.speed_readout.configure(text=f"{wpm} wpm")
-        self.speed_slider.set_wpm(wpm)
+        self.speed_chip.configure(text=f"⚡  {wpm} wpm")
+        if self._dial is not None and self._dial.winfo_exists():
+            self._dial.set_wpm(wpm)
         if self.bot:
             self.bot.SPEED_WPM = wpm
         if save:
             self._save_settings()
 
-    def _on_slider_wpm(self, wpm):
-        """Drag: nilai halus live (engine ikut, tanpa tulis disk)."""
+    def _toggle_dial(self):
+        """Buka/tutup popup dial kecepatan di bawah chip."""
+        if self._dial is not None and self._dial.winfo_exists():
+            self._dial.tutup()
+            return
+        self._dial = SpeedDial(self.speed_chip, self.SPEED_TIERS,
+                               self._speed_wpm,
+                               command=self._on_dial_wpm,
+                               released=self._on_dial_release)
+
+    def _on_dial_wpm(self, wpm):
+        """Putar dial: nilai halus live (engine ikut, tanpa tulis disk)."""
         self._apply_speed(wpm)
 
-    def _on_slider_release(self, wpm):
-        """Lepas drag: simpan pilihan + spring animasi ke tick terdekat."""
+    def _on_dial_release(self, wpm):
+        """Lepas dial: simpan pilihan + spring ke tick terdekat."""
         self._apply_speed(wpm, save=True)
 
     def _toggle_hotkey(self):
