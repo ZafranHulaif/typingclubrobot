@@ -145,6 +145,10 @@ _OAUTH_RELAY_PAGE_JS = """
           for (var j = 0; j < k.length; j++)
             if (k[j] && k[j].login_token) { tok = k[j].login_token; break; }
           if (!tok) break;
+          // simpan login_token: tiket tukar-token ini yang bikin sesi
+          // hidup (cookie rt saja TIDAK cukup - boot dengan rt tetap
+          // anon, terbukti live). Dipakai ulang saat boot berikutnya.
+          try { localStorage.setItem('tb_lt', tok); } catch (e) {}
           var r2 = await fetch(api + '/j/auth/refresh-tokens',
             Object.assign({}, opt, {body: JSON.stringify({login_token: tok})}));
           if (r2.ok) {
@@ -155,6 +159,35 @@ _OAUTH_RELAY_PAGE_JS = """
       }
       location.replace('https://www.edclub.com/signin');
     })();
+  }
+  // 3) boot berikutnya dgn login_token tersimpan: halaman /signin +
+  //    token ada = sesi kemarin masih bisa ditukar -> masuk sendiri
+  //    tanpa Google lagi (kuki rt saja tak bertahan boot, terbukti).
+  try {
+    var lt0 = localStorage.getItem('tb_lt');
+    var gagal0 = parseInt(localStorage.getItem('tb_lt_gagal') || '0', 10);
+    if (lt0 && h.indexOf('edclub') >= 0 && p.indexOf('/signin') >= 0
+        && Date.now() - gagal0 > 12 * 3600 * 1000) {
+      var cek = function () {
+        if (!/sign in with|log in|sign up/i.test(
+            (document.body.innerText || ''))) return;   // sudah login
+        fetch('https://api.edclub.com/j/auth/refresh-tokens',
+          {method: 'POST', credentials: 'include',
+           headers: {'Content-Type': 'application/json'},
+           body: JSON.stringify({login_token: lt0})})
+          .then(function (r) {
+            if (r.ok) {
+              location.replace('https://www.edclub.com/student/course/3');
+            } else {
+              try { localStorage.setItem('tb_lt_gagal',
+                    String(Date.now())); } catch (e) {}
+            }
+          })
+          .catch(function () {});
+      };
+      setTimeout(cek, 3000);
+      setTimeout(cek, 7000);
+    }
   } catch (e) {}
 })();
 """
@@ -490,6 +523,7 @@ class Wv2Host(tk.Frame):
             callback_sejak = {}      # code callback -> waktu pertama terlihat
             kode_coba = set()        # code yang sudah dicoba relai manual
             eval_gagal = 0
+            kosong = 0
             jantung[0] = time.time()
             catat("pengawas tersambung - init script terpasang")
             # ---- PULIHKAN SESI LOGIN: cookie edclub dari sesi lalu.
@@ -583,7 +617,23 @@ class Wv2Host(tk.Frame):
                 try:
                     pages = [p for c in browser.contexts for p in c.pages]
                 except Exception:
+                    pages = []
+                if not pages:
+                    # dulu diam: koneksi playwright bisa mati setengah
+                    # (malam/r tidur, devtools webview restart) -> daftar
+                    # halaman kosong selamanya, tanpa error = zombi. Sisi
+                    # jembol: putus & sambung ulang (init script + rescue
+                    # otomatis ikut terpasang ulang).
+                    kosong += 1
+                    if kosong in (5, 15):
+                        catat(f"daftar halaman kosong ({kosong} putaran) - "
+                              "koneksi mungkin mati")
+                    if kosong >= 15:
+                        catat("pengawas: koneksi mati (halaman tak terlihat)"
+                              " - putus & sambung ulang")
+                        return
                     continue
+                kosong = 0
                 for pg in pages:
                     if stop.is_set():
                         break
