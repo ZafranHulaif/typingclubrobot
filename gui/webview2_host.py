@@ -65,6 +65,41 @@ _LOGIN_REDIRECT_JS = """
 })();
 """
 
+# Relay token OAuth: di alur ASLI, callback s.typingclub.com hidup di
+# POPUP dan menyerahkan code ke halaman signin via window.opener
+# (postMessage). Di mode embedded halaman utama yang navigasi (signin
+# -> google -> callback) jadi saat callback tiba, halaman signin sudah
+# MATI - postMessage ke opener=null gagal diam -> callback menggantung
+# blank/abu-abu selamanya (keluhan live: login Google selesai -> layar
+# kosong). Kode edclub sendiri cuma butuh {issuer, code, domain} untuk
+# tukar token (state cuma CSRF client-side) -> relay dua fetch ini
+# MENGANTIKAN handshake yang mati itu. Jalankan DI HALAMAN www.edclub.com
+# (origin yang sama dengan yang dipakai SPA edclub, CORS sudah aman).
+_OAUTH_RELAY_JS = """
+async ({kode, issuer}) => {
+  const api = 'https://api.edclub.com';
+  const opt = {method: 'POST', credentials: 'include',
+               headers: {'Content-Type': 'application/json'}};
+  const r = await fetch(api + '/auth/resolve_oauth_token/', {...opt,
+    body: JSON.stringify({issuer: issuer, code: kode, domain: 'www'})});
+  if (!r.ok) return 'resolve-fail:' + r.status;
+  const d = await r.json();
+  const k = [];
+  if (d && d.user) k.push(d.user);
+  if (d && d.tpc_users) k.push(...d.tpc_users);
+  const tok = (k.find(u => u && u.login_token) || {}).login_token;
+  if (!tok) return 'no-token';
+  const r2 = await fetch(api + '/j/auth/refresh-tokens', {...opt,
+    body: JSON.stringify({login_token: tok})});
+  if (!r2.ok) return 'refresh-fail:' + r2.status;
+  return 'ok';
+}
+"""
+# issuer dicoba berurutan: kunci provider di config oauths edclub tidak
+# diekspos ke URL callback, resolve gagal dgn issuer salah tidak membakar
+# code (lookup server-side by code).
+_OAUTH_ISSUERS = ("google", "clever", "office365")
+
 # Suntikan per-dokumen: window.open dipanggil edclub dgn URL KOSONG
 # (('', '_blank', ...)) lalu kode edclub set win.location.href = url
 # google - kalau open() mengembalikan null muncul error 'allow pop-ups'.
@@ -294,6 +329,11 @@ class Wv2Host(tk.Frame):
                 except Exception:
                     pass
             wrap = "() => {" + _LOGIN_REDIRECT_JS + "}"
+            # state relay OAuth (thread lokal pengawas): code yang sedang
+            # di-relay + code yang sudah selesai (hindari proses ulang)
+            kode_relai = ""
+            kode_selesai = ""
+            gagal_relai = 0
             while not stop.is_set():
                 time.sleep(2.0)
                 try:
@@ -307,6 +347,75 @@ class Wv2Host(tk.Frame):
                         u = pg.evaluate("() => location.href")
                     except Exception:
                         continue          # navigasi berlangsung
+                    # CALLBACK OAuth: ambil code, bawa ke /signin, tukar
+                    # token di sana (halaman signin asli sudah mati ketika
+                    # callback ini tiba - lihat catatan _OAUTH_RELAY_JS).
+                    if "auth_callback" in u:
+                        try:
+                            if "error=" in u:
+                                pg.evaluate(
+                                    "() => location.href = "
+                                    "'https://www.edclub.com/signin'")
+                                continue
+                            kode = pg.evaluate(
+                                "() => new URL(location.href)"
+                                ".searchParams.get('code') || ''")
+                        except Exception:
+                            continue
+                        if kode and kode != kode_selesai \
+                                and kode != kode_relai:
+                            kode_relai = kode
+                            try:
+                                pg.evaluate(
+                                    "() => location.href = "
+                                    "'https://www.edclub.com/signin'")
+                            except Exception:
+                                pass
+                        continue
+                    # RELAY: halaman edclub mana pun bisa menukar token
+                    # (fetch lintas-origin ke api.edclub.com, sama dgn
+                    # yang dilakukan SPA edclub). Coba max ~4 putaran
+                    # lalu tanggalkan supaya code basi tidak diproses
+                    # terus tiap 2 dtk.
+                    if kode_relai and "edclub" in u:
+                        hasil = ""
+                        try:
+                            for iss in _OAUTH_ISSUERS:
+                                hasil = pg.evaluate(
+                                    _OAUTH_RELAY_JS,
+                                    {"kode": kode_relai, "issuer": iss})
+                                if hasil == "ok" or hasil and \
+                                        str(hasil).startswith("refresh-fail"):
+                                    break
+                        except Exception as ex:
+                            hasil = f"err:{ex!r}"[:60]
+                        if hasil == "ok":
+                            kode_selesai = kode_relai
+                            kode_relai = ""
+                            gagal_relai = 0
+                            print("[WEBVIEW2] login OAuth berhasil "
+                                  "di-relay - menuju daftar level...")
+                            try:
+                                pg.evaluate(
+                                    "() => location.href = "
+                                    "'https://www.edclub.com/student/course/3'")
+                            except Exception:
+                                pass
+                        elif hasil and str(hasil).startswith(
+                                ("refresh-fail", "no-token")):
+                            # code basi/token salah - jangan diulang
+                            kode_selesai = kode_relai
+                            kode_relai = ""
+                        else:
+                            # resolve-fail/err: boleh dicoba lagi (network
+                            # bisa temporer), tapi batasi 3 putaran supaya
+                            # code basi tidak di-fetch terus tiap 2 dtk
+                            gagal_relai += 1
+                            if gagal_relai >= 3:
+                                kode_selesai = kode_relai
+                                kode_relai = ""
+                                gagal_relai = 0
+                        continue
                     if "edclub" not in u or "signin" in u:
                         continue
                     try:
