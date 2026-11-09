@@ -21,6 +21,7 @@ import ctypes
 import ctypes.wintypes as wintypes
 import json
 import os
+import re
 import time
 import tkinter as tk
 
@@ -81,6 +82,26 @@ _LOGIN_REDIRECT_JS = """
 # evaluate watcher: thread pengawas bisa menggantung/mati di exe
 # frozen, sedangkan init script TERBUKTI selalu jalan (stub+redirect
 # idup bertahun-tahun).
+_RELAY_LANGSUNG_JS = """
+async (arg) => {
+  const kode = arg.kode, issuer = arg.issuer;
+  const r1 = await fetch('https://api.edclub.com/auth/resolve_oauth_token/', {
+    method: 'POST', credentials: 'include',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({issuer: issuer, code: kode, domain: 'www'})});
+  const j1 = await r1.json().catch(() => ({}));
+  const lt = (j1.user && j1.user.login_token)
+             || (j1.tpc_users && j1.tpc_users[0] && j1.tpc_users[0].login_token);
+  if (!lt) return 'resolve-fail:' + r1.status;
+  const r2 = await fetch('https://www.edclub.com/j/auth/refresh-tokens', {
+    method: 'POST', credentials: 'include',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({login_token: lt})});
+  if (!r2.ok) return 'refresh-fail:' + r2.status;
+  return 'ok';
+}
+"""
+
 _OAUTH_RELAY_PAGE_JS = """
 (function(){
   try {
@@ -466,6 +487,9 @@ class Wv2Host(tk.Frame):
                     pass
             wrap = "() => {" + _LOGIN_REDIRECT_JS + "}"
             url_terakhir = ""
+            callback_sejak = {}      # code callback -> waktu pertama terlihat
+            kode_coba = set()        # code yang sudah dicoba relai manual
+            eval_gagal = 0
             jantung[0] = time.time()
             catat("pengawas tersambung - init script terpasang")
             # ---- PULIHKAN SESI LOGIN: cookie edclub dari sesi lalu.
@@ -477,18 +501,40 @@ class Wv2Host(tk.Frame):
             # relay OAuth. Sesi berbasis cookie terbukti dari bundle
             # SPA: semua fetch API pakai credentials:"include" dgn
             # auth() kosong.
-            cdp = None
+            # PENTING: koneksi CDP-nya harus level HALAMAN - sesi
+            # browser-level Storage.getCookies membaca konteks DEFAULT
+            # yang KOSONG saat connect_over_cdp (cookie webview tak
+            # kelihatan - sesi page-level terbukti melihat rt dll.).
             perlu_boot = False
-            try:
-                cdp = browser.new_browser_cdp_session()
-            except Exception:
-                pass
             sesi_sid = None
+
+            def _cdp_dapat():
+                try:
+                    for c in browser.contexts:
+                        if c.pages:
+                            s = c.new_cdp_session(c.pages[0])
+                            s.send("Network.enable")
+                            return s
+                except Exception:
+                    pass
+                return None
+
+            cdp = _cdp_dapat()
+            if cdp is None and not stop.is_set():
+                # halaman webview kadang baru terdaftar - tunggu sebentar
+                for _ in range(20):
+                    if stop.is_set():
+                        break
+                    time.sleep(0.5)
+                    cdp = _cdp_dapat()
+                    if cdp is not None:
+                        break
             tersimpan = _sesi_muat()
+            if cdp is None and tersimpan:
+                catat("pulihkan sesi DILEWATI - koneksi CDP tak siap")
             if cdp is not None and tersimpan:
                 try:
                     kini = time.time()
-                    pasang = []
                     for c in tersimpan:
                         q = {"name": c["name"], "value": c["value"],
                              "domain": c["domain"],
@@ -498,10 +544,10 @@ class Wv2Host(tk.Frame):
                              "expires": kini + 180 * 86400}
                         if c.get("sameSite"):
                             q["sameSite"] = c["sameSite"]
-                        pasang.append(q)
-                    cdp.send("Storage.setCookies", {"cookies": pasang})
+                        cdp.send("Network.setCookie", q)
                     perlu_boot = True
-                    catat(f"sesi edclub dipulihkan ({len(pasang)} cookie)")
+                    catat(f"sesi edclub dipulihkan ({len(tersimpan)} "
+                          "cookie)")
                 except Exception as ex:
                     catat(f"pulihkan sesi gagal: {ex!r}"[:100])
             while not stop.is_set():
@@ -512,9 +558,11 @@ class Wv2Host(tk.Frame):
                 # ---- TANGKAP SESI: cookie login berotasi (rt ganti
                 # tiap refresh) - simpan tiap berubah supaya app
                 # BERIKUTNYA bisa login sendiri.
+                if cdp is None:
+                    cdp = _cdp_dapat()      # sambungan lama putus -> baru
                 if cdp is not None:
                     try:
-                        ck = cdp.send("Storage.getCookies").get(
+                        ck = cdp.send("Network.getCookies").get(
                             "cookies", [])
                         milik = [c for c in ck
                                  if ("edclub" in c.get("domain", "")
@@ -529,7 +577,9 @@ class Wv2Host(tk.Frame):
                             catat(f"sesi edclub tersimpan "
                                   f"({len(milik)} cookie)")
                     except Exception:
-                        pass
+                        # sesi halaman bisa mati (target ditutup) - coba
+                        # buat koneksi baru di putaran berikutnya
+                        cdp = None
                 try:
                     pages = [p for c in browser.contexts for p in c.pages]
                 except Exception:
@@ -539,8 +589,19 @@ class Wv2Host(tk.Frame):
                         break
                     try:
                         u = pg.evaluate("() => location.href")
-                    except Exception:
-                        continue          # navigasi berlangsung
+                    except Exception as ex:
+                        # dulu except->continue diam: watcher jadi ZOMBI
+                        # (eval gagal terus tanpa log & tanpa detak hang)
+                        eval_gagal += 1
+                        if eval_gagal in (1, 5, 20):
+                            catat(f"eval halaman gagal ({eval_gagal}): "
+                                  f"{repr(ex)[:60]}")
+                        if eval_gagal >= 5:
+                            catat("pengawas: sambungan macet - putus & "
+                                  "sambung ulang koneksi baru")
+                            return      # supervisor buat runner baru
+                        continue
+                    eval_gagal = 0
                     jantung[0] = time.time()
                     if u != url_terakhir:
                         url_terakhir = u
@@ -557,6 +618,55 @@ class Wv2Host(tk.Frame):
                             continue
                         except Exception:
                             pass
+                    if "auth_callback" in u:
+                        # init script relay harusnya menjemput halaman ini
+                        # dalam hitungan detik. Kalau >6 dtk masih di
+                        # sini = tersesat (script tak jalan) -> selamatkan
+                        # manual: bawa code ke /signin & tukar token di
+                        # sana (fetch yang sama dengan SPA edclub).
+                        mk = re.search(r"[?&]code=([^&]+)", u)
+                        kode = mk.group(1) if mk else ""
+                        if not kode or kode in kode_coba:
+                            continue
+                        callback_sejak.setdefault(kode, time.time())
+                        if time.time() - callback_sejak[kode] > 6.0:
+                            kode_coba.add(kode)
+                            callback_sejak.pop(kode, None)
+                            issuer = "google"
+                            mi = re.search(r"[?&]iss=([^&]+)", u)
+                            if mi:
+                                dari = mi.group(1).lower()
+                                if "clever" in dari:
+                                    issuer = "clever"
+                                elif "office" in dari or "microsoft" in dari:
+                                    issuer = "office365"
+                            catat("callback OAuth terdampar (init script "
+                                  "tak jalan) - relay manual...")
+                            hasil = ""
+                            try:
+                                pg.evaluate("() => location.href = "
+                                            "'https://www.edclub.com/signin'")
+                                time.sleep(4)
+                                jantung[0] = time.time()
+                                hasil = pg.evaluate(
+                                    _RELAY_LANGSUNG_JS,
+                                    {"kode": kode, "issuer": issuer}) or ""
+                            except Exception as ex:
+                                hasil = f"err:{repr(ex)[:40]}"
+                            jantung[0] = time.time()
+                            if hasil == "ok":
+                                catat("login OAuth diselamatkan (relay "
+                                      "manual) - menuju daftar level...")
+                                try:
+                                    pg.evaluate(
+                                        "() => location.href = "
+                                        "'https://www.edclub.com/student/'"
+                                        "course/3'")
+                                except Exception:
+                                    pass
+                            else:
+                                catat(f"relay manual: {hasil[:60]}")
+                        continue
                     if "edclub" not in u or "signin" in u:
                         continue
                     try:
