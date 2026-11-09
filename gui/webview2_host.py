@@ -19,6 +19,7 @@ Alur:
 
 import ctypes
 import ctypes.wintypes as wintypes
+import json
 import os
 import time
 import tkinter as tk
@@ -232,6 +233,44 @@ def tersedia():
         return False
 
 
+def _sesi_path():
+    """File cookie sesi edclub: satu folder dgn bot.log (otomatis
+    ikut %LOCALAPPDATA%/TypingBot di exe frozen)."""
+    try:
+        from .theme import LOG_FILE
+        return os.path.join(os.path.dirname(LOG_FILE), "sesi_edclub.json")
+    except Exception:
+        return os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "sesi_edclub.json")
+
+
+def _sesi_muat():
+    """Cookie sesi edclub tersimpan; None kalau tidak ada / basi."""
+    pth = _sesi_path()
+    if not pth:
+        return None
+    try:
+        with open(pth, encoding="utf-8") as f:
+            d = json.load(f)
+        if isinstance(d, dict) and d.get("cookies") \
+                and time.time() - d.get("t", 0) < 60 * 86400:
+            return d["cookies"]
+    except Exception:
+        pass
+    return None
+
+
+def _sesi_tulis(cookies):
+    pth = _sesi_path()
+    if not pth:
+        return
+    try:
+        with open(pth, "w", encoding="utf-8") as f:
+            json.dump({"t": time.time(), "cookies": cookies}, f)
+    except Exception:
+        pass
+
+
 def jalankan_sta(main_fn):
     """Jalankan main_fn (seluruh app Tk) di CLR thread STA.
 
@@ -429,11 +468,68 @@ class Wv2Host(tk.Frame):
             url_terakhir = ""
             jantung[0] = time.time()
             catat("pengawas tersambung - init script terpasang")
+            # ---- PULIHKAN SESI LOGIN: cookie edclub dari sesi lalu.
+            # edclub menandai cookie login (rt dll.) sebagai COOKIE SESI
+            # - WebView2 membuangnya tiap app keluar = login Google
+            # berulang tiap buka app (keluhan user). Pasang balik
+            # sebagai cookie PERSISTEN lalu boot ulang halaman: SPA
+            # membaca cookie saat boot = langsung login, persis hasil
+            # relay OAuth. Sesi berbasis cookie terbukti dari bundle
+            # SPA: semua fetch API pakai credentials:"include" dgn
+            # auth() kosong.
+            cdp = None
+            perlu_boot = False
+            try:
+                cdp = browser.new_browser_cdp_session()
+            except Exception:
+                pass
+            sesi_sid = None
+            tersimpan = _sesi_muat()
+            if cdp is not None and tersimpan:
+                try:
+                    kini = time.time()
+                    pasang = []
+                    for c in tersimpan:
+                        q = {"name": c["name"], "value": c["value"],
+                             "domain": c["domain"],
+                             "path": c.get("path", "/"),
+                             "secure": bool(c.get("secure", True)),
+                             "httpOnly": bool(c.get("httpOnly", True)),
+                             "expires": kini + 180 * 86400}
+                        if c.get("sameSite"):
+                            q["sameSite"] = c["sameSite"]
+                        pasang.append(q)
+                    cdp.send("Storage.setCookies", {"cookies": pasang})
+                    perlu_boot = True
+                    catat(f"sesi edclub dipulihkan ({len(pasang)} cookie)")
+                except Exception as ex:
+                    catat(f"pulihkan sesi gagal: {ex!r}"[:100])
             while not stop.is_set():
                 selesai_loop = time.time() + 2.0
                 while not stop.is_set() and time.time() < selesai_loop:
                     time.sleep(0.25)
                 jantung[0] = time.time()
+                # ---- TANGKAP SESI: cookie login berotasi (rt ganti
+                # tiap refresh) - simpan tiap berubah supaya app
+                # BERIKUTNYA bisa login sendiri.
+                if cdp is not None:
+                    try:
+                        ck = cdp.send("Storage.getCookies").get(
+                            "cookies", [])
+                        milik = [c for c in ck
+                                 if ("edclub" in c.get("domain", "")
+                                     or "typingclub" in c.get("domain", ""))
+                                 and not c.get("name", "")
+                                 .startswith("__cf")]
+                        sid = sorted((c["name"], c["value"])
+                                     for c in milik)
+                        if sid and sid != sesi_sid:
+                            sesi_sid = sid
+                            _sesi_tulis(milik)
+                            catat(f"sesi edclub tersimpan "
+                                  f"({len(milik)} cookie)")
+                    except Exception:
+                        pass
                 try:
                     pages = [p for c in browser.contexts for p in c.pages]
                 except Exception:
@@ -449,6 +545,18 @@ class Wv2Host(tk.Frame):
                     if u != url_terakhir:
                         url_terakhir = u
                         catat(f"halaman: {u[:100]}")
+                    if perlu_boot and "edclub" in u:
+                        # sesi sudah dipasang - boot ulang agar SPA
+                        # membacanya (sekali, berhenti kalau berhasil)
+                        try:
+                            pg.evaluate("() => location.href = "
+                                        "'https://www.edclub.com/student/'"
+                                        "course/3'")
+                            perlu_boot = False
+                            jantung[0] = time.time()
+                            continue
+                        except Exception:
+                            pass
                     if "edclub" not in u or "signin" in u:
                         continue
                     try:
