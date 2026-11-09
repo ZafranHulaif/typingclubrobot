@@ -168,9 +168,40 @@ class Wv2Host(tk.Frame):
         # overlay placeholder (tampil sebelum halaman siap)
         self._overlay = tk.Frame(self, bg=bg)
         self._overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self._dialog_aktif = False   # dialog dalam-app sedang menempati area
         self.bind("<Configure>", self._on_resize)
 
     # ------------------------------------------------------------- API
+    def webview_hidup(self):
+        """True kalau kontrol WebView2 native sudah ada (untuk memilih
+        dialog dalam-app vs jendela terpisah)."""
+        return bool(self._chwnd)
+
+    def lepas_untuk_dialog(self):
+        """Siapkan area untuk dialog DALAM APP. WebView2 = HWND native:
+        widget Tk tidak bisa menembus ke atasnya (airspace), jadi selagi
+        dialog tampil kontrolnya DISEMBUNYIKAN sebentar - halaman, sesi
+        login & posisi scroll tetap hidup, begitu dialog tertutup
+        webview muncul lagi persis seperti semula."""
+        self._dialog_aktif = True
+        if self._chwnd:
+            try:
+                user32.ShowWindow(self._chwnd, 0)   # SW_HIDE
+            except Exception:
+                pass
+        self._overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+    def pasang_setelah_dialog(self):
+        """Kembalikan webview setelah dialog dalam-app selesai."""
+        self._overlay.place_forget()
+        self._dialog_aktif = False
+        if self._chwnd:
+            try:
+                # SW_SHOWNA: tampil TANPA mencuri fokus dari user
+                user32.ShowWindow(self._chwnd, 8)
+            except Exception:
+                pass
+            self.after_idle(self._pas_ukuran)
     def set_overlay(self, widget):
         widget.place(in_=self._overlay, relx=0.5, rely=0.5, anchor="center")
 

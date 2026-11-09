@@ -196,13 +196,44 @@ class ScrollbarGelap(tk.Canvas):
 
 
 
+# Layer dialog dalam-app: diisi App dgn Wv2Host saat webview siap.
+# Kalau terisi dan kontrol webview hidup, SEMUA _Dialog otomatis tampil
+# DI DALAM jendela app (menempati area webview) - bukan jendela OS
+# terpisah (keluhan user: "kenapa popup kita jendela sendiri?").
+_DIALOG_LAYER = None
+
+
+def set_dialog_layer(layer):
+    global _DIALOG_LAYER
+    _DIALOG_LAYER = layer
+
+
 class _Dialog(tk.Toplevel):
-    """Kerangka dialog gelap: ikon bulat + judul + subjudul, body, tombol."""
+    """Kerangka dialog gelap: ikon bulat + judul + subjudul, body, tombol.
+
+    Dua mode (API sama persis, pemanggil tak perlu tahu):
+    - jendela: Toplevel biasa (mode browser eksternal / test suite).
+    - overlay (DIALOG_LAYER terisi + webview hidup): digambar DI DALAM
+      jendela app, menempati area webview. WebView2 = HWND native, widget
+      Tk tak bisa menembus ke atasnya -> kontrol webview disembunyikan
+      sebentar (lepas_untuk_dialog), halaman & sesi tetap hidup."""
 
     def __init__(self, induk, judul, subjudul="", ikon="ℹ", warna=ACCENT):
         super().__init__(induk)
         self.hasil = None
         self._primer = None
+        self._mode_overlay = False
+        self._kartu = None
+        layer = _DIALOG_LAYER
+        if (layer is not None and getattr(layer, "webview_hidup", lambda: False)()
+                and not getattr(layer, "_dialog_aktif", False)):
+            self._mode_overlay = True
+            self._layer = layer
+        else:
+            self._layer = None
+        if self._mode_overlay:
+            self._buat_overlay(judul, subjudul, ikon, warna)
+            return
         self.configure(bg=PANEL)
         self.transient(induk)
         self.resizable(False, False)
@@ -252,6 +283,67 @@ class _Dialog(tk.Toplevel):
         self.bind("<Escape>", lambda e: self.done(None))
         self.bind("<Return>", self._enter)
 
+    def _buat_overlay(self, judul, subjudul, ikon, warna):
+        """Bangun kerangka dialog yang sama DI DALAM area webview (mode
+        overlay). self tetap Toplevel tapi ditarik - UI aslinya kartu di
+        overlay layer; body/foot menunjuk frame kartu supaya SEMUA kode
+        pemanggil (d.body, d.button, ...) bekerja tanpa diubah."""
+        self.withdraw()
+        try:
+            self.transient(self.master)
+        except Exception:
+            pass
+        layer = self._layer
+        self._layar = tk.Frame(layer, bg="#0c0d11")
+        self._layar.place(relx=0, rely=0, relwidth=1, relheight=1)
+        # kartu di tengah, lebar mengikuti area (maks 560px)
+        self._kartu = tk.Frame(self._layar, bg=PANEL, highlightthickness=1,
+                               highlightbackground=EDGE)
+        self._kartu.place(relx=0.5, rely=0.5, anchor="center",
+                          width=min(max(layer.winfo_width() - 56, 300), 560))
+        head = tk.Frame(self._kartu, bg=PANEL)
+        head.pack(fill="x", padx=24, pady=(22, 4))
+        box = tk.Canvas(head, width=46, height=46, bg=PANEL,
+                        highlightthickness=0)
+        box.pack(side="left")
+        box.create_oval(2, 2, 44, 44, fill=warna, width=0)
+        if ikon == "🌐":
+            _draw_vector_icon(box, "bola", 23, 23, 21)
+        elif ikon == "⚠":
+            _draw_vector_icon(box, "warning", 23, 23, 20)
+        elif ikon == "⛔":
+            _draw_vector_icon(box, "stop", 23, 23, 21)
+        else:
+            box.create_text(23, 23, text=ikon,
+                            font=("Segoe UI Emoji", 16, "bold"),
+                            fill="white", anchor="center")
+        jt = tk.Frame(head, bg=PANEL)
+        jt.pack(side="left", padx=(14, 0))
+        self._judul_lbl = tk.Label(jt, text=judul,
+                                   font=("Segoe UI", 14, "bold"),
+                                   fg=FG, bg=PANEL)
+        self._judul_lbl.pack(anchor="w")
+        self._sub_lbl = tk.Label(jt, text=subjudul or "",
+                                 font=("Segoe UI", 9), fg=DIM, bg=PANEL,
+                                 wraplength=380, justify="left")
+        if subjudul:
+            self._sub_lbl.pack(anchor="w", pady=(2, 0))
+        tk.Frame(self._kartu, bg=EDGE, height=1).pack(
+            fill="x", padx=24, pady=(14, 0))
+        self.body = tk.Frame(self._kartu, bg=PANEL)
+        self.body.pack(fill="both", expand=True, padx=24, pady=14)
+        tk.Frame(self._kartu, bg=EDGE, height=1).pack(
+            fill="x", padx=24)
+        self.foot = tk.Frame(self._kartu, bg=PANEL)
+        self.foot.pack(fill="x", padx=24, pady=(12, 20))
+        # penanda selesai dibuat SEKARANG (bukan di show): kalau user sempat
+        # mengklik tombol sebelum show() dieksekusi, done() tak boleh
+        # meninggalkan show() menunggu variabel yang tak pernah di-set
+        self._selesai = tk.BooleanVar(value=False)
+        self.bind("<Escape>", lambda e: self.done(None))
+        self.bind("<Return>", self._enter)
+        layer.bind("<Escape>", lambda e: self.done(None))
+
     def set_header(self, judul=None, subjudul=None):
         """Ubah judul/subjudul header sesudah dialog tampil (dipakai
         dialog aktivasi: saat menunggu, header dipangkas minimal -
@@ -296,6 +388,21 @@ class _Dialog(tk.Toplevel):
 
     def done(self, nilai):
         self.hasil = nilai
+        if self._mode_overlay:
+            self._layer.pasang_setelah_dialog()
+            try:
+                if self._kartu is not None:
+                    self._kartu.destroy()
+                if getattr(self, "_layar", None) is not None:
+                    self._layar.destroy()
+            except Exception:
+                pass
+            try:
+                self._selesai.set(True)   # lepaskan wait_variable di show()
+            except Exception:
+                pass
+            self.destroy()
+            return
         try:
             self.grab_release()
         except Exception:
@@ -303,6 +410,15 @@ class _Dialog(tk.Toplevel):
         self.destroy()
 
     def show(self):
+        if self._mode_overlay:
+            layer = self._layer
+            layer.lepas_untuk_dialog()
+            self._layar.lift()
+            self._kartu.lift()
+            if self._primer:
+                self._primer.focus_set()
+            self.wait_variable(self._selesai)
+            return self.hasil
         self.update_idletasks()
         w, h = self.winfo_reqwidth(), self.winfo_reqheight()
         # tengah layar (dulu: tengah jendela induk - saat induk belum

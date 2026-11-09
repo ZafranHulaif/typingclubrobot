@@ -258,6 +258,19 @@ class ActivityMixin:
                             # pelajaran pilihan dibuka (lihat blok tunggu di
                             # atas); AWAIT_RANGE tidak dilepas
                             self._tunggu_pilih_halaman = True
+                        elif r == "lanjut":
+                            # LANJUT = jalan dari posisi akun sekarang
+                            # (level berikutnya yang terbuka) - jalur yang
+                            # sama dgn rentang dilewati, tapi eksplisit
+                            self._tunggu_pilih_halaman = False
+                            bot.AWAIT_RANGE = False
+                            bot.LEVEL_START = 1
+                            bot.LEVEL_END = 0
+                            bot.RANGE_DONE = False
+                            bot._range_jump_done = True
+                            bot.RANGE_READY = True
+                            self._rentang_btn.configure(text="🎯  Lanjut")
+                            self._log("Lanjut dari posisi akun sekarang.")
                         elif r:
                             # Simpan MENANG atas 'Pilih di Halaman' yang
                             # masih menggantung (dulu flag tunggu tidak
@@ -342,15 +355,24 @@ class ActivityMixin:
                     self._set_state("⏹ Berhenti", RED, "berhenti")
                 else:
                     self._set_state("⏻ Siap", FAINT, "siap")
-            elif getattr(bot, "BROWSER_CLOSED", False):
+            elif getattr(bot, "BROWSER_CLOSED", False) \
+                    and not getattr(self, "_embed_aktif", False):
                 # jendela browser bot ditutup user: URL Playwright stale,
-                # engine sudah menandai state.BROWSER_CLOSED
+                # engine sudah menandai state.BROWSER_CLOSED. Di mode
+                # embedded webview SELALU ada di dalam app - label itu
+                # cuma membingungkan (keluhan user: browsernya kan
+                # kelihatan hidup).
                 self._set_state("✖ Browser ditutup", RED, "tutup")
             elif bot_thread_hidup and pg_bot is None:
                 # browser sedang diluncurkan/di-connect (di belakang)
-                nama_br = ((getattr(bot, "BROWSER", None) or {}).get("name")
-                           or "browser")
-                self._set_state(f"🚀 Membuka {nama_br}...", ACCENT, "membuka")
+                if getattr(self, "_embed_aktif", False):
+                    self._set_state("🚀 Menyambung ke edclub...",
+                                    ACCENT, "membuka")
+                else:
+                    nama_br = ((getattr(bot, "BROWSER", None) or {}).get("name")
+                               or "browser")
+                    self._set_state(f"🚀 Membuka {nama_br}...", ACCENT,
+                                    "membuka")
             elif getattr(bot, "WAITING_SETUP", False):
                 self._set_state("🧭 Menunggu set-up browser", YELLOW, "membuka")
             elif self._rentang_terbuka:
@@ -396,7 +418,8 @@ class ActivityMixin:
                 self._set_activity("Berhenti", "Klik Start untuk mulai lagi.")
             elif not bot_thread_hidup:
                 self._set_activity("Siap", "Klik Start untuk mulai.")
-            elif getattr(bot, "BROWSER_CLOSED", False):
+            elif getattr(bot, "BROWSER_CLOSED", False) \
+                    and not getattr(self, "_embed_aktif", False):
                 self._set_activity(
                     "Browser ditutup",
                     "Jendela browser bot ditutup. Tekan Stop lalu Start "
@@ -410,11 +433,17 @@ class ActivityMixin:
                     "Selesaikan setelan awal di jendela browser, lalu tutup "
                     "halamannya.")
             elif self._rentang_terbuka:
-                self._set_activity("Memilih level",
-                                    "Pilih rentang level di jendela yang muncul.")
+                self._set_activity(
+                    "Memilih level",
+                    "Pilih mode mulai di panel dalam app."
+                    if getattr(self, "_embed_aktif", False)
+                    else "Pilih rentang level di jendela yang muncul.")
             elif getattr(bot, "NEEDS_LOGIN", False):
-                self._set_activity("Menunggu login",
-                                    "Selesaikan login edclub di jendela browser.")
+                self._set_activity(
+                    "Menunggu login",
+                    "Selesaikan login edclub di dalam app."
+                    if getattr(self, "_embed_aktif", False)
+                    else "Selesaikan login edclub di jendela browser.")
             elif bot_thread_hidup and pg_bot is None:
                 nama_br = ((getattr(bot, "BROWSER", None) or {}).get("name")
                            or "browser")
@@ -508,9 +537,9 @@ class ActivityMixin:
                                    self._total_level, on_bangun)
         finally:
             self._rentang_terbuka = False
-        if hasil == "halaman":
+        if hasil in ("halaman", "lanjut"):
             self._rentang_jawab = time.time()
-            return "halaman"
+            return hasil
         if hasil is None:
             return False
         self._rentang_mulai = hasil["mulai"]

@@ -21,7 +21,7 @@ from tkinter.scrolledtext import ScrolledText
 
 from .icons import _icon_widget, user32
 from . import anim
-from .theme import (ACCENT, BROWSER_COLORS, CARD, CARD_HOVER, CREATOR, DIM, EDGE, FAINT, FG, GREEN, ORANGE, PANEL, RED, YELLOW)
+from .theme import (ACCENT, BROWSER_COLORS, BTN_FG, CARD, CARD_HOVER, CREATOR, DIM, EDGE, FAINT, FG, GREEN, ORANGE, PANEL, RED, YELLOW)
 from .translator import _display_name
 from .widgets import ScrollbarGelap, _Dialog
 
@@ -563,18 +563,67 @@ def dialog_tips(induk, terdeteksi):
 
 
 def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
-    """Pilih rentang level (dari/sampai). Return: dict hasil (Simpan),
-    'halaman' (user memilih level awal sendiri di browser), None (batal)."""
+    """Pilih titik mulai bot. Return: "lanjut" (dari posisi akun - level
+    berikutnya yang terbuka), dict {mulai,akhir} (rentang khusus),
+    "halaman" (user memilih level awal sendiri di halaman), None (batal).
+    Desain baru (permintaan user): tiga pilihan jelas dulu - kolom rentang
+    HANYA muncul kalau Rentang Khusus dipilih."""
     hasil = {"mulai": mulai, "akhir": akhir}
-    d = _Dialog(induk, "Rentang level", "Bot hanya mengerjakan level dalam "
-                "rentang ini.", ikon="🎯")
-    baris = tk.Frame(d.body, bg=PANEL)
-    baris.pack(fill="x", pady=(0, 6))
+    d = _Dialog(induk, "Pilih mulai", "Bot mengerjakan level sesuai "
+                "pilihanmu di bawah.", ikon="🎯")
+
+    def opsi(judul, deskripsi, nilai, primer=False):
+        b = tk.Label(d.body, text=judul,
+                     font=("Segoe UI", 11, "bold"),
+                     fg=(BTN_FG if primer else FG),
+                     bg=(ACCENT if primer else CARD),
+                     padx=16, pady=9, cursor="hand2",
+                     highlightthickness=0 if primer else 1,
+                     highlightbackground=EDGE)
+        b.pack(fill="x", pady=(0, 8))
+        tk.Label(d.body, text=deskripsi, font=("Segoe UI", 8), fg=DIM,
+                 bg=PANEL, wraplength=440, justify="left").pack(
+            fill="x", pady=(0, 12))
+        b.bind("<Button-1>", lambda _e: d.done(nilai))
+        return b
+
+    opsi("▶  Lanjut",
+         "Lanjut dari posisi akunmu sekarang - level berikutnya yang "
+         "terbuka.", "lanjut", primer=True)
+    opsi("🖱  Pilih di Halaman",
+         "Buka pelajaran pilihanmu di halaman di bawah - bot mulai dari "
+         "situ.", "halaman")
+
+    # bagian rentang khusus: tersembunyi sampai dipilih
+    b_khusus = tk.Label(d.body, text="⚙  Rentang Khusus",
+                        font=("Segoe UI", 11, "bold"), fg=FG, bg=CARD,
+                        padx=16, pady=9, cursor="hand2",
+                        highlightthickness=1, highlightbackground=EDGE)
+    b_khusus.pack(fill="x")
+    tk.Label(d.body, text="Tentukan sendiri dari & sampai level.",
+             font=("Segoe UI", 8), fg=DIM, bg=PANEL, wraplength=440,
+             justify="left").pack(fill="x", pady=(0, 12))
+
+    khusus = tk.Frame(d.body, bg=PANEL)
+    info = tk.Label(khusus, font=("Segoe UI", 9), fg=DIM, bg=PANEL,
+                    wraplength=440, justify="left")
+    galat = tk.Label(khusus, text="", font=("Segoe UI", 9), fg=RED,
+                     bg=PANEL)
+
+    def buka_khusus(_e=None):
+        khusus.pack(fill="x", before=b_khusus)
+        b_khusus.configure(bg=CARD_HOVER)
+        info_teks()
+
+    b_khusus.bind("<Button-1>", buka_khusus)
+
+    baris = tk.Frame(khusus, bg=PANEL)
 
     def kotak(induk2, label, nilai):
         f = tk.Frame(induk2, bg=PANEL)
         f.pack(side="left", padx=(0, 14))
-        tk.Label(f, text=label, font=("Segoe UI", 9), fg=DIM, bg=PANEL).pack(anchor="w")
+        tk.Label(f, text=label, font=("Segoe UI", 9), fg=DIM,
+                 bg=PANEL).pack(anchor="w")
         var = tk.StringVar(value=str(nilai))
         ent = tk.Entry(f, textvariable=var, font=("Segoe UI", 12), width=7,
                        bg=CARD, fg=FG, insertbackground=FG, relief="flat",
@@ -583,38 +632,19 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
         ent.pack(ipady=5)
         return var
 
-    var_a = kotak(baris, "Dari level", mulai)
-    var_b = kotak(baris, "Sampai level", akhir or total_level)
-
-    info = tk.Label(d.body, font=("Segoe UI", 9), fg=DIM, bg=PANEL,
-                    wraplength=440, justify="left")
-
     def info_teks():
         # peta 685 level sudah tertanam di dalam aplikasi - pengguna tidak
         # perlu membangun apa pun. Teks bangun peta hanya utk kasus khusus
         # (kursus berbeda -> peta belum lengkap).
         info.configure(text=
-            ("Level yang masih terkunci akan dikonfirmasi saat mulai.\n"
-             "Tidak yakin angkanya? Klik Pilih di Halaman, lalu buka "
-             "pelajaran pilihanmu di browser - bot mulai dari situ.")
+            ("Level yang masih terkunci akan dikonfirmasi saat mulai.")
             if jumlah_peta["n"] >= total_level else
             (f"Peta level: {jumlah_peta['n']}/{total_level} terpetakan - "
              "klik Bangun Peta (sekali saja, ~15 menit).\n"
              "Level yang masih terkunci akan dikonfirmasi saat mulai."))
-    info_teks()
-    info.pack(anchor="w")
-
-    galat = tk.Label(d.body, text="", font=("Segoe UI", 9), fg=RED, bg=PANEL)
-    galat.pack(anchor="w")
 
     # Bangun Peta disembunyikan saat peta lengkap (dulu wajib sebelum ada
     # peta tertanam; tombol yang tampil malah membingungkan user - keluhan).
-    if jumlah_peta["n"] < total_level:
-        def bangun():
-            on_bangun()
-            return False   # jangan tutup dialog; status terlihat di log
-        d.button("Bangun Peta", None, primer=False, cmd=bangun)
-
     def simpan():
         try:
             a = int(var_a.get())
@@ -626,12 +656,25 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
             galat.configure(text=f"Harus 1-{total_level}, dan Dari <= Sampai.")
             return False
         hasil["mulai"], hasil["akhir"] = a, b
-        d.done(True)
+        d.done(hasil)
 
-    d.button("Pilih di Halaman", "halaman", primer=False)
     d.button("Simpan", None, cmd=simpan)
+    if jumlah_peta["n"] < total_level:
+        def bangun():
+            on_bangun()
+            return False   # jangan tutup dialog; status terlihat di log
+        d.button("Bangun Peta", None, primer=False, cmd=bangun)
+
+    var_a = kotak(baris, "Dari level", mulai)
+    var_b = kotak(baris, "Sampai level", akhir or total_level)
+    baris.pack(anchor="w", pady=(0, 8))
+    info.pack(anchor="w")
+    galat.pack(anchor="w")
+
     r = d.show()
-    return r if r == "halaman" else (r and hasil)
+    if r == "halaman" or r == "lanjut":
+        return r
+    return r if isinstance(r, dict) else None
 
 
 

@@ -211,7 +211,11 @@ def main_loop():
                 # GUI memunculkan popup; lanjut sendiri setelah login.
                 if time.time() - state._login_notice > 30:
                     state._login_notice = time.time()
-                    print("[LOGIN] Menunggu login edclub di jendela browser bot...")
+                if getattr(state, "BROWSER_WV2", False):
+                    print("[LOGIN] Menunggu login edclub di dalam app...")
+                else:
+                    print("[LOGIN] Menunggu login edclub di jendela "
+                          "browser bot...")
                 time.sleep(1)
                 continue
             if not state.LOGIN_DICEK:

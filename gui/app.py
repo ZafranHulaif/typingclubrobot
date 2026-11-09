@@ -22,7 +22,8 @@ from tkinter.scrolledtext import ScrolledText
 from .licensing import _machine_code, _license_valid
 from . import anim
 from .theme import (APP_VERSION, ACCENT, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, GREEN_HOVER, PANEL, CREATOR, RED, RED_DIM, SETTINGS_FILE, YELLOW, YELLOW_DIM, _asset_path, _build_stamp)
-from .widgets import Dropdown, SpeedDial, _gelap_titlebar
+from .widgets import (Dropdown, SpeedDial, _gelap_titlebar,
+                      set_dialog_layer)
 from .webview2_host import Wv2Host, tersedia as wv2_tersedia, jalankan_sta
 
 
@@ -317,15 +318,25 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             estate.DEBUG_PORT = port
 
             def buat_webview():
+                # buka LANGSUNG di halaman kursus: belum login -> edclub
+                # otomatis melempar ke /signin (halaman login tampak di
+                # app); sudah login (sesi tersimpan di profil wv2) ->
+                # langsung daftar level, tanpa pelayaran ekstra
                 ok = self.host.buka(
-                    port, "https://www.edclub.com/", warna=PANEL)
+                    port,
+                    "https://www.edclub.com/sportal/program-3.game",
+                    warna=PANEL)
                 if ok:
                     estate.BROWSER_WV2 = True
+                    # dialog dalam-app: semua popup digambar di dalam
+                    # jendela (menempati area webview), bukan jendela OS
+                    set_dialog_layer(self.host)
                     self._log(f"WebView2 siap di dalam app "
                               f"(port debug {port}).")
                     self.aktiv_sub.configure(
                         text="Browser aktif di dalam app.")
                 else:
+                    set_dialog_layer(None)      # dialog = jendela biasa
                     self._embed_aktif = False   # balik ke browser luar:
                     self.aktiv_sub.configure(   # dance fokus dibutuhkan lagi
                         text="WebView2 gagal - bot pakai browser terpisah.")
