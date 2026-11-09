@@ -566,44 +566,112 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
     """Pilih titik mulai bot. Return: "lanjut" (dari posisi akun - level
     berikutnya yang terbuka), dict {mulai,akhir} (rentang khusus),
     "halaman" (user memilih level awal sendiri di halaman), None (batal).
-    Desain baru (permintaan user): tiga pilihan jelas dulu - kolom rentang
-    HANYA muncul kalau Rentang Khusus dipilih."""
+    Desain kartu (permintaan user): tiga kartu besar berdampingan dgn
+    visual masing-masing; Rentang Khusus membuka editor + tombol Simpan
+    di kaki dialog (Simpan memang cuma untuk rentang - dulu selalu
+    tampil & membingungkan)."""
     hasil = {"mulai": mulai, "akhir": akhir}
     d = _Dialog(induk, "Pilih mulai", "Bot mengerjakan level sesuai "
                 "pilihanmu di bawah.", ikon="🎯")
 
-    def opsi(judul, deskripsi, nilai, primer=False):
-        b = tk.Label(d.body, text=judul,
-                     font=("Segoe UI", 11, "bold"),
-                     fg=(BTN_FG if primer else FG),
-                     bg=(ACCENT if primer else CARD),
-                     padx=16, pady=9, cursor="hand2",
-                     highlightthickness=0 if primer else 1,
-                     highlightbackground=EDGE)
-        b.pack(fill="x", pady=(0, 8))
-        tk.Label(d.body, text=deskripsi, font=("Segoe UI", 8), fg=DIM,
-                 bg=PANEL, wraplength=440, justify="left").pack(
-            fill="x", pady=(0, 12))
-        b.bind("<Button-1>", lambda _e: d.done(nilai))
-        return b
+    # ---- baris tiga kartu: Lanjut | Pilih di Halaman | Rentang Khusus
+    baris_kartu = tk.Frame(d.body, bg=PANEL)
+    baris_kartu.pack(fill="x")
 
-    opsi("▶  Lanjut",
-         "Lanjut dari posisi akunmu sekarang - level berikutnya yang "
-         "terbuka.", "lanjut", primer=True)
-    opsi("🖱  Pilih di Halaman",
-         "Buka pelajaran pilihanmu di halaman di bawah - bot mulai dari "
-         "situ.", "halaman")
+    def gbr_lanjut(cv):
+        # tile level ala edclub: kotak + lingkaran play biru + nomor level
+        cv.create_rectangle(14, 10, 118, 64, fill=CARD_HOVER, outline=EDGE)
+        cv.create_oval(24, 23, 52, 51, fill=ACCENT, width=0)
+        cv.create_polygon(35, 29, 35, 45, 47, 37, fill="white", width=0)
+        cv.create_text(86, 37, text=f"Level {mulai}",
+                       font=("Segoe UI", 10, "bold"), fill=FG)
 
-    # bagian rentang khusus: tersembunyi sampai dipilih
-    b_khusus = tk.Label(d.body, text="⚙  Rentang Khusus",
-                        font=("Segoe UI", 11, "bold"), fg=FG, bg=CARD,
-                        padx=16, pady=9, cursor="hand2",
-                        highlightthickness=1, highlightbackground=EDGE)
-    b_khusus.pack(fill="x")
-    tk.Label(d.body, text="Tentukan sendiri dari & sampai level.",
-             font=("Segoe UI", 8), fg=DIM, bg=PANEL, wraplength=440,
-             justify="left").pack(fill="x", pady=(0, 12))
+    def gbr_halaman(cv):
+        # mini daftar level: 2 baris x 4 kotak - hijau = selesai,
+        # biru = posisi bot berikutnya, sisanya abu (belum)
+        for i, x in enumerate((14, 46, 78, 110)):
+            for j, y in enumerate((14, 42)):
+                warna = CARD_HOVER
+                if (i, j) == (0, 0):
+                    warna = GREEN
+                elif (i, j) == (1, 0):
+                    warna = ACCENT
+                cv.create_rectangle(x, y, x + 24, y + 20, fill=warna,
+                                    width=0)
+        cv.create_text(26, 24, text="✓", font=("Segoe UI", 9, "bold"),
+                       fill="white")
 
+    def gbr_rentang(cv):
+        # dua kotak Dari -> Sampai dengan panah di tengah
+        cv.create_rectangle(14, 24, 52, 50, fill=CARD_HOVER, outline=EDGE)
+        cv.create_text(33, 37, text="1", font=("Segoe UI", 10, "bold"),
+                       fill=FG)
+        cv.create_text(66, 37, text="→", font=("Segoe UI", 13, "bold"),
+                       fill=ACCENT)
+        cv.create_rectangle(80, 24, 118, 50, fill=CARD_HOVER, outline=EDGE)
+        cv.create_text(99, 37, text=str(total_level),
+                       font=("Segoe UI", 10, "bold"), fill=FG)
+
+    kartu_khusus = []
+
+    def kartu(judul, deskripsi, nilai, gambar_fn, primer=False):
+        f = tk.Frame(baris_kartu, bg=(CARD_HOVER if primer else CARD),
+                     highlightthickness=1,
+                     highlightbackground=(ACCENT if primer else EDGE),
+                     cursor="hand2")
+        f.pack(side="left", expand=True, fill="both", padx=(0, 8))
+        cv = tk.Canvas(f, width=132, height=74, bg=f["bg"],
+                       highlightthickness=0)
+        cv.pack(pady=(10, 0))
+        gambar_fn(cv)
+        l1 = tk.Label(f, text=judul, font=("Segoe UI", 10, "bold"),
+                      fg=FG, bg=f["bg"])
+        l1.pack(pady=(6, 1))
+        l2 = tk.Label(f, text=deskripsi, font=("Segoe UI", 7), fg=DIM,
+                      bg=f["bg"], wraplength=134, justify="center")
+        l2.pack(padx=4, pady=(0, 10))
+        semua = [f, cv, l1, l2]
+
+        def pilih(_e=None):
+            if nilai == "khusus":
+                buka_khusus()
+            else:
+                d.done(nilai)
+
+        def masuk(_e=None):
+            for w in semua:
+                try:
+                    w.configure(bg=CARD_HOVER)
+                except Exception:
+                    pass
+            f.configure(highlightbackground=ACCENT)
+
+        def keluar(_e=None):
+            if nilai == "khusus" and khusus.winfo_ismapped():
+                return      # editor rentang terbuka: biarkan menonjol
+            for w in semua:
+                try:
+                    w.configure(bg=CARD)
+                except Exception:
+                    pass
+            f.configure(highlightbackground=EDGE)
+
+        for w in semua:
+            w.bind("<Button-1>", pilih)
+            w.bind("<Enter>", masuk)
+            w.bind("<Leave>", keluar)
+        if nilai == "khusus":
+            kartu_khusus[:] = semua
+        return f
+
+    kartu("Lanjut", f"Lanjut ke level {mulai} - level berikutnya yang "
+          "terbuka untuk akunmu.", "lanjut", gbr_lanjut, primer=True)
+    kartu("Pilih di Halaman", "Buka pelajaran pilihanmu di halaman di "
+          "bawah - bot mulai dari situ.", "halaman", gbr_halaman)
+    kartu("Rentang Khusus", "Tentukan sendiri dari & sampai level.",
+          "khusus", gbr_rentang)
+
+    # bagian rentang khusus: tersembunyi sampai kartu diklik
     khusus = tk.Frame(d.body, bg=PANEL)
     info = tk.Label(khusus, font=("Segoe UI", 9), fg=DIM, bg=PANEL,
                     wraplength=440, justify="left")
@@ -611,11 +679,14 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
                      bg=PANEL)
 
     def buka_khusus(_e=None):
-        khusus.pack(fill="x", before=b_khusus)
-        b_khusus.configure(bg=CARD_HOVER)
+        khusus.pack(fill="x", pady=(10, 0))
+        b_simpan.pack(side="right")
+        for w in kartu_khusus:
+            try:
+                w.configure(bg=CARD_HOVER)
+            except Exception:
+                pass
         info_teks()
-
-    b_khusus.bind("<Button-1>", buka_khusus)
 
     baris = tk.Frame(khusus, bg=PANEL)
 
@@ -658,7 +729,8 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun):
         hasil["mulai"], hasil["akhir"] = a, b
         d.done(hasil)
 
-    d.button("Simpan", None, cmd=simpan)
+    b_simpan = d.button("Simpan", None, cmd=simpan)
+    b_simpan.pack_forget()   # cuma muncul saat kartu Rentang Khusus diklik
     if jumlah_peta["n"] < total_level:
         def bangun():
             on_bangun()

@@ -147,6 +147,28 @@ def main_loop():
                     rh = ""
                 if "stripe" in rh or "checkout" in rh:
                     url = real
+            # Rute lesson SPA baru (/student/course/<c>/lesson/<id>)
+            # kadang TIDAK memasang mesin ketik dengan benar (live:
+            # intro 'NEW KEY' berulang terus, bot flip Berjalan/Menunggu
+            # karena _lesson_gone tak melihat .play di URL mentah).
+            # Paksa rute .play klasik yang sudah terbukti, sama seperti
+            # _goto_next_lesson_in_list. Klik level user ('Pilih di
+            # Halaman') mendarat di rute baru -> satu goto, sisanya
+            # lewat jalur lama yang normal.
+            try:
+                mentah = state.PAGE.url or ""
+            except Exception:
+                mentah = ""
+            if "/lesson/" in mentah:
+                klasik = browser._lesson_play_url(mentah)
+                if klasik and klasik != mentah \
+                        and browser._is_edclub_url(klasik):
+                    try:
+                        state.PAGE.goto(klasik, timeout=25000)
+                        state.last_action_time = time.time()
+                        url = klasik
+                    except Exception:
+                        pass
             state.STATUS_URL = url
             # label level bisa kosong saat pertama datang (halaman belum
             # selesai memuat) -> coba lagi berkala sampai dapat

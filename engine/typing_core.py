@@ -90,7 +90,11 @@ def _lesson_gone():
         url = state.PAGE.url or ""
     except Exception:
         return False
-    return bool(url) and ".play" not in url
+    # Rute lesson UI baru /student/course/<c>/lesson/<id> tidak pernah
+    # memuat '.play' - tanpa pengecualian ini bot menyatakan 'user pindah
+    # halaman' terus-menerus saat mengetik di level yang dibuka user
+    # lewat UI baru (live: flip Berjalan/Menunggu tanpa henti).
+    return bool(url) and ".play" not in url and "/lesson/" not in url
 
 
 def type_chars(text, max_chars=None, slow=False, wpm_cap=None):
