@@ -296,7 +296,43 @@ class Wv2Host(tk.Frame):
             pass
 
     def _pengawas(self, port):
+        """SUPERVISOR pengawas: nyalakan thread pelaksana (runner) yg
+        memiliki koneksi playwright, awasi detak jantungnya. evaluate
+        playwright TIDAK PUNYA timeout - renderer macet/sibuk (halaman
+        google berat, callback COOP) bisa menggantungkan runner
+        SELAMANYA: dulu seluruh pengawas mati diam tanpa log & relay
+        OAuth tak pernah jalan (live). Sekarang: runner gantung ->
+        ditinggal (daemon), koneksi baru dibuat di thread segar; state
+        relay (kode dsb.) dipertahankan."""
+        import threading
         stop = self._pw_stop
+        state = {"kode_relai": "", "kode_selesai": "", "gagal_relai": 0}
+        while not stop.is_set():
+            jantung = [time.time()]
+            selesai = threading.Event()
+
+            def jalankan():
+                try:
+                    self._pengawas_loop(port, stop, state, jantung)
+                except Exception as ex:
+                    if not stop.is_set():
+                        print(f"[WEBVIEW2] pengawas putus: {ex!r}"[:80])
+                selesai.set()
+
+            th = threading.Thread(target=jalankan, daemon=True)
+            th.start()
+            # tunggu runner selesai; kalau detak jantung berhenti >15 dtk
+            # = runner menggantung di evaluate -> abaikan & sambung ulang
+            while not stop.is_set() and not selesai.wait(2.0):
+                if time.time() - jantung[0] > 15.0:
+                    print("[WEBVIEW2] pengawas menggantung - "
+                          "sambung ulang koneksi baru...")
+                    break
+            if not selesai.wait(5.0):
+                pass        # runner lama ditinggal (daemon thread)
+            time.sleep(1.0)
+
+    def _pengawas_loop(self, port, stop, state, jantung):
         try:
             from playwright.sync_api import sync_playwright
             from engine.browser import NO_POPUP_JS
@@ -329,13 +365,12 @@ class Wv2Host(tk.Frame):
                 except Exception:
                     pass
             wrap = "() => {" + _LOGIN_REDIRECT_JS + "}"
-            # state relay OAuth (thread lokal pengawas): code yang sedang
-            # di-relay + code yang sudah selesai (hindari proses ulang)
-            kode_relai = ""
-            kode_selesai = ""
-            gagal_relai = 0
+            jantung[0] = time.time()
             while not stop.is_set():
-                time.sleep(2.0)
+                selesai_loop = time.time() + 2.0
+                while not stop.is_set() and time.time() < selesai_loop:
+                    time.sleep(0.25)
+                jantung[0] = time.time()
                 try:
                     pages = [p for c in browser.contexts for p in c.pages]
                 except Exception:
@@ -347,52 +382,60 @@ class Wv2Host(tk.Frame):
                         u = pg.evaluate("() => location.href")
                     except Exception:
                         continue          # navigasi berlangsung
+                    jantung[0] = time.time()
                     # CALLBACK OAuth: ambil code, bawa ke /signin, tukar
                     # token di sana (halaman signin asli sudah mati ketika
                     # callback ini tiba - lihat catatan _OAUTH_RELAY_JS).
                     if "auth_callback" in u:
+                        if "error=" in u:
+                            try:
+                                pg.evaluate("() => location.href = "
+                                            "'https://www.edclub.com/signin'")
+                            except Exception:
+                                pass
+                            continue
                         try:
-                            if "error=" in u:
-                                pg.evaluate(
-                                    "() => location.href = "
-                                    "'https://www.edclub.com/signin'")
-                                continue
                             kode = pg.evaluate(
                                 "() => new URL(location.href)"
                                 ".searchParams.get('code') || ''")
                         except Exception:
                             continue
-                        if kode and kode != kode_selesai \
-                                and kode != kode_relai:
-                            kode_relai = kode
+                        jantung[0] = time.time()
+                        if kode and kode != state["kode_selesai"] \
+                                and kode != state["kode_relai"]:
+                            state["kode_relai"] = kode
                             try:
                                 pg.evaluate(
                                     "() => location.href = "
                                     "'https://www.edclub.com/signin'")
                             except Exception:
                                 pass
+                            print("[WEBVIEW2] callback OAuth tertangkap "
+                                  "- code di-relay ke halaman signin...")
                         continue
                     # RELAY: halaman edclub mana pun bisa menukar token
                     # (fetch lintas-origin ke api.edclub.com, sama dgn
-                    # yang dilakukan SPA edclub). Coba max ~4 putaran
-                    # lalu tanggalkan supaya code basi tidak diproses
-                    # terus tiap 2 dtk.
-                    if kode_relai and "edclub" in u:
+                    # yang dilakukan SPA edclub). resolve-fail boleh dicoba
+                    # lagi (network bisa temporer), max 3 putaran supaya
+                    # code basi tidak di-fetch terus tiap 2 dtk.
+                    if state["kode_relai"] and "edclub" in u:
                         hasil = ""
-                        try:
-                            for iss in _OAUTH_ISSUERS:
+                        for iss in _OAUTH_ISSUERS:
+                            try:
                                 hasil = pg.evaluate(
                                     _OAUTH_RELAY_JS,
-                                    {"kode": kode_relai, "issuer": iss})
-                                if hasil == "ok" or hasil and \
-                                        str(hasil).startswith("refresh-fail"):
-                                    break
-                        except Exception as ex:
-                            hasil = f"err:{ex!r}"[:60]
+                                    {"kode": state["kode_relai"],
+                                     "issuer": iss})
+                            except Exception as ex:
+                                hasil = f"err:{ex!r}"[:50]
+                            jantung[0] = time.time()
+                            if hasil == "ok" or str(hasil).startswith(
+                                    "refresh-fail"):
+                                break
                         if hasil == "ok":
-                            kode_selesai = kode_relai
-                            kode_relai = ""
-                            gagal_relai = 0
+                            state["kode_selesai"] = state["kode_relai"]
+                            state["kode_relai"] = ""
+                            state["gagal_relai"] = 0
                             print("[WEBVIEW2] login OAuth berhasil "
                                   "di-relay - menuju daftar level...")
                             try:
@@ -401,25 +444,25 @@ class Wv2Host(tk.Frame):
                                     "'https://www.edclub.com/student/course/3'")
                             except Exception:
                                 pass
-                        elif hasil and str(hasil).startswith(
+                        elif str(hasil).startswith(
                                 ("refresh-fail", "no-token")):
                             # code basi/token salah - jangan diulang
-                            kode_selesai = kode_relai
-                            kode_relai = ""
+                            state["kode_selesai"] = state["kode_relai"]
+                            state["kode_relai"] = ""
                         else:
-                            # resolve-fail/err: boleh dicoba lagi (network
-                            # bisa temporer), tapi batasi 3 putaran supaya
-                            # code basi tidak di-fetch terus tiap 2 dtk
-                            gagal_relai += 1
-                            if gagal_relai >= 3:
-                                kode_selesai = kode_relai
-                                kode_relai = ""
-                                gagal_relai = 0
+                            state["gagal_relai"] += 1
+                            if state["gagal_relai"] >= 3:
+                                state["kode_selesai"] = state["kode_relai"]
+                                state["kode_relai"] = ""
+                                state["gagal_relai"] = 0
+                                print(f"[WEBVIEW2] relay OAuth gagal: "
+                                      f"{hasil[:50]} - code dibuang")
                         continue
                     if "edclub" not in u or "signin" in u:
                         continue
                     try:
                         pg.evaluate(wrap)   # navigasi kalau anon/error
+                        jantung[0] = time.time()
                     except Exception:
                         pass
         except Exception as ex:
