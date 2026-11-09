@@ -929,7 +929,7 @@ for (const b of tombol) {
     if (/log ?(in|out)|sign ?(in|up|out)|masuk|daftar|get started|help/i.test(t)) continue;
     // nama mirip orang: minimal 2 kata, tiap kata diawali kapital
     // ('Zafran H' ok; 'Dashboard'/'Lessons' satu kata = tidak)
-    if (!/^[A-Z][A-Za-z''.\-]+( [A-Z][A-Za-z''.\-]{1,19}){1,3}$/.test(t)) continue;
+    if (!/^[A-Z][A-Za-z''.\-]+( [A-Z][A-Za-z''.\-]{0,19}){1,3}$/.test(t)) continue;
     if (UI_TOGGLE.test(t)) continue;
     return 'in';
 }
