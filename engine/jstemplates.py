@@ -894,6 +894,11 @@ PROFILE_CHECK_JS = r"""
 // Typing Jungle - dikecualikan lewat daftar hitam + label bahasa).
 // 3. Tautan 'Log in / Sign up' di header -> Logout (terverifikasi di
 // halaman daftar.game logout).
+// 4. UI baru (course/3, 2026+): marker lama sudah TIDAK ADA (live:
+// profile-name=false, dropdown=0 padahal login) - nama user kini
+// hidup di tombol pill kanan-atas (BUTTON.group > SPAN truncate,
+// 'Zafran H'). Deteksi: tombol/link terlihat dgn teks mirip nama
+// orang (2+ kata kapital, bukan label UI dikenal).
 const el = document.querySelector('.profile-name');
 if (el) {
     const t = (el.textContent || '').trim();
@@ -914,6 +919,20 @@ const adaLogin = [...document.querySelectorAll('a, button')].some(e =>
     /^(log in|login|sign in|sign up|signup|masuk|daftar)$/i
     .test((e.textContent || '').trim()));
 if (adaLogin) return 'out';
+// sinyal 4: tombol nama-user di UI baru. Urutan SETELAH cek 'out'
+// supaya halaman anon dgn tombol 'Sign in' tetap terbaca 'out'.
+const tombol = [...document.querySelectorAll('button, [role="button"], a')];
+for (const b of tombol) {
+    if (!b.offsetParent) continue;
+    const t = (b.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!t || t.length > 30) continue;
+    if (/log ?(in|out)|sign ?(in|up|out)|masuk|daftar|get started|help/i.test(t)) continue;
+    // nama mirip orang: minimal 2 kata, tiap kata diawali kapital
+    // ('Zafran H' ok; 'Dashboard'/'Lessons' satu kata = tidak)
+    if (!/^[A-Z][A-Za-z''.\-]+( [A-Z][A-Za-z''.\-]{1,19}){1,3}$/.test(t)) continue;
+    if (UI_TOGGLE.test(t)) continue;
+    return 'in';
+}
 return null;
 """
 
