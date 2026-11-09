@@ -40,6 +40,8 @@ SWP_FRAMECHANGED = 0x0020
 # dipulihkan ke course/3. Aman utk semua halaman lain: /signin tidak
 # disentuh (guard path), domain non-edclub (Google OAuth) tidak
 # disentuh, halaman lesson tak punya 'Log in' -> tak ada redirect.
+# DIPASANG via pengawas playwright (bukan ExecuteScriptAsync: jalur
+# .NET pythonnet terbukti SUNG - script tak pernah jalan, tak error).
 _LOGIN_REDIRECT_JS = """
 (function(){
   try {
@@ -195,6 +197,8 @@ class Wv2Host(tk.Frame):
         self._jaga_job = None
         self._popup_unsub = False
         self._blank_ct = {}     # popup about:blank -> hitung siklus utk WM_CLOSE
+        self._pw_stop = None    # pengawas playwright (mulai_pengawas)
+        self._pw_thread = None
         # overlay placeholder (tampil sebelum halaman siap)
         self._overlay = tk.Frame(self, bg=bg)
         self._overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
@@ -232,6 +236,92 @@ class Wv2Host(tk.Frame):
             except Exception:
                 pass
             self.after_idle(self._pas_ukuran)
+
+    # --------------------------------------------------- pengawas halaman
+    def mulai_pengawas(self, port):
+        """Thread pengawas (playwright murni-python): pasang NO_POPUP_JS +
+        _LOGIN_REDIRECT_JS utk SEMUA dokumen, dan tiap ~2 dtk evaluasi
+        pengarah halaman (anon -> /signin, error -> course/3).
+
+        INI SATU-SATUNYA jalur suntikan yang TERBUKTI jalan: add_init
+        script/evaluate via playwright sudah diverifikasi live, sedangkan
+        AddScript/ExecuteScriptAsync pythonnet SUNG (script tak pernah
+        jalan, tak pernah raise - dulu OAuth cuma hidup selagi sesi bot,
+        klik Google app-idle memunculkan popup sungguhan)."""
+        import threading
+        self._pw_stop = threading.Event()
+        self._pw_thread = threading.Thread(
+            target=self._pengawas, args=(port,), daemon=True)
+        self._pw_thread.start()
+
+    def hentikan_pengawas(self):
+        try:
+            self._pw_stop.set()
+        except Exception:
+            pass
+
+    def _pengawas(self, port):
+        stop = self._pw_stop
+        try:
+            from playwright.sync_api import sync_playwright
+            from engine.browser import NO_POPUP_JS
+        except Exception as ex:
+            print(f"[WEBVIEW2] pengawas gagal import: {ex!r}")
+            return
+        pw = None
+        try:
+            pw = sync_playwright().start()
+            # tunggu CDP webview hidup (buka() baru saja selesai)
+            browser = None
+            for _ in range(60):
+                if stop.is_set():
+                    return
+                try:
+                    browser = pw.chromium.connect_over_cdp(
+                        f"http://localhost:{port}")
+                    break
+                except Exception:
+                    time.sleep(0.5)
+            if browser is None:
+                print("[WEBVIEW2] pengawas: CDP tak tersambung")
+                return
+            # init script utk SEMUA dokumen mendatang (stub window.open
+            # aktif sejak app terbuka - bukan cuma selagi sesi bot)
+            for ctx in browser.contexts:
+                try:
+                    ctx.add_init_script(NO_POPUP_JS)
+                    ctx.add_init_script(_LOGIN_REDIRECT_JS)
+                except Exception:
+                    pass
+            wrap = "() => {" + _LOGIN_REDIRECT_JS + "}"
+            while not stop.is_set():
+                time.sleep(2.0)
+                try:
+                    pages = [p for c in browser.contexts for p in c.pages]
+                except Exception:
+                    continue
+                for pg in pages:
+                    if stop.is_set():
+                        break
+                    try:
+                        u = pg.evaluate("() => location.href")
+                    except Exception:
+                        continue          # navigasi berlangsung
+                    if "edclub" not in u or "signin" in u:
+                        continue
+                    try:
+                        pg.evaluate(wrap)   # navigasi kalau anon/error
+                    except Exception:
+                        pass
+        except Exception as ex:
+            if not stop.is_set():
+                print(f"[WEBVIEW2] pengawas mati: {ex!r}")
+        finally:
+            try:
+                if pw is not None:
+                    pw.stop()
+            except Exception:
+                pass
     def set_overlay(self, widget):
         widget.place(in_=self._overlay, relx=0.5, rely=0.5, anchor="center")
 
@@ -346,18 +436,11 @@ class Wv2Host(tk.Frame):
                         core.ExecuteScriptAsync(_NO_POPUP_JS)
             except Exception:
                 pass
-        # pengarah halaman awal (app DIAM): course/3 dilihat tanpa sesi
-        # = tampilanon dgn tombol 'Log in' -> lempar ke /signin; halaman
-        # error edclub -> pulihkan ke course/3. Jalankan tiap ~2.5 dtk.
-        if self._ec and self._popup_unsub:
-            try:
-                if time.time() - getattr(self, "_lg_ct", 0) > 2.5:
-                    self._lg_ct = time.time()
-                    core = self._ec.webview.CoreWebView2
-                    if core is not None:
-                        core.ExecuteScriptAsync(_LOGIN_REDIRECT_JS)
-            except Exception:
-                pass
+        # pengarah halaman awal: jalur ExecuteScriptAsync terbukti SUNG
+        # (script tak pernah jalan via pythonnet, tak pernah error) -
+        # pekerjaan ini dipindah ke PENGAWAS playwright (mulai_pengawas)
+        # yg memakai add_init_script + evaluate murni-python: terbukti
+        # jalan. Lihat _LOGIN_REDIRECT_JS di atas.
         temuan = []
         chwnd = self._chwnd
         # pid proses msedge kita: dari widget Chromium utama yang sudah

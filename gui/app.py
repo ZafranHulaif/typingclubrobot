@@ -334,6 +334,10 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                     # dialog dalam-app: semua popup digambar di dalam
                     # jendela (menempati area webview), bukan jendela OS
                     set_dialog_layer(self.host)
+                    # pengawas playwright: stub window.open + pengarah
+                    # /signin aktif sejak app terbuka (bukan cuma saat
+                    # sesi bot) - jalur .NET pythonnet terbukti sung
+                    self.host.mulai_pengawas(port)
                     self._log(f"WebView2 siap di dalam app "
                               f"(port debug {port}).")
                     self.aktiv_sub.configure(
@@ -560,6 +564,10 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         if self.bot:
             self.bot.STOP = True
             self.bot.PAUSED = False
+        try:
+            self.host.hentikan_pengawas()   # thread playwright berhenti
+        except Exception:
+            pass
         try:
             self.host.release()   # matikan WebView2 rapi sebelum destroy
         except Exception:
