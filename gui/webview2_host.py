@@ -33,6 +33,36 @@ SWP_NOZORDER = 0x0004
 SWP_NOACTIVATE = 0x0010
 SWP_FRAMECHANGED = 0x0020
 
+# Pengarah halaman awal: course/3 tanpa sesi = tampil anon (tombol
+# 'Log in' di header) -> lempar ke /signin supaya app terbuka LANGSUNG
+# di halaman login (permintaan user). Halaman error edclub ('Oops!
+# Something went wrong' - sportal legacy pernah 500 dgn sesi basi)
+# dipulihkan ke course/3. Aman utk semua halaman lain: /signin tidak
+# disentuh (guard path), domain non-edclub (Google OAuth) tidak
+# disentuh, halaman lesson tak punya 'Log in' -> tak ada redirect.
+_LOGIN_REDIRECT_JS = """
+(function(){
+  try {
+    var p = location.pathname || '';
+    if (p.indexOf('signin') >= 0) return;
+    if ((location.host || '').indexOf('edclub') < 0) return;
+    var t = (document.body && document.body.innerText) || '';
+    if (t.indexOf('Something went wrong') >= 0) {
+      location.href = '/student/course/3';
+      return;
+    }
+    var els = document.querySelectorAll('a,button');
+    for (var i = 0; i < els.length; i++) {
+      var s = (els[i].textContent || '').trim();
+      if (s === 'Log in' && els[i].offsetParent) {
+        location.href = '/signin';
+        return;
+      }
+    }
+  } catch (e) {}
+})();
+"""
+
 # Suntikan per-dokumen: window.open dipanggil edclub dgn URL KOSONG
 # (('', '_blank', ...)) lalu kode edclub set win.location.href = url
 # google - kalau open() mengembalikan null muncul error 'allow pop-ups'.
@@ -314,6 +344,18 @@ class Wv2Host(tk.Frame):
                     core = self._ec.webview.CoreWebView2
                     if core is not None:
                         core.ExecuteScriptAsync(_NO_POPUP_JS)
+            except Exception:
+                pass
+        # pengarah halaman awal (app DIAM): course/3 dilihat tanpa sesi
+        # = tampilanon dgn tombol 'Log in' -> lempar ke /signin; halaman
+        # error edclub -> pulihkan ke course/3. Jalankan tiap ~2.5 dtk.
+        if self._ec and self._popup_unsub:
+            try:
+                if time.time() - getattr(self, "_lg_ct", 0) > 2.5:
+                    self._lg_ct = time.time()
+                    core = self._ec.webview.CoreWebView2
+                    if core is not None:
+                        core.ExecuteScriptAsync(_LOGIN_REDIRECT_JS)
             except Exception:
                 pass
         temuan = []

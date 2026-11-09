@@ -318,13 +318,16 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             estate.DEBUG_PORT = port
 
             def buat_webview():
-                # buka LANGSUNG di halaman kursus: belum login -> edclub
-                # otomatis melempar ke /signin (halaman login tampak di
-                # app); sudah login (sesi tersimpan di profil wv2) ->
-                # langsung daftar level, tanpa pelayaran ekstra
+                # buka LANGSUNG di halaman kursus (URL home hasil
+                # migrasi). Jangan pakai sportal/program-3.game utk
+                # STARTUP: URL legacy itu rapuh - sesi basi/anon pernah
+                # dapat halaman error edclub "Oops! Something went
+                # wrong" (keluhan live). course/3 stabil: sudah login ->
+                # langsung daftar level; belum -> poll _jaga melempar ke
+                # /signin (lihat _LOGIN_REDIRECT_JS).
                 ok = self.host.buka(
                     port,
-                    "https://www.edclub.com/sportal/program-3.game",
+                    "https://www.edclub.com/student/course/3",
                     warna=PANEL)
                 if ok:
                     estate.BROWSER_WV2 = True
