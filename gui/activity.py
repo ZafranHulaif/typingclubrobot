@@ -141,6 +141,13 @@ class ActivityMixin:
             url_now = (getattr(bot, "STATUS_URL", "") or "").lower()
             di_halaman_login = any(k in url_now
                                    for k in ("signin", "login", "signup"))
+            # v3.3: alur OAuth (pilih akun Google / callback token) = login
+            # BERLANGSUNG. url-nya tak mengandung 'signin' -> dulu popup ask
+            # mengira user 'bukan di halaman login' dan melempar app balik
+            # ke /signin di tengah pilih akun (loop tanpa ujung).
+            oauth_now = any(h in url_now for h in (
+                "accounts.google.com", "accounts.youtube.com",
+                "auth_callback"))
             if getattr(bot, "NEEDS_LOGIN", False):
                 if getattr(self, "_embed_aktif", False):
                     # v3.2: browser DI DALAM app - popup 'login dulu' sudah
@@ -150,7 +157,7 @@ class ActivityMixin:
                     # selagi halaman SUDAH di login/signup - dulu goto
                     # ulang mereset form di tengah user daftar akun baru.
                     if (time.time() > self._login_grace
-                            and not di_halaman_login):
+                            and not di_halaman_login and not oauth_now):
                         bot.ASK_LOGIN_URL = getattr(bot,
                                                     "LOGIN_URL_INDIVIDUAL", "")
                         bot.ASK_LOGIN_NAV = True

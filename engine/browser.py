@@ -102,6 +102,23 @@ def _is_edclub_url(url):
     return h.endswith("edclub.com") or h.endswith("typingclub.com")
 
 
+def _oauth_url(url):
+    """True = URL di tengah alur OAuth/login eksternal: pilih akun
+    Google, bridge YouTube, callback token. User SEDANG login - healing
+    tab-hijack & popup 'menuju login' tidak boleh menyentuh halaman ini
+    (dulu: halaman utama dilempar ke sportal di tengah user memilih
+    akun Google -> loop loading -> daftar -> login tanpa ujung)."""
+    try:
+        h = (urlparse(url).hostname or "").lower()
+        p = (urlparse(url).path or "").lower()
+    except Exception:
+        return False
+    return (h.endswith("accounts.google.com")
+            or h.endswith("accounts.youtube.com")
+            or h.endswith("googleusercontent.com")
+            or "auth_callback" in p)
+
+
 def _lesson_play_url(u):
     """Rute lesson SPA baru /student/course/<c>/lesson/<id> -> bentuk
     .play lama .../program-<c>/<id>.play. ID lesson-nya SAMA (live:

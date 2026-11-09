@@ -149,6 +149,14 @@ def main_loop():
                 except Exception:
                     pass
             if not browser._is_edclub_url(url):
+                # v3.3: halaman OAuth (Google login/callback) = user SEDANG
+                # login di dalam app. Dulu blok healing di bawah menganggap
+                # ini 'tab dibajak Stripe' -> lempar sportal di tengah user
+                # memilih akun -> loop tak berujung. Diam & tunggu saja.
+                if state.NEEDS_LOGIN and browser._oauth_url(url):
+                    state.STATUS_URL = url
+                    time.sleep(0.5)
+                    continue
                 # tab bisa ter-bawa navigasi ke Stripe checkout (dibuktikan
                 # live: klik di area iframe premium = top-level navigation).
                 # Tutup tab stripe yang menganggur, lalu cari/buat tab edclub.
