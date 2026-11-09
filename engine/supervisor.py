@@ -316,6 +316,11 @@ def main_loop():
                 except Exception:
                     state.STATUS_LABEL = ""
                 state.last_url = url
+                # level terakhir yang dikerjakan -> kartu 'Lanjut'
+                try:
+                    levels.catat_posisi(levels.url_to_level(url) or 0)
+                except Exception:
+                    pass
                 # Navigasi = aktivitas: budget stall baru untuk halaman
                 # yang baru dibuka. Dulu timer stall tidak direset saat
                 # pindah halaman -> waktu menunggu dialog rentang/login

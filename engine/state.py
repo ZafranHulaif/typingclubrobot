@@ -118,6 +118,8 @@ STATUS_URL = ""   # dibaca GUI (string biasa, aman lintas thread)
 
 STATUS_LABEL = ""  # label level asli dari halaman (mis. 'L87')
 
+POSISI_LEVEL = 0   # level terakhir yang dikerjakan bot (kartu 'Lanjut')
+
 _label_retry = 0.0
 
 _range_nav = 0.0

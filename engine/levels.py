@@ -74,6 +74,35 @@ def url_to_level(url):
     return None
 
 
+def _posisi_path():
+    return os.path.join(os.path.dirname(_LEVEL_MAP_FILE),
+                        "posisi_level.json")
+
+
+def catat_posisi(n):
+    """Level terakhir yang dikerjakan bot - dipakai kartu 'Lanjut'
+    di dialog pilih mulai (nomornya = level berikutnya yang belum
+    selesai, level premium/terkunci memang tak pernah dikerjakan).
+    Tidak pernah mundur."""
+    if not n or n <= state.POSISI_LEVEL:
+        return
+    state.POSISI_LEVEL = n
+    try:
+        with open(_posisi_path(), "w", encoding="utf-8") as f:
+            json.dump({"posisi": n}, f)
+    except Exception:
+        pass
+
+
+def muat_posisi():
+    try:
+        with open(_posisi_path(), encoding="utf-8") as f:
+            state.POSISI_LEVEL = int(json.load(f).get("posisi", 0) or 0)
+    except Exception:
+        pass
+    return state.POSISI_LEVEL
+
+
 def _wait_daftar(pg):
     """Buka daftar lesson & tunggu barisnya (UI baru ATAU lama)."""
     pg.goto(LIST_URL, timeout=30000)

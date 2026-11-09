@@ -538,10 +538,29 @@ class ActivityMixin:
                       "(lihat progres [PETA] di log / jangan Stop).")
 
         self._rentang_terbuka = True
+        # nomor untuk kartu 'Lanjut': level terakhir yang dikerjakan bot
+        # (engine hidup + halaman sekarang + file posisi_level.json)
+        pos = 0
+        if bot:
+            try:
+                pos = int(getattr(bot, "POSISI_LEVEL", 0) or 0)
+            except Exception:
+                pos = 0
+            try:
+                pos = max(pos, int(bot.url_to_level(bot.STATUS_URL) or 0))
+            except Exception:
+                pass
+        if not pos:
+            try:
+                from engine.levels import muat_posisi
+                pos = muat_posisi()
+            except Exception:
+                pos = 0
         try:
             hasil = dialog_range(self.root, self._rentang_mulai,
                                    self._rentang_akhir, jumlah,
-                                   self._total_level, on_bangun)
+                                   self._total_level, on_bangun,
+                                   posisi=pos)
         finally:
             self._rentang_terbuka = False
         if hasil in ("halaman", "lanjut"):
