@@ -79,7 +79,15 @@ def main_loop():
             # Gerbang kesehatan renderer sebelum evaluasi apa pun: evaluate
             # di renderer suspend menghang tanpa timeout (bug: log mati
             # total tepat setelah 'Terhubung!'). 2x gagal -> restart browser.
-            if not session._page_alive(state.PAGE):
+            # v3.3: DILEWATI saat user sedang di alur OAuth login - rantai
+            # redirect Google lama, gate manggil recovery yang membunuh
+            # webview di tengah login (layar abu-abu, live).
+            try:
+                _u_gate = state.PAGE.url or ""
+            except Exception:
+                _u_gate = ""
+            _oauth_gate = (state.NEEDS_LOGIN and browser._oauth_url(_u_gate))
+            if not _oauth_gate and not session._page_alive(state.PAGE):
                 renderer_gagal += 1
                 if renderer_gagal == 1:
                     print("[PEMULIHAN] Tab tidak merespons, memberi 5 detik...")

@@ -437,9 +437,21 @@ def _page_alive(pg, timeout_ms=3000):
     di-suspend Windows (browser idle di latar) MENGHANG TANPA TIMEOUT -
     pernah membuat main loop mati diam total (live). wait_for_load_state
     MENERIMA timeout -> panggilan pembuka yang aman sebelum menyentuh
-    halaman. True = hidup."""
+    halaman. True = hidup.
+
+    v3.3: timeout domcontentloaded BUKAN bukti renderer mati - rantai
+    redirect OAuth Google bisa >3 dtk tanpa dokumen selesai (live:
+    recovery men-taskkill WebView2 di tengah user login -> layar
+    abu-abu). Kalau wait gagal, probe murah dgn timeout pendek: renderer
+    suspend tidak menjawab sama sekali, renderer sibuk navigasi
+    biasanya tetap punya context."""
     try:
         pg.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+        return True
+    except Exception:
+        pass
+    try:
+        pg.evaluate("1", timeout=2500)
         return True
     except Exception:
         return False
@@ -449,7 +461,18 @@ def _recover_renderer():
     """Renderer tab aktif mati/suspend. Satu-satunya obat:
     restart browser debug (taskkill + relaunch, tanpa curi fokus), lalu
     sambung ulang. Dipanggil dari main loop (thread pemilik Playwright).
-    Return True = tersambung ulang & boleh lanjut."""
+    Return True = tersambung ulang & boleh lanjut.
+
+    v3.3: mode embedded DILARANG KERAS di sini - pemegang port 9222
+    adalah WebView2 MILIK APP (layar di dalam app). taskkill = layar
+    abu-abu/hitam & engine nyambung ke browser eksternal liar (live:
+    user login Google -> layar mati -> Start nyasar ke Edge tanpa
+    sesi). Di mode embedded: biarkan, user tinggal Stop lalu Start
+    (webview tidak pernah dibunuh)."""
+    if getattr(state, "BROWSER_WV2", False):
+        print("[PEMULIHAN] mode embedded - WebView2 tidak boleh dibunuh. "
+              "Tekan Stop lalu Start untuk mulai ulang sesi.")
+        return False
     print("[PEMULIHAN] Halaman tidak merespons (renderer menggantung) - "
           "memulai ulang browser debug...")
     state.PAGE = None
