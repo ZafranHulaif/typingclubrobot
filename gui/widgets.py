@@ -115,8 +115,12 @@ def _gelap_titlebar(jendela):
         n = ctypes.c_int(1)
         if dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(n), 4) != 0:
             dwm.DwmSetWindowAttribute(hwnd, 19, ctypes.byref(n), 4)
+        # NOZORDER+NOACTIVATE WAJIB (live: dulu HWND_TOP polos tiap 3
+        # dtk = app terus naik menutupi app lain yang sedang dipakai
+        # user tanpa merebut keyboard - keluhan 'overlay over the
+        # focused app'). Cukup FRAMECHANGED utk segarkan warna bar.
         u.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
-                       0x0001 | 0x0002 | 0x0020 | 0x0040)
+                       0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020)
     except Exception:
         pass
 
