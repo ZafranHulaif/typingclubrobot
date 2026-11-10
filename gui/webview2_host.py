@@ -53,6 +53,11 @@ _LOGIN_REDIRECT_JS = """
     if ((location.host || '').indexOf('edclub') < 0) return;
     var t = (document.body && document.body.innerText) || '';
     if (t.indexOf('Something went wrong') >= 0) {
+      // pemulih error tidak boleh ikut loop course/3 <-> /signin
+      // (breaker sama dgn branch 3a: >3 navigasi dlm 3 menit = diam)
+      var nE = parseInt(sessionStorage.getItem('tb_loop') || '0', 10);
+      var tE = parseInt(sessionStorage.getItem('tb_loop_t') || '0', 10);
+      if (nE > 3 && Date.now() - tE < 180000) return;
       location.href = '/student/course/3';
       return;
     }
@@ -210,6 +215,17 @@ _OAUTH_RELAY_PAGE_JS = """
     // (dulu 401 karena boot SPA mendahului pemulihan kuki).
     if (h.indexOf('edclub') >= 0) {
       var coba3 = 0;
+      // breaker antar-dokumen: navigasi auto dibatasi 3x / 3 menit
+      // (sessionStorage ikut hidup lintas navigasi dalam satu tab)
+      function penuh() {
+        var n = parseInt(sessionStorage.getItem('tb_loop') || '0', 10);
+        var t0 = parseInt(sessionStorage.getItem('tb_loop_t') || '0', 10);
+        if (Date.now() - t0 > 180000) n = 0;
+        n += 1;
+        sessionStorage.setItem('tb_loop', String(n));
+        sessionStorage.setItem('tb_loop_t', String(Date.now()));
+        return n > 3;
+      }
       var cek = function () {
         var ph = location.host || '';
         var pp = location.pathname || '';
@@ -224,25 +240,41 @@ _OAUTH_RELAY_PAGE_JS = """
            headers: {'Content-Type': 'application/json'},
            body: JSON.stringify({domain: 'www'})})
           .then(function (r) {
-            if (r.ok) {
+            return r.text().then(function (t) {
+              // LIVE BUG 20:10: 200 dgn bodi '[]' = rotasi ANONIM
+              // tanpa sesi. Dulu 200 apa pun langsung navigasi ->
+              // bounce course/3 <-> /signin tanpa ujung (kuki rt
+              // muter tiap lewat, watcher sempat menyimpannya).
+              var sah = r.ok && t && t !== '[]' && t.length > 10;
+              if (!sah) {
+                // rt basi (403/401 ATAU 200 anon) -> coba tiket lt
+                if (lt0 && Date.now() - gagal0 > 12 * 3600 * 1000) {
+                  return fetch(
+                    'https://api.edclub.com/j/auth/refresh-tokens',
+                    {method: 'POST', credentials: 'include',
+                     headers: {'Content-Type': 'application/json'},
+                     body: JSON.stringify({login_token: lt0})})
+                    .then(function (r2) {
+                      return r2.text().then(function (t2) {
+                        var sah2 = r2.ok && t2 && t2 !== '[]' &&
+                          t2.length > 10;
+                        if (sah2 && !penuh()) {
+                          location.replace(
+                            'https://www.edclub.com/student/course/3');
+                        } else if (!sah2) {
+                          document.cookie = 'tb_lt_gagal=' +
+                            Date.now() +
+                            '; path=/; max-age=43200; SameSite=Lax';
+                        }
+                      });
+                    });
+                }
+                return;   // sesi memang mati: diam di signin (manual)
+              }
+              if (penuh()) return;   // breaker: jangan ikut loop
               location.replace(
                 'https://www.edclub.com/student/course/3');
-            } else if (lt0 && Date.now() - gagal0 > 12 * 3600 * 1000) {
-              // 3b) kuki rt memang basi -> coba tiket login_token
-              return fetch('https://api.edclub.com/j/auth/refresh-tokens',
-                {method: 'POST', credentials: 'include',
-                 headers: {'Content-Type': 'application/json'},
-                 body: JSON.stringify({login_token: lt0})})
-                .then(function (r2) {
-                  if (r2.ok) {
-                    location.replace(
-                      'https://www.edclub.com/student/course/3');
-                  } else {
-                    document.cookie = 'tb_lt_gagal=' + Date.now() +
-                      '; path=/; max-age=43200; SameSite=Lax';
-                  }
-                });
-            }
+            });
           })
           .catch(function () {});
       };
@@ -694,7 +726,11 @@ class Wv2Host(tk.Frame):
                                  .startswith("__cf")]
                         sid = sorted((c["name"], c["value"])
                                      for c in milik)
-                        if sid and sid != sesi_sid:
+                        # rotasi anon terjadi DI /signin (bounce) -
+                        # jangan menimpa sesi tersimpan dgn kuki sampah
+                        if sid and sid != sesi_sid \
+                                and "/signin" not in (url_terakhir
+                                                      or ""):
                             sesi_sid = sid
                             _sesi_tulis(milik)
                             catat(f"sesi edclub tersimpan "
