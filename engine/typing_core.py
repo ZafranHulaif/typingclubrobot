@@ -109,9 +109,18 @@ def type_burst(text, wpm=None):
     (sumber kebenaran tetap DOM)."""
     try:
         wpm = wpm or state.SPEED_WPM or 140
-        ms = int(max(12.0 / wpm * 0.92, 0.025) * 1000)
+        ideal_ms = 12000.0 / wpm
+        # Kompensasi overhead CDP per tombol (keluhan live: setting 200
+        # terukur konsisten ~160, 300 ~240 - 3-4 panggilan CDP per tombol
+        # makan ~15-30ms di halaman sibuk, jadi laju akhir selalu di bawah
+        # target sebesar overhead itu). Overhead diukur EMA per burst;
+        # delay = ideal - overhead -> laju akhir = target.
+        oh = getattr(state, "_burst_overhead_ms", 18.0)
+        ms = max(ideal_ms - oh, 8.0)
         kbd = state.PAGE.keyboard
         seg = ""
+        nkey = 0
+        t0 = time.perf_counter()
         for ch in text:
             if ch == "\t":
                 # type() TIDAK mengirim tombol Tab utk '\t' (live harness:
@@ -119,13 +128,20 @@ def type_burst(text, wpm=None):
                 # eksplisit seperti jalur per-karakter dulu.
                 if seg:
                     kbd.type(seg, delay=ms)
+                    nkey += len(seg)
                     seg = ""
                 kbd.press("Tab")
+                nkey += 1
                 time.sleep(ms / 1000.0)
             else:
                 seg += ch   # '\n' ditangani type() -> Enter (terbukti)
         if seg:
             kbd.type(seg, delay=ms)
+            nkey += len(seg)
+        if nkey >= 4:
+            lewat = (time.perf_counter() - t0) * 1000.0
+            oh_baru = min(max(lewat / nkey - ms, 0.0), 45.0)
+            state._burst_overhead_ms = 0.6 * oh + 0.4 * oh_baru
         return True
     except Exception:
         return False

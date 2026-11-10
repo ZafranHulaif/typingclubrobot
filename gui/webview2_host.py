@@ -717,6 +717,31 @@ class Wv2Host(tk.Frame):
                     if u != url_terakhir:
                         url_terakhir = u
                         catat(f"halaman: {u[:100]}")
+                    if getattr(self, "_boot_cover", None):
+                        # tutup boot aktif: buka begitu daftar level
+                        # tampil SUDAH LOGIN (pill profil ada), atau
+                        # tunggu maksimal 45 dtk (sesi mati -> login
+                        # manual seperti biasa)
+                        selesai = False
+                        try:
+                            if "/student/" in u:
+                                ada = pg.evaluate("""() => {
+                                  const el = document.querySelector(
+                                    'button [class*="truncate"]');
+                                  return !!(el &&
+                                    (el.textContent || '').trim());
+                                }""")
+                                selesai = bool(ada)
+                        except Exception:
+                            selesai = False
+                        if not selesai and (
+                                time.time() - self._boot_cover > 45):
+                            selesai = True
+                            catat("tutup boot: 45 dtk habis - "
+                                  "sesi belum siap, tampilkan halaman")
+                        if selesai:
+                            self._boot_selesai = True
+                            self._boot_cover = None
                     if perlu_boot and "edclub" in u:
                         # sesi sudah dipasang - boot ulang agar SPA
                         # membacanya (sekali, berhenti kalau berhasil)
@@ -869,7 +894,29 @@ class Wv2Host(tk.Frame):
             self._chwnd = int(str(control.Handle))
             user32.SetParent(self._chwnd, self.winfo_id())
             self._pas_ukuran()
-            self._overlay.place_forget()
+            # TUTUP BOOT (permintaan user: kilat 'belum login' saat buka
+            # app membingungkan): kalau ada sesi tersimpan, webview
+            # DISEMBUNYIKAN + overlay tertutup sampai pengawas melihat
+            # pill profil (login sukses) - lalu app terbuka LANGSUNG di
+            # daftar level sudah login. Timeout 45 dtk: sesi memang mati,
+            # tampilkan seperti biasa (user login manual).
+            if os.path.exists(_sesi_path()):
+                self._boot_cover = time.time()
+                self._boot_selesai = False
+                try:
+                    user32.ShowWindow(self._chwnd, 0)   # SW_HIDE
+                except Exception:
+                    pass
+                try:
+                    lbl = tk.Label(
+                        self._overlay,
+                        text="Menyiapkan sesi edclub\u2026",
+                        font=("Segoe UI", 12), fg="#9aa6b8", bg=warna)
+                    lbl.place(relx=0.5, rely=0.5, anchor="center")
+                except Exception:
+                    pass
+            else:
+                self._overlay.place_forget()
             # PENTING (stabilitas): lepas SEMUA handler event pywebview.
             # Handler itu callback Python dari thread .NET - kombinasi dgn
             # mainloop Tk memicu crash GIL (PyEval_RestoreThread) saat init
@@ -913,6 +960,21 @@ class Wv2Host(tk.Frame):
            frame ini, penuh memenuhi area. Popup menutup dirinya sendiri
            saat OAuth selesai (relasi opener tetap utuh)."""
         GW_OWNER = 4
+        if getattr(self, "_boot_selesai", False):
+            # buka tutup boot DI THREAD UI: tampilkan webview TANPA
+            # mencuri fokus (SW_SHOWNA, sama seperti setelah dialog)
+            self._boot_selesai = False
+            try:
+                for w in self._overlay.winfo_children():
+                    w.destroy()
+                self._overlay.place_forget()
+            except Exception:
+                pass
+            if self._chwnd:
+                try:
+                    user32.ShowWindow(self._chwnd, 8)   # SW_SHOWNA
+                except Exception:
+                    pass
         if self._ec and not self._popup_unsub:
             try:
                 core = self._ec.webview.CoreWebView2

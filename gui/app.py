@@ -116,11 +116,14 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         root.after(2500, _ulang_gelap)
         self._title_bar()
 
-        try:
-            root.attributes("-topmost", True)
-            root.attributes("-topmost", False)
-        except Exception:
-            pass
+        # peluncuran senyap (build/test agent): jangan naik ke depan -
+        # user tidak kena 'flash bang' tiap versi baru diuji
+        if os.environ.get("TYPINGBOT_SENYAP") != "1":
+            try:
+                root.attributes("-topmost", True)
+                root.attributes("-topmost", False)
+            except Exception:
+                pass
         # ---------- zona atas: header status, baris tombol (+ kartu browser
         # ---------- persegi DI samping Stop), lalu baris kecepatan ----------
         self._last_browser_path = ""   # exe terakhir yang dipakai mode Otomatis
@@ -604,6 +607,16 @@ if __name__ == "__main__":
             root.state("zoomed")
         except Exception:
             pass
+        if os.environ.get("TYPINGBOT_SENYAP") == "1":
+            def _turun(i=[0]):
+                try:
+                    root.lower()
+                except Exception:
+                    pass
+                i[0] += 1
+                if i[0] < 5:
+                    root.after(1200, _turun)
+            root.after(400, _turun)
         root.mainloop()
     # v3.2: seluruh app jalan di CLR thread STA - syarat WebView2 (tanpa
     # itu CoreWebView2 gagal RPC_E_CHANGED_MODE). Tanpa pythonnet, jalan
