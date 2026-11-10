@@ -385,7 +385,7 @@ def _goto_level_url(nomor):
     return False
 
 
-def baca_progres_akun(pg, maks_pas=50):
+def baca_progres_akun(pg, maks_pas=3):
     """Baca progres ASLI akun dari halaman course (instal baru: peta bot
     kosong & posisi bot 0 - tapi edclub tahu posisi akunnya). Baris
     daftar virtualized dan edclub memosisikannya tepat di garis depan
@@ -394,9 +394,11 @@ def baca_progres_akun(pg, maks_pas=50):
       'Lesson N: ... N out of 5 stars earned' -> ada progres (dilewati)
       'Lesson N: ... Lesson is locked'        -> terkunci
       sisanya                                 -> belum disentuh
-    Gulung kontainer scroll sampai set label berhenti bertambah (baris
-    termuat penuh = total kursus asli), lalu kembalikan scroll seperti
-    semula. Return {total, pertama_baru, jendela_awal, rows} / None."""
+    TIDAK SCROLL (live: menggulung 685 baris terlihat user - 'it still
+    scrolled itself', dia Stop dulu, scan selepus habis sia-sia). Baris
+    awal jendela SAH saja: edclub memposisikan tepat di garis depan, dan
+    baris sebelum jendela = pelajaran lama (terbuka berurutan = selesai).
+    Return {total, pertama_baru, jendela_awal, rows} / None."""
     try:
         if pg is None:
             return None
@@ -441,44 +443,17 @@ def baca_progres_akun(pg, maks_pas=50):
             labels.update(kini)   # |= akan me-rebind nama -> UnboundLocal
             return tumbuh
 
-        pos_awal = 0
-        if ada_kont:
-            try:
-                pos_awal = pg.evaluate(
-                    '() => { const c = document.querySelector('
-                    '\'\'[data-tbscan="1"]\'); '
-                    'return c ? c.scrollTop : 0; }') or 0
-            except Exception:
-                pos_awal = 0
+        # maks_pas 1: TIDAK scroll - cukup jendela awal (edclub memposisi-
+        # kan list di garis depan akun). Dulu 50 pass menggulung seluruh
+        # kursus terlihat user 20-30 dtk.
         mantap = 0
-        for _ in range(maks_pas):
-            if ada_kont:
-                pg.evaluate("""() => {
-                    const c = document.querySelector('[data-tbscan="1"]');
-                    if (c) c.scrollTop += c.clientHeight * 2;
-                }""")
-            else:
-                pg.evaluate("window.scrollBy(0, 3000)")
-            time.sleep(0.12)
+        for _ in range(max(1, maks_pas)):
             if not _pas():
                 mantap += 1
-                if mantap >= 3:
-                    break   # 3x tak bertambah = sudah dasar halaman
+                if mantap >= 2:
+                    break
             else:
                 mantap = 0
-
-        # kembalikan posisi scroll (halaman tampak tak pernah disentuh)
-        try:
-            if ada_kont:
-                pg.evaluate(
-                    '() => { const c = document.querySelector('
-                    '\'\'[data-tbscan="1"]\'); '
-                    'if (c) c.scrollTop = %d; }'
-                    % pos_awal)
-            else:
-                pg.evaluate("window.scrollTo(0, 0)")
-        except Exception:
-            pass
 
         no_re = re.compile(r"Lesson (\d+)")
         status = {}
