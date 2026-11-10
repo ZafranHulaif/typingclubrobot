@@ -23,6 +23,16 @@ from net import license as _netlic
 
 from .theme import LICENSE_FILE
 
+# ---- SIMULASI PENGGUNA BARU (env TYPINGBOT_BARU=1) ----
+# Aman terhadap lisensi asli: file tidak dibaca, tidak ditulis, tidak
+# dihapus. Mesin dilaporkan acak per run -> server melihat pelanggan
+# baru betulan tiap simulasi.
+_SIM_BARU = os.environ.get("TYPINGBOT_BARU") == "1"
+_SIM_KODE = ""
+if _SIM_BARU:
+    _SIM_KODE = "SIM-" + base64.b32encode(os.urandom(4)).decode(
+        "ascii").replace("=", "")[:6]
+
 
 
 # Secret penandatanganan lisensi. Nilai asli ada di _license_secret.py
@@ -64,6 +74,8 @@ def _machine_data():
 
 
 def _machine_code():
+    if _SIM_BARU:
+        return _SIM_KODE     # mesin acak = pelanggan baru betulan
     dig = hashlib.sha256(_machine_data().encode("utf-8")).digest()
     kode = base64.b32encode(dig).decode("ascii")[:10]
     return "-".join([kode[:5], kode[5:]])
@@ -90,12 +102,16 @@ def _saved_license():
 
 
 def _load_online_token():
+    if _SIM_BARU:
+        return None          # simulasi: token asli diabaikan
     return _netlic.load_token(LICENSE_FILE)
 
 
 
 
 def _save_online_token(tok):
+    if _SIM_BARU:
+        return               # simulasi: jangan timpa lisensi asli
     _netlic.save_token(LICENSE_FILE, tok)
 
 
@@ -103,6 +119,8 @@ def _save_online_token(tok):
 
 def _delete_online_token():
     """Hapus token lokal (mis. dicabut server) supaya state bersih."""
+    if _SIM_BARU:
+        return               # simulasi: lisensi asli kebal
     try:
         os.remove(LICENSE_FILE)
     except Exception:
@@ -112,6 +130,8 @@ def _delete_online_token():
 
 
 def _license_valid():
+    if _SIM_BARU:
+        return False         # simulasi: selalu 'belum aktivasi'
     # dua format file: kunci lama (teks) atau token online (satu baris JSON)
     if _saved_license().startswith("{"):
         tok = _load_online_token()

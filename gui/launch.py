@@ -129,6 +129,12 @@ class LaunchMixin:
     def _net_worker(self):
         """Satu-satunya pintu internet aplikasi: dipanggil sekali saat
         mulai (lisensi + cek versi), setelah itu sepenuhnya offline."""
+        import os as _os
+        if _os.environ.get("TYPINGBOT_BARU") == "1":
+            from .licensing import _machine_code
+            self._log(f"[SIMULASI] mode pengguna BARU - mesin "
+                      f"{_machine_code()}, lisensi tersimpan diabaikan. "
+                      "File lisensi asli AMAN.")
         from net import api
         if not api.BASE_URL:
             self._log("[net] server tidak dikonfigurasi - mode offline")
