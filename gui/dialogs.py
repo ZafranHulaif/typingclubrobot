@@ -563,7 +563,7 @@ def dialog_tips(induk, terdeteksi):
 
 
 def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
-                 posisi=0):
+                 posisi=0, baris=None):
     """Pilih titik mulai bot. Return: "lanjut" (dari posisi akun - level
     berikutnya yang terbuka), dict {mulai,akhir} (rentang khusus / lanjut
     yang digeser), "halaman" (user memilih level awal sendiri di halaman),
@@ -857,6 +857,10 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
     cv2, l2 = tile("Pilih di Halaman")
 
     def _hover_mini(cv, tag, rect, nyala):
+        if not cv.find_withtag(tag):
+            return      # redraw menghapus item - hover basi, jangan
+                        # sentuh (dulu: itemconfigure tag mati = crash
+                        # TclError 'unknown option -outline', live)
         cv.itemconfigure(tag, outline=ACCENT if nyala else TILE_EDGE)
         try:
             cv.itemconfigure(rect, fill="#f3f7ff" if nyala else PUTIH)
@@ -866,8 +870,19 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
     def gbr_halaman():
         cv = cv2
         redraw(cv, l2, TILE_EDGE)
-        urut = [("01", "ok"), ("02", "ok"), ("03", ""),
-                ("04", "kunci"), ("05", "kunci"), ("06", "kunci")]
+        # baris ASLI dari pemindaian akun (dulu: data pura-pura hardcoded
+        # 01 ok 02 ok 03-06 kunci - keluhan sim: 'level 3 locked? akun saya
+        # sudah level 90'). Tampilkan 6 level mulai dari posisi akun.
+        awal = lvl_awal
+        brs = []
+        if baris and baris.get(awal) is not None:
+            for no in range(awal, awal + 6):
+                st = baris.get(no, "")
+                brs.append((f"{no:02d}", "ok" if st == "ok"
+                            else ("kunci" if st == "kunci" else "")))
+        if not brs:
+            brs = [(f"{n:02d}", "") for n in range(awal, awal + 6)]
+        urut = brs
         gx = W // 2 - 3 * 52
         for i, (no, st) in enumerate(urut):
             x = gx + (i % 3) * 104

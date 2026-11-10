@@ -385,6 +385,126 @@ def _goto_level_url(nomor):
     return False
 
 
+def baca_progres_akun(pg, maks_pas=50):
+    """Baca progres ASLI akun dari halaman course (instal baru: peta bot
+    kosong & posisi bot 0 - tapi edclub tahu posisi akunnya). Baris
+    daftar virtualized dan edclub memosisikannya tepat di garis depan
+    akun; tiap baris membawa status di aria-label:
+      'Lesson N: ... Lesson completed'        -> selesai
+      'Lesson N: ... N out of 5 stars earned' -> ada progres (dilewati)
+      'Lesson N: ... Lesson is locked'        -> terkunci
+      sisanya                                 -> belum disentuh
+    Gulung kontainer scroll sampai set label berhenti bertambah (baris
+    termuat penuh = total kursus asli), lalu kembalikan scroll seperti
+    semula. Return {total, pertama_baru, jendela_awal, rows} / None."""
+    try:
+        if pg is None:
+            return None
+        js_kumpul = """() => [...document.querySelectorAll('[aria-label^="Lesson "]')].map(e => e.getAttribute("aria-label"))"""
+        labels = set(pg.evaluate(js_kumpul) or [])
+        if not labels:
+            return None
+
+        # tandai kontainer scroll (ancestor baris dgn overflow) sekali,
+        # lalu scroll dia tiap putaran - window.scrollBy tidak menggerakkan
+        # daftar virtualized ini (body scrollHeight cuma 553px, live).
+        pg.evaluate("""() => {
+            const row = document.querySelector('[aria-label^="Lesson "]');
+            let el = row && row.parentElement;
+            while (el && el !== document.body) {
+                const st = getComputedStyle(el);
+                if ((st.overflowY === 'auto' || st.overflowY === 'scroll')
+                        && el.scrollHeight > el.clientHeight + 50) {
+                    el.dataset.tbscan = '1';
+                    return el.dataset.tbscan;
+                }
+                el = el.parentElement;
+            }
+            return '';
+        }""")
+        ada_kont = pg.evaluate(
+            '() => !!document.querySelector(\'[data-tbscan="1"]\')')
+
+        def _pas():
+            kini = set(pg.evaluate(js_kumpul) or [])
+            tumbuh = len(kini) > len(labels)
+            labels.update(kini)   # |= akan me-rebind nama -> UnboundLocal
+            return tumbuh
+
+        pos_awal = 0
+        if ada_kont:
+            try:
+                pos_awal = pg.evaluate(
+                    '() => { const c = document.querySelector('
+                    '\'\'[data-tbscan="1"]\'); '
+                    'return c ? c.scrollTop : 0; }') or 0
+            except Exception:
+                pos_awal = 0
+        mantap = 0
+        for _ in range(maks_pas):
+            if ada_kont:
+                pg.evaluate("""() => {
+                    const c = document.querySelector('[data-tbscan="1"]');
+                    if (c) c.scrollTop += c.clientHeight * 2;
+                }""")
+            else:
+                pg.evaluate("window.scrollBy(0, 3000)")
+            time.sleep(0.12)
+            if not _pas():
+                mantap += 1
+                if mantap >= 3:
+                    break   # 3x tak bertambah = sudah dasar halaman
+            else:
+                mantap = 0
+
+        # kembalikan posisi scroll (halaman tampak tak pernah disentuh)
+        try:
+            if ada_kont:
+                pg.evaluate(
+                    '() => { const c = document.querySelector('
+                    '\'\'[data-tbscan="1"]\'); '
+                    'if (c) c.scrollTop = %d; }'
+                    % pos_awal)
+            else:
+                pg.evaluate("window.scrollTo(0, 0)")
+        except Exception:
+            pass
+
+        no_re = re.compile(r"Lesson (\d+)")
+        status = {}
+        for lab in labels:
+            m = no_re.search(lab)
+            if not m:
+                continue
+            no = int(m.group(1))
+            if "is locked" in lab:
+                status[no] = "kunci"
+            elif "completed" in lab or "stars earned" in lab:
+                status[no] = "ok"
+            else:
+                status[no] = "baru"
+        if not status:
+            return None
+        semua = sorted(status)
+        baru = [n for n, st in status.items() if st == "baru"]
+        # 'pertama_baru': level pertama yang belum disentuh. Baris SEBELUM
+        # jendela termuat diasumsikan selesai (edclub buka pelajaran
+        # berurutan) - kalau tidak ada yg 'baru' di jendela, ambil
+        # sesudah baris tertinggi yg tidak terkunci.
+        if baru:
+            pertama = min(baru)
+        else:
+            bebas = [n for n, st in status.items() if st != "kunci"]
+            pertama = (max(bebas) + 1) if bebas else max(semua)
+        rows = {n: status[n] for n in semua}
+        return {"total": max(semua), "pertama_baru": pertama,
+                "jendela_awal": min(semua), "rows": rows}
+    except Exception:
+        import traceback as _tb
+        _tb.print_exc()
+        return None
+
+
 def build_level_map():
     """Bangun peta level -> URL lengkap (1..685) dengan membuka daftar
     lesson lalu menklik tiap baris dan merekam URL .play-nya (~1.3 dtk/

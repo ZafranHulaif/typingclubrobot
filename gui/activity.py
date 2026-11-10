@@ -262,6 +262,11 @@ class ActivityMixin:
                     bot.AWAIT_RANGE = True
                     try:
                         r = self._open_range()
+                        if r == "pindai":
+                            # pemindaian progres akun berjalan di latar;
+                            # picker dibuka otomatis saat selesai - bot
+                            # tetap AWAIT_RANGE (jangan dilepas di finally)
+                            return
                         if r == "halaman":
                             # user memilih sendiri: bot tetap diam sampai
                             # pelajaran pilihan dibuka (lihat blok tunggu di
@@ -325,7 +330,8 @@ class ActivityMixin:
                             self._log("Rentang dilewati - bot jalan otomatis "
                                       "dari posisi sekarang.")
                     finally:
-                        if not self._tunggu_pilih_halaman:
+                        if not self._tunggu_pilih_halaman \
+                                and not getattr(self, "_pindai_berjalan", False):
                             bot.AWAIT_RANGE = False
 
             # bot menanyakan level start yang terkunci
@@ -573,11 +579,39 @@ class ActivityMixin:
                 pos = muat_posisi()
             except Exception:
                 pos = 0
+        if not pos and not getattr(self, "_pindai_berjalan", False) \
+                and not getattr(self, "_pindai_selesai", False):
+            cache = getattr(self, "_progres_akun", None)
+            if cache:
+                # hasil pemindaian sebelumnya masih segar (sekali per sesi)
+                pos = int(cache.get("pertama_baru") or 0)
+            else:
+                # instal baru: peta bot kosong & posisi bot 0, tapi edclub
+                # tahu posisi akun - baca progres asli dari halaman course
+                # (virtualized list, label aria-label kaya status).
+                # Dulu: Lanjut/rentang default ke level 1 padahal akun di
+                # level 90-an (keluhan live sim akun baru).
+                self._set_activity("Memindai progres akun…",
+                                   "Membaca posisi asli akun di edclub.")
+                self._pindai_berjalan = True
+                threading.Thread(target=self._pindai_progres,
+                                 daemon=True).start()
+                return "pindai"
+        if pos:
+            # default 'dari' = posisi akun (dulu selalu 1 utk instal baru)
+            if not self._rentang_mulai or self._rentang_mulai <= 1:
+                self._rentang_mulai = pos
+            cache = getattr(self, "_progres_akun", None)
+            if cache and cache.get("total"):
+                self._total_level = max(self._total_level or 0,
+                                        int(cache["total"]))
         try:
             hasil = dialog_range(self.root, self._rentang_mulai,
                                    self._rentang_akhir, jumlah,
                                    self._total_level, on_bangun,
-                                   posisi=pos)
+                                   posisi=pos,
+                                   baris=getattr(
+                                       self, "_progres_akun", {}) or {})
         finally:
             self._rentang_terbuka = False
         if hasil in ("halaman", "lanjut"):
@@ -593,6 +627,51 @@ class ActivityMixin:
         self._rentang_jawab = time.time()
         return True
 
+
+    def _pindai_progres(self):
+        """Thread kecil: baca progres ASLI akun via CDP webview (2-6 dtk).
+        Hasil disimpan di self._progres_akun lalu picker dibuka ulang via
+        antrean UI (dipanggil dari thread - jangan sentuh Tk di sini)."""
+        port = 9222
+        try:
+            from engine import state as _est
+            port = int(getattr(_est, "DEBUG_PORT", 9222) or 9222)
+        except Exception:
+            pass
+        hasil = None
+        try:
+            from playwright.sync_api import sync_playwright
+            from engine.levels import baca_progres_akun
+            with sync_playwright() as pw:
+                br = pw.chromium.connect_over_cdp(
+                    f"http://localhost:{port}")
+                pg = None
+                for c in br.contexts:
+                    for x in c.pages:
+                        u = x.url or ""
+                        if "edclub.com" in u and "/course/" in u:
+                            pg = x
+                            break
+                if pg is not None:
+                    hasil = baca_progres_akun(pg)
+        except Exception:
+            hasil = None
+        self._progres_akun = hasil or {}
+        self._ui_queue.put(self._lanjut_buka_range)
+
+    def _lanjut_buka_range(self):
+        """(UI thread) pemindaian tuntas - buka picker dgn data asli."""
+        self._pindai_berjalan = False
+        self._pindai_selesai = True
+        bot = self.bot
+        if not getattr(self, "_rentang_terbuka", False) \
+                and bot is not None and getattr(bot, "AWAIT_RANGE", False):
+            if self._progres_akun:
+                self._log("Progres akun terbaca (level %s)."
+                          % self._progres_akun.get("pertama_baru"))
+            else:
+                self._log("Progres akun tak terbaca - pakai default.")
+            self._open_range()
 
     def _save_range_settings(self):
         try:
