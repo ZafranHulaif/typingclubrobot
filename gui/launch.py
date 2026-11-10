@@ -57,6 +57,16 @@ class LaunchMixin:
             self.log_file = open(LOG_FILE, "w", encoding="utf-8", buffering=1)
         except Exception:
             self.log_file = None
+        # hasil sweep _MEI awal (dijalan _main SEBELUM file log ada -
+        # open 'w' di atas menghapus baris apa pun sebelum titik ini)
+        try:
+            from gui.meisweep import HASIL_TERAKHIR
+            n, mb = HASIL_TERAKHIR
+            if n:
+                self._log(f"[BERSIH] {n} folder sisa update dibuang "
+                          f"({mb:.0f} MB) dari Temp.")
+        except Exception:
+            pass
         sys.stdout = self._Writer(self)
         sys.stderr = self._Writer(self)
         try:

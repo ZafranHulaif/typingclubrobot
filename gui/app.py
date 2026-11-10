@@ -575,6 +575,13 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             self.host.release()   # matikan WebView2 rapi sebelum destroy
         except Exception:
             pass
+        try:
+            # buang sisa _MEI instance lain/crash (bootloader hanya
+            # bereskan milik sendiri saat exit bersih)
+            from gui.meisweep import sweep_mei
+            sweep_mei()
+        except Exception:
+            pass
         time.sleep(0.2)
         self.root.destroy()
 
