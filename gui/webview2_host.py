@@ -98,6 +98,11 @@ async (arg) => {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({login_token: lt})});
       if (!r2.ok) return 'refresh-fail:' + r2.status;
+      try {
+        document.cookie = 'tb_lt=' + encodeURIComponent(lt) +
+          '; path=/; max-age=31536000; SameSite=Lax';
+        document.cookie = 'tb_lt_gagal=; path=/; max-age=0';
+      } catch (e) {}
       try { localStorage.setItem('tb_lt', lt); } catch (e) {}
   return 'ok';
 }
@@ -154,7 +159,14 @@ _OAUTH_RELAY_PAGE_JS = """
           if (!tok) break;
           // simpan login_token: tiket tukar-token ini yang bikin sesi
           // hidup (cookie rt saja TIDAK cukup - boot dengan rt tetap
-          // anon, terbukti live). Dipakai ulang saat boot berikutnya.
+          // anon, terbukti live). SIMPAN SEBAGAI KUKI: localStorage
+          // dibersihkan SPA saat boot anon (live: tb_lt lenyap ->
+          // branch 3 fetch 422 null), kuki tidak ikut dibersihkan.
+          try {
+            document.cookie = 'tb_lt=' + encodeURIComponent(tok) +
+              '; path=/; max-age=31536000; SameSite=Lax';
+            document.cookie = 'tb_lt_gagal=; path=/; max-age=0';
+          } catch (e) {}
           try { localStorage.setItem('tb_lt', tok); } catch (e) {}
           var r2 = await fetch(api + '/j/auth/refresh-tokens',
             Object.assign({}, opt, {body: JSON.stringify({login_token: tok})}));
@@ -171,8 +183,14 @@ _OAUTH_RELAY_PAGE_JS = """
   //    token ada = sesi kemarin masih bisa ditukar -> masuk sendiri
   //    tanpa Google lagi (kuki rt saja tak bertahan boot, terbukti).
   try {
-    var lt0 = localStorage.getItem('tb_lt');
-    var gagal0 = parseInt(localStorage.getItem('tb_lt_gagal') || '0', 10);
+    function bacaKuki(nama) {
+      var m = document.cookie.match(
+        new RegExp('(?:^|; )' + nama + '=([^;]*)'));
+      return m ? decodeURIComponent(m[1]) : null;
+    }
+    var lt0 = bacaKuki('tb_lt') || localStorage.getItem('tb_lt');
+    var gagal0 = parseInt(bacaKuki('tb_lt_gagal')
+      || localStorage.getItem('tb_lt_gagal') || '0', 10);
     if (lt0 && h.indexOf('edclub') >= 0 && p.indexOf('/signin') >= 0
         && Date.now() - gagal0 > 12 * 3600 * 1000) {
       var cek = function () {
@@ -186,8 +204,8 @@ _OAUTH_RELAY_PAGE_JS = """
             if (r.ok) {
               location.replace('https://www.edclub.com/student/course/3');
             } else {
-              try { localStorage.setItem('tb_lt_gagal',
-                    String(Date.now())); } catch (e) {}
+              document.cookie = 'tb_lt_gagal=' + Date.now() +
+                '; path=/; max-age=43200; SameSite=Lax';
             }
           })
           .catch(function () {});
@@ -731,11 +749,13 @@ class Wv2Host(tk.Frame):
                                 catat("login OAuth diselamatkan (relay "
                                       "manual) - menuju daftar level...")
                                 # boot pertama kadang bounce balik ke
-                                # /signin (sesi server baru tersapu) -
-                                # pantau & kembali ke course/3 sampai
-                                # betul-betul masuk (maks 3 putaran)
-                                for _i in range(3):
-                                    time.sleep(4)
+                                # /signin: sesi server butuh beberapa
+                                # detik & SPA perlu waktu re-login
+                                # (refresh-tokens{domain} 200 terbukti)
+                                # - pantau sabar 6x5 dtk, kembali ke
+                                # course/3 selama masih di /signin
+                                for _i in range(6):
+                                    time.sleep(5)
                                     try:
                                         u3 = pg.evaluate(
                                             "() => location.href")
