@@ -348,6 +348,29 @@ def tersedia():
         return False
 
 
+COURSE_URL = "https://www.edclub.com/student/course/3"
+
+
+def _rute_lama(u):
+    """True = URL halaman daftar/home TAMPILAN LAMA edclub (bukan
+    lesson .play, bukan UI baru /student/). Keluhan user: menu hamburger
+    / logo kadang menjebak ke tampilan lama penuh iklan - pengawas
+    membawa balik ke daftar level baru otomatis."""
+    try:
+        from urllib.parse import urlparse
+        p = (urlparse(u).path or "/").lower()
+    except Exception:
+        return False
+    if ".play" in p or "/student/" in p:
+        return False     # lesson & UI baru: biarkan
+    if "auth_callback" in u or "signin" in u:
+        return False     # alur login: jangan sentuh
+    if p in ("", "/"):
+        return True
+    return (p.startswith("/sportal") or p.startswith("/typing-jungle")
+            or p.startswith("/library"))
+
+
 def _sesi_path():
     """File cookie sesi edclub: satu folder dgn bot.log (otomatis
     ikut %LOCALAPPDATA%/TypingBot di exe frozen)."""
@@ -431,6 +454,7 @@ class Wv2Host(tk.Frame):
         self._stage_widget = None    # kartu status (set_overlay)
         self._boot_anim_job = None   # job after spinner tutup boot
         self._nav_pending = None     # navigasi diminta thread lain
+        self._bounce_lama = 0.0      # cooldown bounce rute lama
         self._dialog_aktif = False   # dialog dalam-app sedang menempati area
         self.bind("<Configure>", self._on_resize)
 
@@ -757,6 +781,28 @@ class Wv2Host(tk.Frame):
                         if selesai:
                             self._boot_selesai = True
                             self._boot_cover = None
+                    if (not getattr(self, "_boot_cover", None)
+                            and "edclub.com" in u and _rute_lama(u)
+                            and time.time() - getattr(
+                                self, "_bounce_lama", 0.0) > 6.0):
+                        # rute lama + bot tidak sedang memakai daftar
+                        # (bangun peta/lompat via daftar = PETA_BANGUN)
+                        peta = False
+                        try:
+                            from engine import state as _eng
+                            peta = bool(getattr(_eng, "PETA_BANGUN", False))
+                        except Exception:
+                            peta = False
+                        if not peta:
+                            self._bounce_lama = time.time()
+                            try:
+                                pg.evaluate("() => location.href = %r"
+                                            % COURSE_URL)
+                                catat("rute tampilan lama - balik ke "
+                                      "UI baru (course/3)")
+                            except Exception:
+                                pass
+                            continue
                     if perlu_boot and "edclub" in u:
                         # sesi sudah dipasang - boot ulang agar SPA
                         # membacanya (sekali, berhenti kalau berhasil)

@@ -27,7 +27,12 @@ SPEEDS = [(140, "NORMAL (140 wpm)"), (200, "CEPAT (200 wpm)"), (85, "SANTAI (85 
           # situs LAMA layar putih kalau lebih cepat; coba lagi di UI baru
           # Nov 2026 - mesin pemulihan reload kini menutup kasus blank).
           (225, "KILAT (225 wpm)"), (250, "NGEBUT (250 wpm)"),
-          (275, "GILA (275 wpm)"), (300, "MAKSIMAL (300 wpm)")]
+          (275, "GILA (275 wpm)"), (300, "MAKSIMAL (300 wpm)"),
+          # 400: kompensasi overhead type_burst mengukur jeda nyata per
+          # tombol (EMA) - setting = laju akhir, angka tinggi tetap
+          # JUJUR terukur; normalisasi dur laporan tetap bikin ritme
+          # tampak manusiawi (skor sah, layar skor muncul).
+          (400, "PARANORMAL (400 wpm)")]
 
 
 # Browser bawaan Chromium apa pun bisa. Urutan preferensi: Brave (yang

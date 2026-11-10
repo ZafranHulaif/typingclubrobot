@@ -48,6 +48,10 @@ LOGIN_DICEK = False       # True setelah patroli login berjalan minimal 1x
 
 AWAIT_RANGE = False    # True = GUI sedang menanya rentang; bot menunggu
 
+PETA_BANGUN = False    # True = bot sedang memakai DAFTAR LAMA (bangun
+                       # peta / lompat via daftar) - pengawas tidak boleh
+                       # mem-bounce rute lama ke UI baru selama ini
+
 ASK_BUILD_MAP = False # GUI meminta bot membangun peta level lengkap
 
 ASK_RECOVERY = False  # GUI meminta pemulihan lesson manual (tombol Pulihkan)

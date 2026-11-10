@@ -263,6 +263,14 @@ def _gate_atau_mulai(pg):
 
 
 def _goto_level_via_daftar(nomor):
+    state.PETA_BANGUN = True     # pengawas: jangan bounce rute lama
+    try:
+        return _goto_level_via_daftar_isi(nomor)
+    finally:
+        state.PETA_BANGUN = False
+
+
+def _goto_level_via_daftar_isi(nomor):
     """Klik baris/kartu 'Lesson N' di daftar lesson (UI baru & lama),
     tunggu URL .play (dinormalisasi dari rute SPA baru), lalu REKAM
     peta - peta level menyembuhkan dirinya dari URL stale. Level jauh
@@ -377,6 +385,7 @@ def build_level_map():
         print("[PETA] belum terhubung ke browser.")
         return 0
     pg = state.PAGE
+    state.PETA_BANGUN = True     # pengawas: jangan bounce rute lama
     asal = ""
     try:
         asal = browser._real_url(pg) or ""
@@ -494,6 +503,7 @@ def build_level_map():
         print(f"[PETA] selesai: +{baru} baru, total {len(state._level_map)} "
               f"level terpetakan (level_map.json).")
     finally:
+        state.PETA_BANGUN = False
         if pg is not state.PAGE:
             state.PAGE = pg   # halaman lama mati -> tab pengganti jadi utama
         kembali = asal if ".play" in asal else ""

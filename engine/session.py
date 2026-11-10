@@ -349,19 +349,34 @@ def _login_patrol(url):
             or profil == "out") and profil != "in"
     if profil is not None:
         state._login_sentinel["unknown_mulai"] = 0.0
-    elif not mati and not state.NEEDS_LOGIN and not state._login_sentinel["pernah_in"]:
+    elif not mati and not state.NEEDS_LOGIN:
         # profil masih None walau DOM + tab cadangan gagal (halaman mati /
         # Cloudflare menggantung / renderer sibuk). Kumpulkan durasi;
         # >40 dtk di halaman edclub -> perlakukan seperti logout.
+        # (live bug: di TAMPILAN LAMA penanda tidak ada sama sekali dan
+        # pernah_in memblokir cabang ini -> 'Memeriksa login' macet
+        # selamanya. Sekarang pernah_in justru MEMBUKA gerbang.)
         if (("edclub" in low or "typingclub" in low) and not di_login):
             if not state._login_sentinel["unknown_mulai"]:
                 state._login_sentinel["unknown_mulai"] = now
                 print("[LOGIN] Status login belum terbaca (halaman masih "
                       "memuat/diverifikasi) - menunggu...")
             elif now - state._login_sentinel["unknown_mulai"] > 40.0:
-                state._login_sentinel["ok"] = False
-                state._login_sentinel["alasan"] = "login tidak terdeteksi >40 dtk"
-                mati = True
+                if state._login_sentinel["pernah_in"]:
+                    # sesi terbukti 'in' di sesi ini (penanda pernah
+                    # terbaca) - halaman ini cuma tidak menyediakan
+                    # penanda (tampilan lama). Buka gerbang; kalau sesi
+                    # ternyata mati, patroli berikutnya menangkap 'out'.
+                    state.LOGIN_DICEK = True
+                    state._login_sentinel["unknown_mulai"] = 0.0
+                    print("[LOGIN] halaman ini tak punya penanda "
+                          "(tampilan lama?) - percaya sesi 'in' yang "
+                          "sudah terverifikasi.")
+                else:
+                    state._login_sentinel["ok"] = False
+                    state._login_sentinel["alasan"] = (
+                        "login tidak terdeteksi >40 dtk")
+                    mati = True
         else:
             state._login_sentinel["unknown_mulai"] = 0.0
     # GUI hanya boleh menanya rentang kalau status login pasti (in/out/mati)
