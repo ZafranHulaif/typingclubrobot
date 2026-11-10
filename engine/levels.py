@@ -400,6 +400,11 @@ def baca_progres_akun(pg, maks_pas=50):
     try:
         if pg is None:
             return None
+        try:
+            # evaluate jangan menggantung menit-menit saat halaman sibuk
+            pg.set_default_timeout(6000)
+        except Exception:
+            pass
         js_kumpul = """() => [...document.querySelectorAll('[aria-label^="Lesson "]')].map(e => e.getAttribute("aria-label"))"""
         labels = set(pg.evaluate(js_kumpul) or [])
         if not labels:
@@ -426,7 +431,12 @@ def baca_progres_akun(pg, maks_pas=50):
             '() => !!document.querySelector(\'[data-tbscan="1"]\')')
 
         def _pas():
-            kini = set(pg.evaluate(js_kumpul) or [])
+            try:
+                kini = set(pg.evaluate(js_kumpul) or [])
+            except Exception:
+                # halaman sedang navigasi (bot/user menggerakkan) - anggap
+                # pass diam, jangan biarkan exception bunuh pemindaian
+                return False
             tumbuh = len(kini) > len(labels)
             labels.update(kini)   # |= akan me-rebind nama -> UnboundLocal
             return tumbuh

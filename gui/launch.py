@@ -254,9 +254,26 @@ class LaunchMixin:
                 on_ready=siap)
 
         self._ui_queue.put(buka)
-        try:
-            self._nick_q.get(timeout=600)
-        except queue.Empty:
+        # tunggu nickname DENGAN cek batal + pesan habis waktu (dulu:
+        # timeout 600 dtk = return BISU - user klik Kirim setelahnya dan
+        # tidak ada siapa pun di balik dialog lagi, 'Menunggu' selamanya
+        # tanpa entry di server - live sim 21:05)
+        nick = None
+        t0 = time.time()
+        while time.time() - t0 < 3600 and not self._online_cancel:
+            try:
+                nick = self._nick_q.get(timeout=2.0)
+                break
+            except queue.Empty:
+                continue
+        if self._online_cancel:
+            return
+        if not nick:
+            self._ui_queue.put(lambda: self._online_dlg and (
+                self._online_dlg.set_status(
+                    "⏛ Waktu tunggu habis.",
+                    "Tekan Batalkan, lalu buka aplikasi lagi."),
+                self._online_dlg.finish(False)))
             return
         nick = self._load_nickname() or "Tanpa-nama"
         try:
@@ -273,7 +290,7 @@ class LaunchMixin:
         except Exception as ex:
             self._log(f"[net] permintaan gagal: {ex}")
             data = {}
-        for i in range(36):
+        for i in range(120):   # 120x5 dtk = 10 menit tunggu approve
             if self._online_cancel:
                 return
             st = data.get("status")
@@ -843,6 +860,15 @@ class LaunchMixin:
             self._log(f"Rentang level aktif: {self._rentang_mulai} - "
                       f"{self._rentang_akhir or 'akhir kursus'}.")
         self.bot_thread = threading.Thread(target=self._run_bot, daemon=True)
+        # TAHAN supervisor SEJAK SEBELUM thread jalan (dulu: iterasi pertama
+        # supervisor sempat lari -> deteksi minigame ngetik 'Dashboard' di
+        # halaman course, halaman kacau & scroll liar - keluhan sim akun
+        # baru: 'it just scrolled through the level list'). Dilepas caller
+        # rentang setelah keputusan awal diambil.
+        try:
+            self.bot.AWAIT_RANGE = True
+        except Exception:
+            pass
         self.bot_thread.start()
 
 

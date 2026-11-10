@@ -670,7 +670,10 @@ class ActivityMixin:
     def _lanjut_buka_range(self):
         """(UI thread) pemindaian tuntas - buka picker dgn data asli."""
         self._pindai_berjalan = False
-        self._pindai_selesai = True
+        # tandai selesai HANYA kalau sukses - kalau gagal, Start berikutnya
+        # boleh mencoba lagi (dulu: gagal sekali = selamanya default lvl 1)
+        if self._progres_akun:
+            self._pindai_selesai = True
         bot = self.bot
         if not getattr(self, "_rentang_terbuka", False) \
                 and bot is not None and getattr(bot, "AWAIT_RANGE", False):
@@ -680,6 +683,11 @@ class ActivityMixin:
             else:
                 self._log("Progres akun tak terbaca - pakai default.")
             self._open_range()
+        else:
+            # JANGAN BISU (live: scan selesai setelah user menekan Stop,
+            # picker tak pernah muncul, tanpa jejak di log)
+            self._log("[PINDAI] selesai tapi bot sudah tidak menunggu "
+                      "rentang - tekan Start lagi.")
 
     def _save_range_settings(self):
         try:
