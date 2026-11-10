@@ -638,12 +638,15 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
 
     def redraw(cv, judul_lbl, tepi):
         # delete("all") membuang window-item judul juga -> pasang ulang.
-        # bingkai diberi TAG supaya hover TIDAK perlu redraw: cukup
-        # itemconfig outline (dulu hover = redraw penuh -> isi tile
-        # terhapus diam-diam saat kursor lewat - tile jadi kosong).
+        # bingkai/badan diberi TAG supaya hover TIDAK perlu redraw: cukup
+        # itemconfig (dulu hover = redraw penuh -> isi tile terhapus
+        # diam-diam saat kursor lewat - tile jadi kosong).
         cv.delete("all")
-        bulat(cv, 2, 2, W - 2, H - 2, PUTIH, tepi)
-        b = bulat(cv, 4, 4, W - 4, H - 4, "", ACCENT)
+        badan = bulat(cv, 2, 2, W - 2, H - 2, PUTIH, tepi)
+        cv.itemconfigure(badan, tags="badan")
+        # bingkai ikut warna param (dulu ACCENT permanen - keluhan user:
+        # Lanjut tampak 'hover' padahal tidak)
+        b = bulat(cv, 4, 4, W - 4, H - 4, "", tepi)
         cv.itemconfigure(b, fill="", width=3, tags="bingkai")
         cv.create_window(W // 2, 44, window=judul_lbl, tags="isi")
 
@@ -651,14 +654,51 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
         if cv.find_withtag("bingkai"):
             cv.itemconfigure("bingkai", outline=warna)
 
+    def sorot(cv, nyala):
+        """Hover tile: bingkai biru + badan ber-tint biru muda -
+        keluhan user 'hovering not clear enough' - sekarang KELIHATAN."""
+        if cv.find_withtag("bingkai"):
+            cv.itemconfigure("bingkai", outline=ACCENT if nyala else
+                             (ACCENT if cv._aktif else TILE_EDGE))
+        if cv.find_withtag("badan"):
+            cv.itemconfigure("badan", fill="#f3f7ff" if nyala else PUTIH)
+
+    def kedip(cv):
+        """Umpan balik tekan: bingkai menebal sebentar."""
+        if cv.find_withtag("bingkai"):
+            cv.itemconfigure("bingkai", width=5)
+            cv.after(120, lambda: cv.itemconfigure("bingkai", width=3))
+
     kartu_khusus = [None]
+
+    def _nav(level=None, daftar=False):
+        """Arahkan browser embed SAAT KLIK (webview masih tersembunyi di
+        balik dialog - watcher menavigasi diam-diam, user tidak pernah
+        melihat halaman lama/refresh). Dulu 'Lanjut' cuma menggenggam
+        bot tanpa navigasi = 'Menunggu kamu' padahal user sudah pilih
+        (keluhan user). Fallback: daftar level tampilan baru."""
+        try:
+            from .widgets import _DIALOG_LAYER
+            l = _DIALOG_LAYER
+            if l is None:
+                return
+            url = "https://www.edclub.com/student/course/3"
+            if not daftar and level:
+                try:
+                    from engine import levels as _lv
+                    url = _lv.url_untuk_level(level) or url
+                except Exception:
+                    pass
+            l.ke_url(url)
+        except Exception:
+            pass
 
     def hover(cv, judul_lbl, nilai):
         def masuk(_e=None):
-            tepi(cv, ACCENT)
+            sorot(cv, True)
         def keluar(_e=None):
-            aktif = (nilai == "khusus" and khusus.winfo_ismapped())
-            tepi(cv, ACCENT if aktif else TILE_EDGE)
+            sorot(cv, False)
+        cv._aktif = False
         cv.bind("<Enter>", masuk)
         cv.bind("<Leave>", keluar)
         return masuk
@@ -669,19 +709,57 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
 
     cv1, l1 = tile("Lanjut")
 
+    def tombol(cv, cx, cy, label, aktif, tags):
+        """Tombol kotak-membulat utk panah carousel. Return item.
+        Hover/tekan ditangani tag_bind di bawah (keluhan user: panah
+        terasa mati - sekarang ada kotak, terang saat hover, tonejok
+        saat ditekan, abu saat mati)."""
+        bw, bh = 26, 22
+        x1, y1, x2, y2 = cx - bw, cy - bh, cx + bw, cy + bh
+        pts = [x1 + 6, y1, x2 - 6, y1, x2, y1, x2, y1 + 6, x2, y2 - 6,
+               x2, y2, x2 - 6, y2, x1 + 6, y2, x1, y2, x1, y2 - 6,
+               x1, y1 + 6, x1, y1]
+        kotak = cv.create_polygon(
+            pts, smooth=True, fill="#eef2f8" if aktif else "#f3f4f7",
+            outline=TILE_EDGE if aktif else "#e3e6ec", width=1,
+            tags=tags)
+        warna_teks = ACCENT if aktif else ABU_MUDA
+        cv.create_text(cx, cy, text=label,
+                       font=("Segoe UI", 15, "bold"), fill=warna_teks,
+                       tags=tags)
+        return kotak
+
+    def hidupkan_tombol(cv, tags, aktif):
+        """Pasang efek hover + tekan pd semua item ber-tags."""
+        def masuk(_e=None):
+            if aktif:
+                cv.itemconfigure(tags, fill="#e4eeff", outline=ACCENT)
+        def keluar(_e=None):
+            if aktif:
+                cv.itemconfigure(tags, fill="#eef2f8", outline=TILE_EDGE)
+        def tekan(_e=None):
+            if not aktif:
+                return
+            cv.itemconfigure(tags, fill="#d5e3ff")
+            cv.after(110, lambda: cv.itemconfigure(tags, fill="#eef2f8"))
+        cv.tag_bind(tags, "<Enter>", masuk)
+        cv.tag_bind(tags, "<Leave>", keluar)
+        cv.tag_bind(tags, "<Button-1>", tekan)
+
     def gbr_lanjut():
         cv = cv1
-        redraw(cv, l1, ACCENT)   # primer: selalu biru
+        # dulu bingkai ACCENT permanen (keluhan user: 'why is there a
+        # blue outline even when not hovering') - sekarang sama seperti
+        # tile lain: biru CUMA saat hover.
+        redraw(cv, l1, TILE_EDGE)
         n = lvl["n"]
-        # ---- kiri: level sebelumnya
+        # ---- kiri: level sebelumnya (angka + tombol ‹)
         if n > 1:
-            cv.create_text(int(W * 0.16), int(H * 0.42), text=f"{n - 1:02d}",
+            cv.create_text(int(W * 0.16), int(H * 0.40), text=f"{n - 1:02d}",
                            font=("Segoe UI", 20, "bold"), fill=ABU)
-            cv.create_text(int(W * 0.16), int(H * 0.42) + 26, text="\u2039",
-                           font=("Segoe UI", 22, "bold"), fill=NAVY)
-        else:
-            cv.create_text(int(W * 0.16), int(H * 0.42), text="\u2039",
-                           font=("Segoe UI", 22, "bold"), fill=ABU_MUDA)
+        tombol(cv, int(W * 0.16), int(H * 0.42) + 34, "\u2039", n > 1,
+               "btn-kiri")
+        hidupkan_tombol(cv, "btn-kiri", n > 1)
         # ---- tengah: level terpilih (besar)
         cv.create_text(W // 2, int(H * 0.38), text=f"{n:02d}",
                        font=("Segoe UI", 46, "bold"), fill=NAVY)
@@ -696,60 +774,79 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
         cv.create_rectangle(kx1 + 8, ky1 + 30, kx1 + 112, ky1 + 39,
                             fill=PUTIH, outline=TILE_EDGE)
         cv.create_oval(kx1 + 96, ky1 - 24, kx1 + 132, ky1 + 12,
-                       fill=HIJAU, width=0)
+                       fill=HIJAU, width=0, tags="play", outline=HIJAU)
         cv.create_polygon(kx1 + 109, ky1 - 15, kx1 + 109, ky1 - 1,
-                          kx1 + 121, ky1 - 8, fill="white", width=0)
+                          kx1 + 121, ky1 - 8, fill="white", width=0,
+                          tags="play")
+        # badge play membesar saat hover (umpan balik 'interactive')
+        cv.tag_bind("play", "<Enter>", lambda _e: (
+            cv.itemconfigure("play", width=3),
+            cv.itemconfigure("play", outline="#27a355")))
+        cv.tag_bind("play", "<Leave>", lambda _e: (
+            cv.itemconfigure("play", width=0),
+            cv.itemconfigure("play", outline=HIJAU)))
         ket = ("level berikutnya yang belum selesai"
                if n == lvl_awal else "mulai dari level ini")
         cv.create_text(W // 2, int(H * 0.72), text=ket,
                        font=("Segoe UI", 9), fill=ABU)
         # ---- kanan: level berikutnya (kunci kalau lewat lvl_awal)
         if n < lvl_awal:
-            cv.create_text(int(W * 0.84), int(H * 0.42), text=f"{n + 1:02d}",
+            cv.create_text(int(W * 0.84), int(H * 0.40), text=f"{n + 1:02d}",
                            font=("Segoe UI", 20, "bold"), fill=NAVY)
-            cv.create_text(int(W * 0.84), int(H * 0.42) + 26, text="\u203a",
-                           font=("Segoe UI", 22, "bold"), fill=NAVY)
+            tombol(cv, int(W * 0.84), int(H * 0.42) + 34, "\u203a", True,
+                   "btn-kanan")
+            hidupkan_tombol(cv, "btn-kanan", True)
         else:
-            # terkunci: kotak abu + gembok + panah abu
-            bx, by = int(W * 0.84) - 26, int(H * 0.42) - 22
-            cv.create_rectangle(bx, by, bx + 52, by + 44,
-                                fill="#e6e9ef", outline=TILE_EDGE)
-            cv.create_text(bx + 26, by + 22, text="🔒",
-                           font=("Segoe UI Emoji", 13), fill=ABU)
-            cv.create_text(int(W * 0.84), int(H * 0.42) + 26, text="\u203a",
-                           font=("Segoe UI", 22, "bold"), fill=ABU_MUDA)
+            # terkunci: kotak abu + gembok + tombol ›  mati
+            cv.create_text(int(W * 0.84), int(H * 0.40), text=f"{n + 1:02d}",
+                           font=("Segoe UI", 20, "bold"), fill=ABU)
+            tombol(cv, int(W * 0.84), int(H * 0.42) + 34, "\u203a", False,
+                   "btn-kanan")
+            hidupkan_tombol(cv, "btn-kanan", False)
+            bx, by = int(W * 0.84) - 13, int(H * 0.40) - 46
+            cv.create_rectangle(bx, by, bx + 26, by + 26,
+                                fill="#f0f2f6", outline=TILE_EDGE)
+            cv.create_text(bx + 13, by + 13, text="🔒",
+                           font=("Segoe UI Emoji", 10), fill=ABU)
         # ---- '»' loncat ke terakhir saat menjauh dari lvl_awal
         if n < lvl_awal:
-            cv.create_text(int(W * 0.84), int(H * 0.72), text="\u00bb",
-                           font=("Segoe UI", 24, "bold"), fill=ACCENT)
-            cv.create_text(int(W * 0.84), int(H * 0.72) + 24,
+            tombol(cv, int(W * 0.84), int(H * 0.72), "\u00bb", True,
+                   "btn-akhir")
+            hidupkan_tombol(cv, "btn-akhir", True)
+            cv.create_text(int(W * 0.84), int(H * 0.72) + 26,
                            text="langsung ke terakhir",
                            font=("Segoe UI", 8), fill=ABU)
-        cv1.tag_bind("isi", "<Enter>", lambda _e: gambar_tile(cv1, ACCENT))
 
     def klik_lanjut(e):
         x, y = e.x, e.y
-        zt = W * 0.12          # zona telunjuk kiri/kanan
-        if abs(x - W * 0.16) < zt and abs(y - H * 0.42) < H * 0.18:
+        zt = W * 0.14          # zona telunjuk kiri/kanan
+        if abs(x - W * 0.16) < zt and abs(y - H * 0.42) < H * 0.20:
             if lvl["n"] > 1:
+                kedip(cv1)
                 lvl["n"] -= 1
                 gbr_lanjut()
             return
-        if abs(x - W * 0.84) < zt and abs(y - H * 0.42) < H * 0.18:
+        if abs(x - W * 0.84) < zt and abs(y - H * 0.42) < H * 0.20:
             if lvl["n"] < lvl_awal:
+                kedip(cv1)
                 lvl["n"] += 1
                 gbr_lanjut()
             return
         if abs(x - W * 0.84) < zt and abs(y - H * 0.72) < H * 0.10 \
                 and lvl["n"] < lvl_awal:
+            kedip(cv1)
             lvl["n"] = lvl_awal
             gbr_lanjut()
             return
-        # tengah = pilih
+        # tengah = pilih -> SEKALIGUS navigasi ke level itu (webview
+        # masih tersembunyi; dulu cuma 'menunggu kamu' = user kesal)
         if W * 0.30 < x < W * 0.70:
+            kedip(cv1)
             if lvl["n"] == lvl_awal:
+                _nav(lvl["n"])
                 d.done("lanjut")
             else:
+                _nav(lvl["n"])
                 d.done({"mulai": lvl["n"], "akhir": 0})
     cv1.bind("<Button-1>", klik_lanjut)
     l1.bind("<Button-1>", klik_lanjut)
@@ -758,6 +855,13 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
 
     # ============ 2) PILIH DI HALAMAN (tengah): grid edclub ============
     cv2, l2 = tile("Pilih di Halaman")
+
+    def _hover_mini(cv, tag, rect, nyala):
+        cv.itemconfigure(tag, outline=ACCENT if nyala else TILE_EDGE)
+        try:
+            cv.itemconfigure(rect, fill="#f3f7ff" if nyala else PUTIH)
+        except tk.TclError:
+            pass      # redraw menghapus item - hover basi, abaikan
 
     def gbr_halaman():
         cv = cv2
@@ -768,26 +872,38 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
         for i, (no, st) in enumerate(urut):
             x = gx + (i % 3) * 104
             y = int(H * 0.22) + (i // 3) * 76
-            cv.create_rectangle(x, y, x + 92, y + 66, fill=PUTIH,
-                                outline=TILE_EDGE)
+            tagm = f"mini{i}"
+            rm = cv.create_rectangle(x, y, x + 92, y + 66, fill=PUTIH,
+                                     outline=TILE_EDGE, tags=tagm)
             cv.create_text(x + 14, y + 17, text=no,
-                           font=("Segoe UI", 11, "bold"), fill=NAVY)
+                           font=("Segoe UI", 11, "bold"), fill=NAVY,
+                           tags=tagm)
+            cv.tag_bind(tagm, "<Enter>", lambda _e, t=tagm, rr=rm:
+                        _hover_mini(cv, t, rr, True))
+            cv.tag_bind(tagm, "<Leave>", lambda _e, t=tagm, rr=rm:
+                        _hover_mini(cv, t, rr, False))
             if st == "ok":
                 cx, cy = x + 46, y + 42
                 cv.create_oval(cx - 13, cy - 13, cx + 13, cy + 13,
-                               fill=HIJAU, width=0)
+                               fill=HIJAU, width=0, tags=tagm)
                 cv.create_line(cx - 5, cy, cx - 1, cy + 4,
                                cx + 6, cy - 5, fill="white", width=2,
-                               joinstyle="round", capstyle="round")
+                               joinstyle="round", capstyle="round",
+                               tags=tagm)
             elif st == "kunci":
                 cv.create_text(x + 46, y + 42, text="🔒",
-                               font=("Segoe UI Emoji", 14), fill=ABU)
+                               font=("Segoe UI Emoji", 14), fill=ABU,
+                               tags=tagm)
         cv.create_text(W // 2, int(H * 0.82),
                        text="klik, lalu pilih level di halaman",
                        font=("Segoe UI", 9), fill=ABU)
     gbr_halaman()
-    cv2.bind("<Button-1>", lambda _e: d.done("halaman"))
-    l2.bind("<Button-1>", lambda _e: d.done("halaman"))
+    def klik_halaman(_e=None):
+        kedip(cv2)
+        _nav(daftar=True)      # langsung tampilan BARU, tanpa flash tua
+        d.done("halaman")
+    cv2.bind("<Button-1>", klik_halaman)
+    l2.bind("<Button-1>", klik_halaman)
     hover(cv2, l2, "halaman")
 
     # ====== 3) RENTANG KHUSUS (kanan): kotak angka besar langsung ======
@@ -847,15 +963,18 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
             khusus.pack(fill="x", pady=(0, 2))
             b_simpan.pack(side="right")
         pilih3._aktif = True
+        cv3._aktif = True
         gbr_rentang()
         info_teks()
     pilih3._aktif = False
 
+    cv3._aktif = False     # awal: khusus belum dipilih
+
     def masuk3(_e=None):
-        tepi(cv3, ACCENT)
+        sorot(cv3, True)
 
     def keluar3(_e=None):
-        tepi(cv3, ACCENT if pilih3._aktif else TILE_EDGE)
+        sorot(cv3, False)
     for w in (cv3, l3):
         w.bind("<Enter>", masuk3)
         w.bind("<Leave>", keluar3)
@@ -881,6 +1000,7 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
             galat.configure(text=f"Harus 1-{total_level}, dan Dari <= Sampai.")
             return False
         hasil["mulai"], hasil["akhir"] = a, b
+        _nav(a)               # langsung ke level 'dari' - bukan menunggu
         d.done(hasil)
 
     b_simpan = d.button("Simpan", None, cmd=simpan)

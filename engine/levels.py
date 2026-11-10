@@ -332,6 +332,14 @@ def _goto_level_via_daftar(nomor):
     return True
 
 
+def url_untuk_level(nomor):
+    """URL .play level N dari peta (TANPA menavigasi). Dipakai GUI:
+    mengarahkan browser embed via watcher (ke_url) saat user memilih
+    level di dialog - tanpa menyentuh state.PAGE dari thread Tk."""
+    u = state._level_map.get(str(nomor)) or ""
+    return u if ".play" in u else ""
+
+
 def _goto_level_url(nomor):
     """Buka lesson nomor N langsung dari peta (level_map.json).
 
