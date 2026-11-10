@@ -857,13 +857,13 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
     cv2, l2 = tile("Pilih di Halaman")
 
     def _hover_mini(cv, tag, rect, nyala):
-        if not cv.find_withtag(tag):
-            return      # redraw menghapus item - hover basi, jangan
-                        # sentuh (dulu: itemconfigure tag mati = crash
-                        # TclError 'unknown option -outline', live)
-        cv.itemconfigure(tag, outline=ACCENT if nyala else TILE_EDGE)
+        # HANYA rect yang di-config: tagm juga memuat item teks/oval/garis
+        # yang TIDAK punya opsi outline -> itemconfigure(tag, outline=..)
+        # selalu TclError 'unknown option -outline' walau tag ada (live:
+        # log penuh traceback tiap hover, v3).
         try:
-            cv.itemconfigure(rect, fill="#f3f7ff" if nyala else PUTIH)
+            cv.itemconfigure(rect, outline=ACCENT if nyala else TILE_EDGE,
+                             fill="#f3f7ff" if nyala else PUTIH)
         except tk.TclError:
             pass      # redraw menghapus item - hover basi, abaikan
 

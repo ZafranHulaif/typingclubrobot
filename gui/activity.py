@@ -593,6 +593,8 @@ class ActivityMixin:
                 # level 90-an (keluhan live sim akun baru).
                 self._set_activity("Memindai progres akun…",
                                    "Membaca posisi asli akun di edclub.")
+                self._log("[PINDAI] pos bot 0 - baca progres akun dari "
+                          "halaman course (latar belakang).")
                 self._pindai_berjalan = True
                 threading.Thread(target=self._pindai_progres,
                                  daemon=True).start()
@@ -654,7 +656,13 @@ class ActivityMixin:
                             break
                 if pg is not None:
                     hasil = baca_progres_akun(pg)
+                else:
+                    print("[PINDAI] tak ada halaman edclub /course/ di "
+                          f"CDP :{port}")
         except Exception:
+            import traceback as _tb
+            print("[PINDAI] gagal:")
+            _tb.print_exc()
             hasil = None
         self._progres_akun = hasil or {}
         self._ui_queue.put(self._lanjut_buka_range)
