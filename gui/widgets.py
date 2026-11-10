@@ -243,6 +243,20 @@ class _Dialog(tk.Toplevel):
         # (bug Windows: popup menumpuk di pojok kiri atas).
         self.withdraw()
         gelap_titlebar_berulang(self)
+        # headerless (judul kosong): tanpa ikon/judul/subjudul & tanpa
+        # garis pemisah - body langsung. Dipakai picker level yang harus
+        # terasa 'seleksi di dalam app', bukan popup berbingkai.
+        if not judul:
+            self._judul_lbl = None
+            self._sub_lbl = None
+            self.body = tk.Frame(self, bg=PANEL)
+            self.body.pack(fill="both", expand=True, padx=24, pady=(22, 10))
+            self.foot = tk.Frame(self, bg=PANEL)
+            self.foot.pack(fill="x", padx=24, pady=(0, 18))
+            self.protocol("WM_DELETE_WINDOW", lambda: self.done(None))
+            self.bind("<Escape>", lambda e: self.done(None))
+            self.bind("<Return>", self._enter)
+            return
 
         head = tk.Frame(self, bg=PANEL)
         head.pack(fill="x", padx=24, pady=(22, 4))
@@ -296,6 +310,25 @@ class _Dialog(tk.Toplevel):
         layer = self._layer
         self._layar = tk.Frame(layer, bg="#0c0d11")
         self._layar.place(relx=0, rely=0, relwidth=1, relheight=1)
+        # headerless: kartu nyatu dgn layar (tanpa bingkai/outline) ->
+        # tile pilihan terasa melayang langsung di app (permintaan user)
+        if not judul:
+            self._judul_lbl = None
+            self._sub_lbl = None
+            self._kartu = tk.Frame(self._layar, bg="#0c0d11",
+                                   highlightthickness=0)
+            self._kartu.place(relx=0.5, rely=0.5, anchor="center",
+                              width=min(max(layer.winfo_width() - 96, 300),
+                                        1560))
+            self.body = tk.Frame(self._kartu, bg="#0c0d11")
+            self.body.pack(fill="both", expand=True)
+            self.foot = tk.Frame(self._kartu, bg="#0c0d11")
+            self.foot.pack(fill="x")
+            self._selesai = tk.BooleanVar(value=False)
+            self.bind("<Escape>", lambda e: self.done(None))
+            self.bind("<Return>", self._enter)
+            layer.bind("<Escape>", lambda e: self.done(None))
+            return
         # kartu di tengah, lebar mengikuti area (maks 560px)
         self._kartu = tk.Frame(self._layar, bg=PANEL, highlightthickness=1,
                                highlightbackground=EDGE)
