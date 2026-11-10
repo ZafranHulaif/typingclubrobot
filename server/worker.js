@@ -253,20 +253,18 @@ async function handle(request) {
     const raw = await env.META.get("release");
     if (!raw) return json({ error: "no_release_yet" }, 404);
     const rel = JSON.parse(raw);
-    const n = Math.max(1, Math.ceil((rel.size || 1) / CHUNK));
-    async function* potongan() {
-      for (let i = 0; i < n; i++) {
-        const b = await env.META.get(chunkKey(rel.version, i), "arrayBuffer");
-        if (b === null) throw new Error("chunk_missing");
-        yield b;
-      }
-    }
-    return new Response(ReadableStream.from(potongan()), {
-      headers: {
-        "content-type": "application/octet-stream",
-        "content-disposition": 'attachment; filename="TypingBot.exe"',
-        "content-length": String(rel.size || 0),
-      },
+    // REDIRECT ke GitHub release asset (CDN global, tahan banting).
+    // Dulu: streaming 4 chunk KV dari POP user - POP lemah (Jakarta CGK
+    // 10-11 Nov 2026) bikin 1102 + unduhan korup, dan updater 2.9.28
+    // tak verifikasi hash -> bisa memasang exe korup = brick. Worker
+    // kini nol kerja berat; updater lama (urllib) ikut 302 otomatis.
+    // SYARAT: setiap rilis WAJIB melampirkan TypingBot.exe di gh release
+    // v<versi> (publish.py mengeceknya).
+    const gh = "https://github.com/ZafranHulaif/typingclubrobot/" +
+               "releases/download/v" + rel.version + "/TypingBot.exe";
+    return new Response(null, {
+      status: 302,
+      headers: { "location": gh, "cache-control": "no-store" },
     });
   }
 

@@ -74,6 +74,25 @@ def main():
     if not os.path.exists(a.exe):
         print("file tidak ada:", a.exe)
         return 1
+    # /api/download kini REDIRECT ke GitHub release asset - cek asset
+    # v<versi> benar2 ada SEBELUM tayang, kalau tidak semua updater
+    # dapat 404 (worker nol kerja berat sejak 3.2.0-followup).
+    import urllib.error
+    gh = ("https://github.com/ZafranHulaif/typingclubrobot/releases/"
+          "download/v" + a.version + "/TypingBot.exe")
+    cek = urllib.request.Request(gh, method="HEAD",
+                                 headers={"User-Agent": UA})
+    try:
+        with urllib.request.urlopen(cek, timeout=30) as r:
+            if r.status not in (200, 302):
+                raise ValueError("status " + str(r.status))
+        print("asset GitHub OK:", gh)
+    except Exception as ex:
+        print("GAGAL: asset GitHub belum ada (" + gh + ")")
+        print("  -> jalankan dulu: gh release create v" + a.version,
+              a.exe, "--title v" + a.version, "--notes ...")
+        print("  alasan:", ex)
+        return 1
     out = publish(a.exe, a.version, a.notes, url, key)
     print("terunggah:", a.version, out["size"], "byte")
     print("sha256 lokal :", out["sha256"])
