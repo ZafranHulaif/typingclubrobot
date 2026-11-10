@@ -97,7 +97,8 @@ async (arg) => {
     method: 'POST', credentials: 'include',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({login_token: lt})});
-  if (!r2.ok) return 'refresh-fail:' + r2.status;
+      if (!r2.ok) return 'refresh-fail:' + r2.status;
+      try { localStorage.setItem('tb_lt', lt); } catch (e) {}
   return 'ok';
 }
 """
@@ -729,13 +730,31 @@ class Wv2Host(tk.Frame):
                             if hasil == "ok":
                                 catat("login OAuth diselamatkan (relay "
                                       "manual) - menuju daftar level...")
-                                try:
-                                    pg.evaluate(
-                                        "() => location.href = "
-                                        "'https://www.edclub.com/student/'"
-                                        "course/3'")
-                                except Exception:
-                                    pass
+                                # boot pertama kadang bounce balik ke
+                                # /signin (sesi server baru tersapu) -
+                                # pantau & kembali ke course/3 sampai
+                                # betul-betul masuk (maks 3 putaran)
+                                for _i in range(3):
+                                    time.sleep(4)
+                                    try:
+                                        u3 = pg.evaluate(
+                                            "() => location.href")
+                                    except Exception:
+                                        continue
+                                    if "/signin" in u3:
+                                        catat("boot masih ke /signin - "
+                                              "coba masuk lagi...")
+                                        try:
+                                            pg.evaluate(
+                                                "() => location.href = "
+                                                "'https://www.edclub.com/'"
+                                                "student/course/3'")
+                                        except Exception:
+                                            pass
+                                        continue
+                                    catat("halaman: "
+                                          f"{u3[:80]} - login bertahan")
+                                    break
                             else:
                                 catat(f"relay manual: {hasil[:60]}")
                         continue
