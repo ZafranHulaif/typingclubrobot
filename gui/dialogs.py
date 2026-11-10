@@ -1061,8 +1061,8 @@ def dialog_online_activation(induk, nickname, on_send, on_cancel, on_ready=None)
     fase2 = tk.Frame(d.body, bg=PANEL)
     # gelombang ketikan selama menunggu jawaban server - frame dirender
     # pada resolusi native kanvas & gerak berbasis jam dinding
-    kan_wave = tk.Canvas(fase2, height=64, bg=PANEL, highlightthickness=0)
-    kan_wave.pack(fill="x", pady=(0, 10))
+    kan_wave = tk.Canvas(fase2, height=40, bg=PANEL, highlightthickness=0)
+    kan_wave.pack(fill="x", pady=(0, 6))
     d._anim_tunggu = anim.attach_wave(kan_wave)
     status_lbl = tk.Label(fase2, text="Mengirim permintaan...",
                           font=("Segoe UI", 11, "bold"), fg=FG, bg=PANEL,
@@ -1074,7 +1074,7 @@ def dialog_online_activation(induk, nickname, on_send, on_cancel, on_ready=None)
 
     # fase sukses: centang menggambar sendiri sebelum dialog ditutup
     fase3 = tk.Frame(d.body, bg=PANEL)
-    kan_cek = tk.Canvas(fase3, height=132, bg=PANEL, highlightthickness=0)
+    kan_cek = tk.Canvas(fase3, height=90, bg=PANEL, highlightthickness=0)
     kan_cek.pack(fill="x")
     tk.Label(fase3, text="Disetujui! Menyiapkan aplikasi...",
              font=("Segoe UI", 11, "bold"), fg=GREEN,

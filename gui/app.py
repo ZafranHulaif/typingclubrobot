@@ -273,7 +273,10 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         else:
             self._log(f"Lisensi belum aktif - kode mesin: {_machine_code()}")
         threading.Thread(target=self._load_bot, daemon=True).start()
-        threading.Thread(target=self._net_worker, daemon=True).start()
+        # net worker JANGAN dulu: tunggu webview siap (flag di akhir
+        # buat_webview) supaya dialog aktivasi terbuka sebagai overlay
+        # DI DALAM app - dulu dia balapan & menang, dialog jadi jendela
+        # OS terpisah + boot webview macet di belakangnya (keluhan user)
         self.root.after(20 * 60 * 1000, self._net_periodic)
         self.root.after(150, self._poll)
 
@@ -288,8 +291,10 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         (thread latar; pembuatan widget tetap di thread UI via after).
         Gagal apa pun tidak boleh mematikan app - jalur browser eksternal
         lama tetap jalan saat Start."""
-        if not self.lisensi_ok:
-            return
+        # TANPA gerbang lisensi (keluhan user: popup aktivasi jadi
+        # jendela terpisah karena webview tak pernah boot saat belum
+        # aktivasi - ayam & telur). Browser hanya penampil edclub;
+        # menjalankan BOT tetap digerbangi lisensi di on_start.
         if not wv2_tersedia():
             self._log("WebView2 tidak tersedia - pakai browser terpisah.")
             self.root.after(0, lambda: self.aktiv_sub.configure(
@@ -357,6 +362,9 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                 time.sleep(0.5)
                 if _check_debug_port():
                     break
+            self._embed_selesai = True   # net worker boleh mulai
+            threading.Thread(target=self._net_worker,
+                             daemon=True).start()
         except SystemExit:
             pass
         except Exception as ex:

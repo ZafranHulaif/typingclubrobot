@@ -57,6 +57,14 @@ class LaunchMixin:
             self.log_file = open(LOG_FILE, "w", encoding="utf-8", buffering=1)
         except Exception:
             self.log_file = None
+        if os.environ.get("TYPINGBOT_BARU") == "1":
+            try:
+                from .licensing import _machine_code
+                self._log(f"[SIMULASI] mode pengguna BARU aktif - mesin "
+                          f"{_machine_code()}, lisensi tersimpan "
+                          "diabaikan. File lisensi asli AMAN.")
+            except Exception:
+                pass
         # hasil sweep _MEI awal (dijalan _main SEBELUM file log ada -
         # open 'w' di atas menghapus baris apa pun sebelum titik ini)
         try:
@@ -129,6 +137,12 @@ class LaunchMixin:
     def _net_worker(self):
         """Satu-satunya pintu internet aplikasi: dipanggil sekali saat
         mulai (lisensi + cek versi), setelah itu sepenuhnya offline."""
+        # tunggu webview siap (dialog aktivasi butuh layer overlay;
+        # dulu balapan -> dialog jadi jendela terpisah)
+        for _ in range(120):
+            if getattr(self, "_embed_selesai", False):
+                break
+            time.sleep(0.25)
         import os as _os
         if _os.environ.get("TYPINGBOT_BARU") == "1":
             from .licensing import _machine_code
