@@ -1,3 +1,6 @@
+
+_burst_len = 1        # panjang burst ketik adaptif (standard)
+_burst_streak = 0     # rentetan bersih utk panjangkan burst
 """State global yang bisa berubah lintas modul.
 Semua akses dari modul lain: `from . import state` lalu
 `state.STOP` dst - attribute module selalu live."""

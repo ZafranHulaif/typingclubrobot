@@ -97,6 +97,40 @@ def _lesson_gone():
     return bool(url) and ".play" not in url and "/lesson/" not in url
 
 
+def type_burst(text, wpm=None):
+    """Ketik beberapa karakter sekaligus dgn pacing INTERNAL Playwright
+    (jeda antar tombol diatur driver, TANPA round-trip verifikasi python
+    di antaranya). Dulu: verifikasi per karakter = evaluate JS ~60-90 ms
+    per char -> setting 300 wpm nyata cuma ~110 (verifikasi makan lebih
+    banyak waktu daripada jeda ketiknya). Dengan burst: overhead ~beberapa
+    ms per char -> 300 wpm benar-benar ~280-300. Verifikasi tetap dilakukan
+    SEKALI per burst di pemanggil (read_state), koreksi backspace tetap
+    berlaku; karakter yang memantul di transisi baris terdeteksi dari DOM
+    (sumber kebenaran tetap DOM)."""
+    try:
+        wpm = wpm or state.SPEED_WPM or 140
+        ms = int(max(12.0 / wpm * 0.92, 0.025) * 1000)
+        kbd = state.PAGE.keyboard
+        seg = ""
+        for ch in text:
+            if ch == "\t":
+                # type() TIDAK mengirim tombol Tab utk '\t' (live harness:
+                # keydown Tab tidak pernah datang -> token salah). Tekan
+                # eksplisit seperti jalur per-karakter dulu.
+                if seg:
+                    kbd.type(seg, delay=ms)
+                    seg = ""
+                kbd.press("Tab")
+                time.sleep(ms / 1000.0)
+            else:
+                seg += ch   # '\n' ditangani type() -> Enter (terbukti)
+        if seg:
+            kbd.type(seg, delay=ms)
+        return True
+    except Exception:
+        return False
+
+
 def type_chars(text, max_chars=None, slow=False, wpm_cap=None):
     """Ketik via CDP. slow=True untuk tutorial boxed (animasi scroll-garis).
     wpm_cap = batas atas kecepatan (tutorial 140).

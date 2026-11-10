@@ -129,6 +129,8 @@ def handle_standard(frame, text):
         stall = 0
         verified = 0
         bs_ok = True
+        state._burst_len = 1
+        state._burst_streak = 0
         err_prev = typing_core.count_errors(frame)
         if err_prev is None:
             err_prev = 0
@@ -139,28 +141,66 @@ def handle_standard(frame, text):
                 time.sleep(0.15)
             if not rem:
                 break
-            ch = rem[0]
-            t_char = time.time()
-            if not typing_core.type_chars(ch):
+            # burst ADAPTIF: mulai 1 karakter (aman utk hilang/salah),
+            # panjang 1->2->4->8 setelah rentetan bersih; anomali apa
+            # pun -> kembali ke 1. Dulu per karakter selalu: round-trip
+            # verifikasi JS ~60-90ms per char membunuh laju nyata (live:
+            # setting 300 terukur ~110 wpm fluktuatif 140-250 -
+            # verifikasi lebih lama daripada jeda ketiknya). Pecah tepat
+            # setelah Enter/Tab agar tombol khusus tetap presisi.
+            n = min(state._burst_len, len(rem))
+            for spec in ("\n", "\t"):
+                idx = rem.find(spec)
+                if 0 <= idx < n:
+                    n = idx + 1
+            if not typing_core.type_burst(rem[:n]):
                 break
             typed_any = True
             rem2, err_after = typing_core.read_state(frame)
             if err_after is None:
                 err_after = err_prev
+            if rem2 == rem[n:]:
+                # bersih persis sepanjang burst - panjangkan cepat:
+                # 1 -> 4 -> 8 (lesson pendek: dulu 1->2->4->8 membuat
+                # hampir seluruh lesson berjalan di burst kecil -
+                # verifikasi per char membaca ~107 wpm walau setting 300)
+                state._burst_streak += n
+                if state._burst_streak >= 4 and state._burst_len < 8:
+                    state._burst_len = 4 if state._burst_len < 4 else 8
+                    state._burst_streak = 0
+            elif rem2 != rem:
+                # DOM geser di tengah burst (transisi baris dsb.) -
+                # pelan-pelan lagi
+                state._burst_len = 1
+                state._burst_streak = 0
             if err_after > err_prev and bs_ok:
-                # 1 karakter tertandai salah - coba hapus sekarang
+                # salah terdeteksi DI DALAM burst terakhir (dulu per
+                # karakter: salah selalu = karakter terakhir). Situs
+                # asli: 1 backspace = hapus 1 karakter terakhir apa pun
+                # statusnya -> mundur seluruh token yang sudah habis
+                # dikonsumsi burst ini, lalu ketik ulang pelan (burst=1,
+                # verifikasi per karakter - jaminan nol salah tersisa).
+                state._burst_len = 1
+                state._burst_streak = 0
+                konsumsi = 0
+                if rem2 is not None:
+                    konsumsi = len(rem) - len(rem2)
+                mundur = min(max(konsumsi, 1), 8)
                 try:
-                    state.PAGE.keyboard.press("Backspace")
-                    time.sleep(0.25)
+                    for _ in range(mundur):
+                        state.PAGE.keyboard.press("Backspace")
+                        time.sleep(0.04)
+                    time.sleep(0.12)
                 except Exception:
                     pass
                 r_chk, err_chk = typing_core.read_state(frame)
-                if err_chk is not None and err_chk < err_after:
-                    rem2 = r_chk  # token kembali pending
+                if (r_chk is not None and err_chk is not None
+                        and err_chk < err_after):
+                    rem2 = r_chk  # token salah kembali pending - ulang
                     err_after = err_chk
                 else:
                     bs_ok = False
-                    print("[Standard] 1 karakter salah tidak bisa dihapus "
+                    print("[Standard] koreksi mundur tidak mempan "
                           "(lanjut - tercatat di akurasi)")
                     rem2 = r_chk
             if rem2 is None or rem2 == "":
@@ -170,8 +210,8 @@ def handle_standard(frame, text):
                 # dobel = salah). Baris baru muncul < 300 ms di situs asli,
                 # jadi grace singkat cukup.
                 got = None
-                for _ in range(8):
-                    time.sleep(0.10)
+                for _ in range(16):
+                    time.sleep(0.05)
                     r = typing_core.read_remaining(frame)
                     if r:
                         got = r
@@ -194,6 +234,8 @@ def handle_standard(frame, text):
                 # halaman (klik user = mouse-only watcher, aman dari
                 # ketikan bot sendiri).
                 stall += 1
+                state._burst_len = 1
+                state._burst_streak = 0
                 user_kehadian = typing_core._user_active(3.0)
                 if user_kehadian:
                     stall = min(stall, 3)
@@ -238,11 +280,9 @@ def handle_standard(frame, text):
             stall = 0
             verified += 1
             err_prev = err_after
-            # kalibrasi laju: overhead aktual per karakter (verifikasi dll.)
-            # diukur & dikompensasikan di jeda karakter berikutnya.
-            oh = (time.time() - t_char) - state._last_char_delay
-            oh = min(max(oh, 0.0), 0.15)
-            state._loop_overhead = 0.7 * state._loop_overhead + 0.3 * oh
+            # (kalibrasi overhead per karakter dihapus: jalur burst memakai
+            # pacing internal Playwright, jeda python per karakter tidak
+            # ada lagi di jalur ini)
             if verified % 20 == 0:
                 typing_core.keep_alive_quiet(frame)
             if verified % 25 == 0:

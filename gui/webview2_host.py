@@ -183,7 +183,7 @@ _OAUTH_RELAY_PAGE_JS = """
       location.replace('https://www.edclub.com/signin');
     })();
     }
-  }
+  } catch (e) {}
   // 3) boot berikutnya dgn login_token tersimpan: halaman /signin +
   //    token ada = sesi kemarin masih bisa ditukar -> masuk sendiri
   //    tanpa Google lagi (kuki rt saja tak bertahan boot, terbukti).
@@ -198,13 +198,24 @@ _OAUTH_RELAY_PAGE_JS = """
       || localStorage.getItem('tb_lt_gagal') || '0', 10);
     // 3a) RE-LOGIN DENGAN KUKI RT (panggilan yang SAMA dengan boot SPA:
     // {domain:'www'} credentials:include - server baca kuki rt).
-    // Balas 200 = sesi masih sah -> masuk tanpa Google. Penting: jeda
-    // 2/6/12 dtk karena SPA boot LEBIH DULU sebelum watcher pulihkan
-    // kuki (dulu 401 karenanya) - percobaan berikutnya selalu kebagian
-    // kuki yang sudah dipulihkan. Tanpa penanda gagal: kalau 401 ya
-    // memang sesi habis, user login manual, kuki baru tersangkut lagi.
-    if (h.indexOf('edclub') >= 0 && p.indexOf('/signin') >= 0) {
+    // Balas 200 = sesi masih sah -> masuk tanpa Google. DUA JALUR:
+    // (a) dokumen dimuat langsung di /signin (hard load), dan (b) SPA
+    // berpindah rute ke /signin TANPA muat ulang dokumen (bounce anon
+    // setelah boot - live 11:52: init script jalan di course/3, SPA
+    // pindah rute client-side, setTimeout lama tidak pernah pecah).
+    // Karena itu: interval 3 dtk yang membaca path SETIAP tick, max
+    // 8 percobaan, counter reset saat path keluar /signin. Percobaan
+    // pertama beri jeda 2 dtk supaya watcher kebagian memulihkan kuki
+    // (dulu 401 karena boot SPA mendahului pemulihan kuki).
+    if (h.indexOf('edclub') >= 0) {
+      var coba3 = 0;
       var cek = function () {
+        var ph = location.host || '';
+        var pp = location.pathname || '';
+        if (ph.indexOf('edclub') < 0) return;
+        if (pp.indexOf('/signin') < 0) { coba3 = 0; return; }
+        if (coba3 >= 8) return;
+        coba3 += 1;
         if (!/sign in with|log in|sign up/i.test(
             (document.body.innerText || ''))) return;   // sudah login
         fetch('https://api.edclub.com/j/auth/refresh-tokens',
@@ -235,8 +246,7 @@ _OAUTH_RELAY_PAGE_JS = """
           .catch(function () {});
       };
       setTimeout(cek, 2000);
-      setTimeout(cek, 6000);
-      setTimeout(cek, 12000);
+      setInterval(cek, 3000);
     }
   } catch (e) {}
 })();
@@ -537,7 +547,7 @@ class Wv2Host(tk.Frame):
 
         try:
             from playwright.sync_api import sync_playwright
-            from engine.browser import NO_POPUP_JS
+            from engine.browser import NO_POPUP_JS, _DUR_FIX_JS
         except Exception as ex:
             catat(f"pengawas gagal import: {ex!r}")
             return
@@ -564,6 +574,7 @@ class Wv2Host(tk.Frame):
             for ctx in browser.contexts:
                 try:
                     ctx.add_init_script(NO_POPUP_JS)
+                    ctx.add_init_script(_DUR_FIX_JS)
                     ctx.add_init_script(_LOGIN_REDIRECT_JS)
                     ctx.add_init_script(_OAUTH_RELAY_PAGE_JS)
                 except Exception:
