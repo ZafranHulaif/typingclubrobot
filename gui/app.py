@@ -183,7 +183,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # spring ke tick terdekat dengan bounce kecil). Tangga 85-300 wpm:
         # dulu di-cap 200 karena situs LAMA blank di atasnya - kini aman
         # di UI baru, recovery reload menutup kasus blank.
-        self.SPEED_TIERS = (85, 140, 200, 225, 250, 275, 300)
+        self.SPEED_TIERS = (85, 140, 200, 225, 250, 275, 300, 400)
         self._speed_wpm = 200
         _spd = ""
         try:
