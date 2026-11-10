@@ -107,15 +107,21 @@ _OAUTH_RELAY_PAGE_JS = """
   try {
     var h = location.host || '';
     var p = location.pathname || '';
-    // 1) halaman callback: bawa code pulang lewat query /signin
+    // 1) halaman callback: bawa code pulang lewat query /signin.
+    //    Google kadang mengirim code di QUERY, kadang di FRAGMENT
+    //    (#code=...) - parse keduanya (dulu cuma search: halaman
+    //    terdampar selamanya saat code ada di fragment, live terbukti).
     if (h.indexOf('typingclub') >= 0 && p.indexOf('auth_callback') >= 0) {
       var q = new URLSearchParams(location.search);
-      var galat = q.get('error') || '';
-      var kode = q.get('code') || '';
+      var fh = new URLSearchParams((location.hash || '').slice(1));
+      var galat = q.get('error') || fh.get('error') || '';
+      var kode = q.get('code') || fh.get('code') || '';
+      var issx = q.get('iss') || fh.get('iss') || '';
       if (galat) { location.replace('https://www.edclub.com/signin'); return; }
       if (kode) {
         location.replace('https://www.edclub.com/signin?oauth_relay=' +
-                         encodeURIComponent(kode));
+                         encodeURIComponent(kode) + '&iss=' +
+                         encodeURIComponent(issx));
       }
       return;
     }
@@ -694,9 +700,25 @@ class Wv2Host(tk.Frame):
                                   "tak jalan) - relay manual...")
                             hasil = ""
                             try:
-                                pg.evaluate("() => location.href = "
-                                            "'https://www.edclub.com/signin'")
-                                time.sleep(4)
+                                try:
+                                    pg.evaluate("() => location.href = "
+                                                "'https://www.edclub.com/signin'")
+                                except Exception:
+                                    pass   # navigasi memusnahkan konteks
+                                           # eval = wajar, bukan galat
+                                # tunggu benar-benar sampai /signin (dulu
+                                # langsung evaluate -> 'context destroyed'
+                                # -> code terbakar sia-sia)
+                                for _i in range(8):
+                                    time.sleep(2)
+                                    try:
+                                        u2 = pg.evaluate(
+                                            "() => location.href")
+                                    except Exception:
+                                        continue
+                                    if "/signin" in u2:
+                                        break
+                                time.sleep(1.5)
                                 jantung[0] = time.time()
                                 hasil = pg.evaluate(
                                     _RELAY_LANGSUNG_JS,
