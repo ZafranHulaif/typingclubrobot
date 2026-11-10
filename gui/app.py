@@ -21,6 +21,7 @@ from tkinter.scrolledtext import ScrolledText
 
 from .licensing import _machine_code, _license_valid
 from . import anim
+import paths
 from .theme import (APP_VERSION, ACCENT, BG, BTN_FG, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, GREEN_HOVER, PANEL, CREATOR, RED, RED_DIM, SETTINGS_FILE, YELLOW, YELLOW_DIM, _asset_path, _build_stamp)
 from .widgets import (Dropdown, SpeedDial, _gelap_titlebar,
                       set_dialog_layer)
@@ -243,7 +244,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # HANYA halaman web, tanpa UI browser apa pun (tab/URL/bookmark).
         # Overlay menampilkan status besar sebelum WebView2 siap.
         self.host = Wv2Host(
-            root, os.path.expandvars(r"%LOCALAPPDATA%\TypingBot\wv2profile"))
+            root, paths.data_path("wv2profile"))  # sandbox ikut mode SIM
         self.host.pack(fill="both", expand=True, padx=18, pady=(0, 2))
         self._aktiv_sub_teks = ""
         self._aktiv_nama = ""

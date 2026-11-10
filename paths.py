@@ -27,7 +27,14 @@ def data_dir():
     global _migrated
     if getattr(sys, "frozen", False):
         base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-        d = os.path.join(base, "TypingBot")
+        # mode pengguna BARU (TYPINGBOT_BARU=1): kotak pasir terpisah -
+        # pengaturan, sesi edclub, profil browser & peta level semuanya
+        # mulai KOSONG, app benar2 tampak seperti instal baru di komputer
+        # baru. Data asli di TypingBot/ tidak tersentuh sama sekali.
+        if os.environ.get("TYPINGBOT_BARU") == "1":
+            d = os.path.join(base, "TypingBot-SIM")
+        else:
+            d = os.path.join(base, "TypingBot")
         try:
             os.makedirs(d, exist_ok=True)
         except Exception:
