@@ -40,6 +40,7 @@ def _debug_address():
 # tak pernah sampai ke thread msedge - keluhan user).
 NO_POPUP_JS = """
 (function(){
+  try { window.focus = function(){}; } catch (e) {}
   // window.open edclub dipanggil dgn URL KOSONG dulu (live:
   // window.open('', '_blank', 'location=no,toolbar=yes')) lalu kodenya
   // set win.location.href = url google. Kalau open() mengembalikan null
@@ -712,10 +713,11 @@ def _tab_latar(ctx):
             except Exception:
                 pg = None
         if pg is not None:
-            try:
-                pg.bring_to_front()
-            except Exception:
-                pass
+            if not getattr(state, "EMBED_BROWSER", False):
+                try:
+                    pg.bring_to_front()
+                except Exception:
+                    pass
             return pg
     lama = []
     try:
@@ -760,14 +762,10 @@ def _tab_latar(ctx):
             baru = ctx.new_page()
         except Exception:
             return None
-    if getattr(state, "EMBED_BROWSER", False) and baru is not None:
-        # app mode: tab latar tidak otomatis tampil - angkat halaman yang
-        # akan dikerjakan bot supaya user melihat progres yang benar
-        try:
-            baru.bring_to_front()
-        except Exception:
-            pass
-    if not state.NEEDS_LOGIN:
+    # app mode: halaman SUDAH selalu terlihat (webview = app sendiri)
+    # - bring_to_front di sini cuma mencuri fokus OS tiap lesson
+    # (keluhan live: 'app keeps focusing itself') - jangan.
+    if not getattr(state, "EMBED_BROWSER", False) and not state.NEEDS_LOGIN:
         _kecilkan_jendela_bot()
     return baru
 
