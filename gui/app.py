@@ -169,8 +169,10 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
         self.kanan = tk.Frame(ctrl, bg=BG)
         self.kanan.pack(side="right")
-        self._btn(self.kanan, "Pulihkan", CARD, self.on_recovery, kecil=True)
-        self._btn(self.kanan, "❓", CARD, self.on_tips, kecil=True)
+        # v3.2: tombol Pulihkan & ❓ DIHAPUS (permintaan user) - Pulihkan
+        # warisan mode browser eksternal (supervisor + pengawas dalam-app
+        # kini memulihkan otomatis), tips ❓ masih menjelaskan alur lama.
+        # Fungsinya (on_recovery/on_tips) dibiarkan utk dev/tests.
 
         # ---------- grup kecepatan: SEBARIS dengan tombol ----------
         # (v3.2 permintaan user: makin sedikit baris kontrol = makin tinggi
