@@ -136,7 +136,11 @@ _OAUTH_RELAY_PAGE_JS = """
     if (h.indexOf('edclub') < 0) return;
     var q2 = new URLSearchParams(location.search);
     var rc = q2.get('oauth_relay') || '';
-    if (!rc) return;
+    // DULU: if (!rc) return;  <- MEMATIKAN SELURUH SCRIPT: branch 3
+    // (tukar-ulang tiket di /signin) TAK PERNAH TERJANGKAU di boot
+    // normal (tanpa param) - login bertahan tak pernah jalan. Sekarang
+    // bungkus pertukaran relay dalam if(rc), eksekusi lanjut ke bawah.
+    if (rc) {
     try { history.replaceState(null, '', location.pathname); } catch (e) {}
     var issuers = ['google', 'clever', 'office365'];
     var api = 'https://api.edclub.com';
@@ -178,6 +182,7 @@ _OAUTH_RELAY_PAGE_JS = """
       }
       location.replace('https://www.edclub.com/signin');
     })();
+    }
   }
   // 3) boot berikutnya dgn login_token tersimpan: halaman /signin +
   //    token ada = sesi kemarin masih bisa ditukar -> masuk sendiri
@@ -191,27 +196,47 @@ _OAUTH_RELAY_PAGE_JS = """
     var lt0 = bacaKuki('tb_lt') || localStorage.getItem('tb_lt');
     var gagal0 = parseInt(bacaKuki('tb_lt_gagal')
       || localStorage.getItem('tb_lt_gagal') || '0', 10);
-    if (lt0 && h.indexOf('edclub') >= 0 && p.indexOf('/signin') >= 0
-        && Date.now() - gagal0 > 12 * 3600 * 1000) {
+    // 3a) RE-LOGIN DENGAN KUKI RT (panggilan yang SAMA dengan boot SPA:
+    // {domain:'www'} credentials:include - server baca kuki rt).
+    // Balas 200 = sesi masih sah -> masuk tanpa Google. Penting: jeda
+    // 2/6/12 dtk karena SPA boot LEBIH DULU sebelum watcher pulihkan
+    // kuki (dulu 401 karenanya) - percobaan berikutnya selalu kebagian
+    // kuki yang sudah dipulihkan. Tanpa penanda gagal: kalau 401 ya
+    // memang sesi habis, user login manual, kuki baru tersangkut lagi.
+    if (h.indexOf('edclub') >= 0 && p.indexOf('/signin') >= 0) {
       var cek = function () {
         if (!/sign in with|log in|sign up/i.test(
             (document.body.innerText || ''))) return;   // sudah login
         fetch('https://api.edclub.com/j/auth/refresh-tokens',
           {method: 'POST', credentials: 'include',
            headers: {'Content-Type': 'application/json'},
-           body: JSON.stringify({login_token: lt0})})
+           body: JSON.stringify({domain: 'www'})})
           .then(function (r) {
             if (r.ok) {
-              location.replace('https://www.edclub.com/student/course/3');
-            } else {
-              document.cookie = 'tb_lt_gagal=' + Date.now() +
-                '; path=/; max-age=43200; SameSite=Lax';
+              location.replace(
+                'https://www.edclub.com/student/course/3');
+            } else if (lt0 && Date.now() - gagal0 > 12 * 3600 * 1000) {
+              // 3b) kuki rt memang basi -> coba tiket login_token
+              return fetch('https://api.edclub.com/j/auth/refresh-tokens',
+                {method: 'POST', credentials: 'include',
+                 headers: {'Content-Type': 'application/json'},
+                 body: JSON.stringify({login_token: lt0})})
+                .then(function (r2) {
+                  if (r2.ok) {
+                    location.replace(
+                      'https://www.edclub.com/student/course/3');
+                  } else {
+                    document.cookie = 'tb_lt_gagal=' + Date.now() +
+                      '; path=/; max-age=43200; SameSite=Lax';
+                  }
+                });
             }
           })
           .catch(function () {});
       };
-      setTimeout(cek, 3000);
-      setTimeout(cek, 7000);
+      setTimeout(cek, 2000);
+      setTimeout(cek, 6000);
+      setTimeout(cek, 12000);
     }
   } catch (e) {}
 })();
