@@ -1118,7 +1118,16 @@ class Wv2Host(tk.Frame):
                 except Exception:
                     pass
                 self._boot_anim_job = None
-            try:
+            if self._dialog_aktif:
+                # dialog dalam-app sedang membuka area: JANGAN betulkan
+                # overlay & JANGAN nyalakan webview (live: failsafe tutup
+                # boot 45 dtk menang balapan lawan lepas_untuk_dialog ->
+                # webview muncul 'hitam basi' + strip piksel halaman lama
+                # terlihat di bawah dialog, keluhan user). pasang_setelah
+                # _dialog memulihkan semuanya saat dialog ditutup.
+                pass
+            else:
+              try:
                 for w in self._overlay.winfo_children():
                     w.destroy()
                 # kartu status kembali persis seperti semula (dipakai
@@ -1128,9 +1137,9 @@ class Wv2Host(tk.Frame):
                     st.place(in_=self._overlay, relx=0.5, rely=0.5,
                              anchor="center")
                 self._overlay.place_forget()
-            except Exception:
+              except Exception:
                 pass
-            if self._chwnd:
+              if self._chwnd:
                 try:
                     user32.ShowWindow(self._chwnd, 8)   # SW_SHOWNA
                 except Exception:
