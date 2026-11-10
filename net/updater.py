@@ -105,7 +105,12 @@ def apply_update_and_restart(program_path):
         'del /f /q "%EXE%" >nul 2>&1\r\n'
         'if not exist "%EXE%" goto moved\r\n'
         "set /a N+=1\r\n"
-        "if %N% lss 30 goto wait\r\n"
+        # ~15 dtk masih terkunci = proses nyangkut (WebView2/teardown
+        # live: swap 2.9.28 batal bisu setelah 30x) - tembak sekali,
+        # lanjut tunggu. Tukar yang gagal menyembuhkan sendiri lewat
+        # pop_pending di buka berikutnya, tapi paksa ini mempercepat.
+        "if %N% equ 15 taskkill /f /im %nama% >nul 2>&1\r\n"
+        "if %N% lss 90 goto wait\r\n"
         "exit /b 1\r\n"
         ":moved\r\n"
         'if not exist "%NEW%" exit /b 1\r\n'
