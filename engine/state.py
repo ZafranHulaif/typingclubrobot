@@ -70,7 +70,8 @@ WAITING_SETUP = False    # True = menunggu user menyelesaikan set-up first-run b
 
 HOTKEYS_ON = True       # False = F9/F10/F11 diabaikan (toggle GUI)
 
-SPEED_IDX = 0
+SPEED_IDX = 7   # 400 wpm PARANORMAL - default terbaik (permintaan
+                        # user: yang malas atur pun dapat yang tercepat)
 SPEED_WPM = 0            # kecepatan halus dari slider (0 = ikut SPEEDS/SPEED_IDX)
 
 BROWSER = None   # kandidat terpilih: {"name":..,"exe":..,"proc":..}

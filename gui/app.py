@@ -185,7 +185,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # dulu di-cap 200 karena situs LAMA blank di atasnya - kini aman
         # di UI baru, recovery reload menutup kasus blank.
         self.SPEED_TIERS = (85, 140, 200, 225, 250, 275, 300, 400)
-        self._speed_wpm = 200
+        self._speed_wpm = 400   # default tercepat (permintaan user)
         _spd = ""
         try:
             _spd = str(json.load(open(SETTINGS_FILE,
@@ -194,7 +194,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             pass
         _m = re.search(r"(\d+)", _spd)
         if _m:
-            self._speed_wpm = max(85, min(300, int(_m.group(1))))
+            self._speed_wpm = max(85, min(400, int(_m.group(1))))
         tier_ui = [(str(w), w) for w in self.SPEED_TIERS]
         # v3.2: chip ringkas - klik membuka DIAL bulat (ref visual user:
         # 'pod' bulat dgn titik tier + arc merah muda + thumb glow). Baris

@@ -35,6 +35,10 @@ def _conf(args):
 
 
 def publish(exe_path, version, notes, url, key, timeout=600):
+    # X-Notes = header HTTP: newline bikin putheader ValueError (live
+    # 3.2.0). pipihkan jadi satu baris dgn pemisah bullet.
+    notes = " | ".join(
+        ln.strip() for ln in notes.splitlines() if ln.strip())
     h = hashlib.sha256()
     size = 0
     with open(exe_path, "rb") as f:
