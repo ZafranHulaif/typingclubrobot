@@ -194,11 +194,23 @@ def _range_validate_step():
             return True
     except Exception:
         pass
+    # edclub membuka level BERURUTAN: POSISI_LEVEL = level terdepan
+    # akun (pertama yang belum selesai) -> semua level di bawahnya
+    # PASTI terbuka. Cek tanpa navigasi (live bug: baca set unlock dari
+    # daftar lama hanya dapat bagian lazy-load 64-66 -> level 35
+    # dianggap terkunci -> popup salah 'masih terkunci' + fallback 66).
+    if state.POSISI_LEVEL and state.LEVEL_START <= state.POSISI_LEVEL:
+        state._range_validated = True
+        return True
     if state._unlock_set is None:
         state._unlock_set = _read_unlock_set()
-    if state._unlock_set is None or state.LEVEL_START in state._unlock_set:
+    # set partial (daftar lazy-load): ada level terbaca >= start =
+    # start pasti terbuka (urutan edclub). Dulu 'start in set' ->
+    # popup palsu tiap set cuma memuat satu bagian daftar.
+    if (state._unlock_set is None or not state._unlock_set
+            or max(state._unlock_set) >= state.LEVEL_START):
         state._range_validated = True
-        return True   # tidak bisa dibaca / memang terbuka: lanjut saja
+        return True
     fallback = max(state._unlock_set) if state._unlock_set else 1
     print(f"[RENTANG] level {state.LEVEL_START} masih TERKUNCI di akun ini - "
           f"terbuka sampai level {fallback}.")

@@ -13,6 +13,8 @@ import sys
 import threading
 import time
 import tkinter as tk
+
+from .widgets import _Dialog
 import uuid
 import zlib
 from ctypes import wintypes
@@ -334,11 +336,12 @@ class ActivityMixin:
             # login dibutuhkan -> dialog terkunci tidak relevan, tutup
             if getattr(bot, "NEEDS_LOGIN", False) and self._terkunci_win is not None:
                 try:
-                    self._terkunci_win._tb_tutup() if hasattr(
-                        self._terkunci_win, "_tb_tutup") else None
+                    if hasattr(self._terkunci_win, "_tb_tutup"):
+                        self._terkunci_win._tb_tutup()   # done() bereskan
+                    elif hasattr(self._terkunci_win, "destroy"):
+                        self._terkunci_win.destroy()
                 except Exception:
                     pass
-                self._terkunci_win.destroy()
                 self._terkunci_win = None
                 tanya2 = getattr(bot, "LEVEL_ASKED", None)
                 if tanya2 and tanya2.get("aktif"):
@@ -614,141 +617,69 @@ class ActivityMixin:
 
 
     def _locked_dialog(self, tanya):
-        """Popup 'level start terkunci' - jawaban dikirim balik ke bot."""
+        """Popup 'level start terkunci' - jawaban dikirim balik ke bot.
+        v3.1.4: _Dialog overlay (tampil DI DALAM app, menutupi area
+        webview) - dulu jendela OS terpisah (keluhan user: popup jadul
+        nongol di luar app). Kalau _DIALOG_LAYER kosong (mode browser
+        eksternal) _Dialog otomatis jatuh ke jendela biasa."""
         if self._terkunci_win is not None:
             return
-        bot = self.bot
-        win = tk.Toplevel(self.root)
-        self._terkunci_win = win
-        win.title("Level terkunci")
-        win.configure(bg=PANEL)
-        win.resizable(False, False)
-        try:
-            win.attributes("-topmost", True)
-        except Exception:
-            pass
+        d = _Dialog(self.root, f"Level {tanya['start']} masih terkunci",
+                    "Akunmu baru terbuka sampai level "
+                    f"{tanya['fallback']} - level terkunci memuat "
+                    "halaman kosong.", ikon="🔒")
 
         def jawab(pilihan):
+            if self._terkunci_win is None:
+                return      # sudah dijawab / ditutup jalur lain
+            self._terkunci_win = None
             tanya["jawab"] = pilihan
             if tanya.get("event") is not None:
                 tanya["event"].set()
-            self._terkunci_win = None
-            try:
-                win.destroy()
-            except Exception:
-                pass
+            d.done(pilihan)
 
-        head = tk.Frame(win, bg=PANEL)
-        head.pack(fill="x", padx=24, pady=(20, 4))
-        box = tk.Canvas(head, width=46, height=46, bg=PANEL, highlightthickness=0)
-        box.pack(side="left")
-        box.create_oval(2, 2, 44, 44, fill=ORANGE, width=0)
-        box.create_text(23, 25, text="🔒", font=("Segoe UI Emoji", 15, "bold"),
-                        fill="white")
-        jt = tk.Frame(head, bg=PANEL)
-        jt.pack(side="left", padx=(14, 0))
-        tk.Label(jt, text=f"Level {tanya['start']} masih terkunci",
-                 font=("Segoe UI", 14, "bold"), fg=FG, bg=PANEL).pack(anchor="w")
-        tk.Label(jt, text="Akunmu baru terbuka sampai level "
-                          f"{tanya['fallback']} - level terkunci memuat "
-                          "halaman kosong.",
-                 font=("Segoe UI", 9), fg=DIM, bg=PANEL, wraplength=360,
-                 justify="left").pack(anchor="w", pady=(2, 0))
-        body = tk.Frame(win, bg=PANEL)
-        body.pack(fill="x", padx=24, pady=12)
-        tk.Label(body, text=f"Mulai dari level {tanya['fallback']} "
-                            "(posisi terdepan akunmu) sekarang?",
+        d._tb_tutup = lambda: jawab("mulai")   # penutup NEEDS_LOGIN
+        tk.Label(d.body, text=f"Mulai dari level {tanya['fallback']} "
+                              "(posisi terdepan akunmu) sekarang?",
                  font=("Segoe UI", 10), fg=FG, bg=PANEL,
                  wraplength=420, justify="left").pack(anchor="w")
-        foot = tk.Frame(win, bg=PANEL)
-        foot.pack(fill="x", padx=24, pady=(4, 18))
-        b1 = tk.Label(foot, text=f"Mulai dari {tanya['fallback']}",
-                      font=("Segoe UI", 10, "bold"), fg=BTN_FG, bg=ACCENT,
-                      padx=18, pady=7, cursor="hand2")
-        b1.pack(side="right")
-        b1.bind("<Button-1>", lambda e: jawab("mulai"))
-        b1._tb_klik = lambda: jawab("mulai")
-        b2 = tk.Label(foot, text="Stop", font=("Segoe UI", 10, "bold"),
-                      fg=FG, bg=CARD, padx=16, pady=7, cursor="hand2",
-                      highlightthickness=1, highlightbackground=EDGE)
-        b2.pack(side="right", padx=(0, 8))
-        b2.bind("<Button-1>", lambda e: jawab("stop"))
-        b2._tb_klik = lambda: jawab("stop")
-        win.protocol("WM_DELETE_WINDOW", lambda: jawab("mulai"))
-        win.update_idletasks()
-        ix, iy = self.root.winfo_rootx(), self.root.winfo_rooty()
-        iw, ih = self.root.winfo_width(), self.root.winfo_height()
-        w, h = win.winfo_reqwidth(), win.winfo_reqheight()
-        win.geometry(f"+{max(ix + (iw - w) // 2, 40)}+{max(iy + (ih - h) // 2, 40)}")
+        d.button(f"Mulai dari {tanya['fallback']}",
+                 cmd=lambda: jawab("mulai"))
+        d.button("Stop", primer=False, cmd=lambda: jawab("stop"))
+        self._terkunci_win = d
+        d.show()
 
 
     def _ask_dialog(self):
-        """Popup 'bot menunggu >2 menit' - dibangun di thread UI (Tkinter
-        tidak boleh dari thread lain), pola sama dengan _login_popup."""
+        """Popup 'bot menunggu >2 menit' - dibangun di thread UI. v3.1.4:
+        _Dialog overlay DI DALAM app (dulu jendela OS terpisah - keluhan
+        user). _login_popup TETAP jendela: harus bisa auto-tutup begitu
+        sesi pulih, dan overlay menutupi halaman login di dalam app."""
         bot = self.bot
-        win = tk.Toplevel(self.root)
-        self._tanya_win = win
-        win.title("Bot menunggu")
-        win.configure(bg=PANEL)
-        win.resizable(False, False)
-        try:
-            win.attributes("-topmost", True)
-        except Exception:
-            pass
+        d = _Dialog(self.root, "Bot menunggu",
+                    "Lebih dari 2 menit tidak ada lesson terbuka.",
+                    ikon="⏳")
 
         def done(stop=False):
+            if self._tanya_win is None:
+                return      # sudah dijawab
             self._tanya_win = None
-            try:
-                win.destroy()
-            except Exception:
-                pass
+            d.done("stop" if stop else "lanjut")
             if stop and bot:
                 bot.STOP = True
                 bot.PAUSED = False
                 self._log("Bot dihentikan dari popup 'menunggu'.")
 
-        head = tk.Frame(win, bg=PANEL)
-        head.pack(fill="x", padx=24, pady=(20, 4))
-        box = tk.Canvas(head, width=46, height=46, bg=PANEL, highlightthickness=0)
-        box.pack(side="left")
-        box.create_oval(2, 2, 44, 44, fill=YELLOW, width=0)
-        box.create_text(23, 25, text="⏳", font=("Segoe UI Emoji", 16, "bold"),
-                        fill="white")
-        jt = tk.Frame(head, bg=PANEL)
-        jt.pack(side="left", padx=(14, 0))
-        tk.Label(jt, text="Bot menunggu", font=("Segoe UI", 14, "bold"),
-                 fg=FG, bg=PANEL).pack(anchor="w")
-        tk.Label(jt, text="Lebih dari 2 menit tidak ada lesson terbuka.",
-                 font=("Segoe UI", 9), fg=DIM, bg=PANEL,
-                 wraplength=360, justify="left").pack(anchor="w", pady=(2, 0))
-
-        body = tk.Frame(win, bg=PANEL)
-        body.pack(fill="x", padx=24, pady=12)
         for t in ("•  Sepertinya kamu sedang memakai jendela browser bot",
                   "•  Bot jalan lagi otomatis begitu kamu membuka lesson "
                   "atau berhenti memakai browser itu"):
-            tk.Label(body, text=t, font=("Segoe UI", 10), fg=FG, bg=PANEL,
-                     anchor="w", wraplength=420,
+            tk.Label(d.body, text=t, font=("Segoe UI", 10), fg=FG,
+                     bg=PANEL, anchor="w", wraplength=420,
                      justify="left").pack(anchor="w", pady=1)
-
-        foot = tk.Frame(win, bg=PANEL)
-        foot.pack(fill="x", padx=24, pady=(4, 18))
-        b1 = tk.Label(foot, text="Stop Bot", font=("Segoe UI", 10, "bold"),
-                      fg=BTN_FG, bg=RED, padx=18, pady=7, cursor="hand2")
-        b1.pack(side="right")
-        b1.bind("<Button-1>", lambda e: done(stop=True))
-        b2 = tk.Label(foot, text="Lanjut Menunggu", font=("Segoe UI", 10, "bold"),
-                      fg=FG, bg=CARD, padx=16, pady=7, cursor="hand2",
-                      highlightthickness=1, highlightbackground=EDGE)
-        b2.pack(side="right", padx=(0, 8))
-        b2.bind("<Button-1>", lambda e: done(stop=False))
-
-        win.protocol("WM_DELETE_WINDOW", lambda: done(stop=False))
-        win.update_idletasks()
-        ix, iy = self.root.winfo_rootx(), self.root.winfo_rooty()
-        iw, ih = self.root.winfo_width(), self.root.winfo_height()
-        w, h = win.winfo_reqwidth(), win.winfo_reqheight()
-        win.geometry(f"+{max(ix + (iw - w) // 2, 40)}+{max(iy + (ih - h) // 2, 40)}")
+        d.button("Stop Bot", warna_btn=RED, cmd=lambda: done(True))
+        d.button("Lanjut Menunggu", primer=False, cmd=lambda: done(False))
+        self._tanya_win = d
+        d.show()
 
 
     def _login_popup(self):
