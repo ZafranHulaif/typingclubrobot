@@ -20,6 +20,7 @@ Alur:
 import ctypes
 import ctypes.wintypes as wintypes
 import json
+import math
 import os
 import re
 import time
@@ -427,6 +428,9 @@ class Wv2Host(tk.Frame):
         # overlay placeholder (tampil sebelum halaman siap)
         self._overlay = tk.Frame(self, bg=bg)
         self._overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self._stage_widget = None    # kartu status (set_overlay)
+        self._boot_anim_job = None   # job after spinner tutup boot
+        self._nav_pending = None     # navigasi diminta thread lain
         self._dialog_aktif = False   # dialog dalam-app sedang menempati area
         self.bind("<Configure>", self._on_resize)
 
@@ -714,6 +718,17 @@ class Wv2Host(tk.Frame):
                         continue
                     eval_gagal = 0
                     jantung[0] = time.time()
+                    nav = getattr(self, "_nav_pending", None)
+                    if nav:
+                        self._nav_pending = None
+                        if "edclub" in u:
+                            try:
+                                pg.evaluate(
+                                    "() => location.href = %r" % nav)
+                                catat(f"arahkan: {nav[:80]}")
+                            except Exception:
+                                pass
+                            continue
                     if u != url_terakhir:
                         url_terakhir = u
                         catat(f"halaman: {u[:100]}")
@@ -856,7 +871,55 @@ class Wv2Host(tk.Frame):
             except Exception:
                 pass
     def set_overlay(self, widget):
+        self._stage_widget = widget
         widget.place(in_=self._overlay, relx=0.5, rely=0.5, anchor="center")
+
+    def _boot_anim(self):
+        """Spinner + teks 'Menyiapkan edclub...' di overlay tutup boot.
+        after() murni Tk (thread UI) - dibatalkan saat tutup dibuka."""
+        try:
+            warna = self._overlay.cget("bg")
+            cv = tk.Canvas(self._overlay, width=84, height=84, bg=warna,
+                           highlightthickness=0)
+            lbl = tk.Label(self._overlay, text="Menyiapkan edclub\u2026",
+                           font=("Segoe UI", 12), fg="#9aa6b8", bg=warna)
+            cv.place(relx=0.5, rely=0.44, anchor="center")
+            lbl.place(relx=0.5, rely=0.56, anchor="center")
+            N, C = 8, 42
+            dots = []
+            for i in range(N):
+                a = 2.0 * math.pi * i / N
+                x = C + 30.0 * math.cos(a)
+                y = C + 30.0 * math.sin(a)
+                dots.append(cv.create_oval(x - 4, y - 4, x + 4, y + 4,
+                                           fill="#26314a", width=0))
+            fase = {"i": 0}
+
+            def tik():
+                if self._boot_anim_job is None:
+                    return      # sudah dibatalkan/dibuka
+                fase["i"] = (fase["i"] + 1) % N
+                for j, item in enumerate(dots):
+                    langkah = (j - fase["i"]) % N
+                    if langkah == 0:
+                        wrn = "#3b82f6"      # titik aktif terang
+                    elif langkah == 1:
+                        wrn = "#1d4ed8"      # ekor
+                    else:
+                        g = 38 + max(0, 20 - 3 * langkah)
+                        wrn = f"#{g:02x}{g:02x}{g:02x}"
+                    cv.itemconfigure(item, fill=wrn)
+                self._boot_anim_job = self.after(90, tik)
+
+            self._boot_anim_job = self.after(90, tik)
+        except Exception:
+            pass
+
+    def ke_url(self, url):
+        """Minta watcher mengarahkan halaman utama embed ke url. Aman
+        antar-thread: cuma set flag, watcher yang mengeksekusi (callback
+        .NET -> Python dilarang keras - GIL crash)."""
+        self._nav_pending = url
 
     def set_on_ready(self, cb):
         self._on_ready = cb
@@ -908,11 +971,14 @@ class Wv2Host(tk.Frame):
                 except Exception:
                     pass
                 try:
-                    lbl = tk.Label(
-                        self._overlay,
-                        text="Menyiapkan sesi edclub\u2026",
-                        font=("Segoe UI", 12), fg="#9aa6b8", bg=warna)
-                    lbl.place(relx=0.5, rely=0.5, anchor="center")
+                    # sembunyikan kartu status 'Siap' (set_overlay
+                    # menaruhnya DI ATAS overlay - dulu ikut tampak:
+                    # abu beda + 'Siap' saat boot, keluhan user jelek)
+                    # lalu tampilkan spinner 'Menyiapkan edclub...'
+                    st = self._stage_widget
+                    if st is not None:
+                        st.place_forget()
+                    self._boot_anim()
                 except Exception:
                     pass
             else:
@@ -964,9 +1030,21 @@ class Wv2Host(tk.Frame):
             # buka tutup boot DI THREAD UI: tampilkan webview TANPA
             # mencuri fokus (SW_SHOWNA, sama seperti setelah dialog)
             self._boot_selesai = False
+            if self._boot_anim_job:
+                try:
+                    self.after_cancel(self._boot_anim_job)
+                except Exception:
+                    pass
+                self._boot_anim_job = None
             try:
                 for w in self._overlay.winfo_children():
                     w.destroy()
+                # kartu status kembali persis seperti semula (dipakai
+                # juga oleh overlay dialog dalam-app)
+                st = self._stage_widget
+                if st is not None:
+                    st.place(in_=self._overlay, relx=0.5, rely=0.5,
+                             anchor="center")
                 self._overlay.place_forget()
             except Exception:
                 pass

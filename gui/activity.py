@@ -265,6 +265,20 @@ class ActivityMixin:
                             # pelajaran pilihan dibuka (lihat blok tunggu di
                             # atas); AWAIT_RANGE tidak dilepas
                             self._tunggu_pilih_halaman = True
+                            # bawa dia ke daftar level TAMPILAN BARU
+                            # (course/3): dulu bisa tinggal di rute lama
+                            # sportal/.game = UI tua penuh iklan (keluhan
+                            # user: 'kenapa yang lama, yang baru lebih
+                            # bagus')
+                            if getattr(self, "_embed_aktif", False):
+                                try:
+                                    from gui.widgets import _DIALOG_LAYER
+                                    if _DIALOG_LAYER is not None:
+                                        _DIALOG_LAYER.ke_url(
+                                            "https://www.edclub.com"
+                                            "/student/course/3")
+                                except Exception:
+                                    pass
                         elif r == "lanjut":
                             # LANJUT = jalan dari posisi akun sekarang
                             # (level berikutnya yang terbuka) - jalur yang

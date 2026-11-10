@@ -585,8 +585,6 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
             layer = getattr(d, "_layer", None)
             if layer is not None:
                 lebar_area = max(layer.winfo_width() - 96, 900)
-            lebar = min(1560, lebar_area)
-            kartu_ov.place_configure(width=lebar)
         except Exception:
             pass
         lebar_area = min(1560, lebar_area)
@@ -601,9 +599,19 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
     ABU_MUDA = "#c3cad6"
 
     # tile potret: LEBAR < TINGGI, ketiga tile sama persis
-    W = max(360, min(480, (lebar_area - 64) // 3))
+    GAP = 24                    # jarak antar tile (keluhan: menempel)
+    W = max(320, min(480, (lebar_area - 72) // 3))
     H = min(620, max(440, int(W * 1.18)))
     R = 22                      # radius sudut membulat
+
+    # kartu PERSIS selebar isi 3 tile (3W + 6 pad 12) -> kartu yang
+    # memang di tengah layar membawa tile ikut di tengah (dulu kartu
+    # 1560 dgn tile total 1440 nempel kiri: keluhan 'offset ke kiri')
+    if overlay and kartu_ov is not None:
+        try:
+            kartu_ov.place_configure(width=min(lebar_area, 3 * W + 72))
+        except Exception:
+            pass
 
     baris_kartu = tk.Frame(d.body, bg=LATAR)
     baris_kartu.pack(fill="x", expand=True, pady=(8, 2))
@@ -618,7 +626,7 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
     def tile(judul):
         cv = tk.Canvas(baris_kartu, width=W, height=H, bg=LATAR,
                        highlightthickness=0)
-        cv.pack(side="left", padx=(0, 0), pady=0)
+        cv.pack(side="left", padx=(GAP // 2, GAP // 2), pady=0)
         cv._tepi = TILE_EDGE
         l = tk.Label(cv, text=judul, font=("Segoe UI", 12, "bold"),
                      fg=NAVY, bg=PUTIH, cursor="hand2")
@@ -785,40 +793,47 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
     # ====== 3) RENTANG KHUSUS (kanan): kotak angka besar langsung ======
     cv3, l3 = tile("Rentang Khusus")
 
-    def gbr_rentang():
-        cv = cv3
-        redraw(cv, l3, ACCENT if khusus.winfo_ismapped() else TILE_EDGE)
-        cv.create_text(W // 2, int(H * 0.24), text=f"Level 1-{total_level}",
-                       font=("Segoe UI", 11, "bold"), fill=ABU)
     cv3.bind("<Button-1>", lambda e: None)   # Entry menyerap kliknya
-    def kotak_angka(label, nilai, x):
+    def kotak_angka(label, nilai):
         # create_window Tk mensyaratkan anak LANGSUNG dari canvas
         # (cucu = TclError) - jadi kol = anak langsung cv3, tanpa baris3.
         kol = tk.Frame(cv3, bg=PUTIH)
         # JANGAN pack() kol di dalam canvas: canvas yang dipakai jadi
         # geometry manager merespon ukurannya (live: cv3 jadi 17x1).
-        # Penempatan murni lewat create_window di bawah.
+        # Penempatan murni lewat create_window di gbr_rentang.
         var = tk.StringVar(value=str(nilai))
         ent = tk.Entry(kol, textvariable=var,
-                       font=("Segoe UI", 24, "bold"), width=4,
+                       font=("Segoe UI", 26, "bold"), width=5,
                        bg=PUTIH, fg=NAVY, insertbackground=NAVY,
                        relief="flat", justify="center",
                        highlightthickness=1,
                        highlightbackground=TILE_EDGE,
                        highlightcolor=ACCENT)
-        ent.pack(ipady=6)
+        ent.pack(ipady=7)
         tk.Label(kol, text=label, font=("Segoe UI", 9), fg=ABU,
                  bg=PUTIH).pack()
-        cv3.create_window(x, int(H * 0.44), window=kol, tags="isi")
-        return var
+        return kol, var
 
-    var_a = kotak_angka("dari", mulai or 1, W // 2 - 64)
-    cv3.create_text(W // 2, int(H * 0.42), text="\u2192", anchor="center",
-                    font=("Segoe UI", 20, "bold"), fill=ACCENT, tags="isi")
-    var_b = kotak_angka("sampai", akhir or total_level, W // 2 + 64)
-    cv3.create_text(W // 2, int(H * 0.62),
-                    text="klik angka untuk mengubah",
-                    font=("Segoe UI", 9), fill=ABU, tags="isi")
+    kol_a, var_a = kotak_angka("dari", mulai or 1)
+    kol_b, var_b = kotak_angka("sampai", akhir or total_level)
+
+    def gbr_rentang():
+        cv = cv3
+        redraw(cv, l3, ACCENT if khusus.winfo_ismapped() else TILE_EDGE)
+        cv.create_text(W // 2, int(H * 0.24), text=f"Level 1-{total_level}",
+                       font=("Segoe UI", 11, "bold"), fill=ABU)
+        # pasang ulang SEMUA isi: redraw di atas = delete("all") yang
+        # dulu MENGHAPUS window-item Entry yang digambar duluan
+        # (keluhan: 'selector rentang mana?' - kosong melompong)
+        y = int(H * 0.46)
+        cv.create_window(W // 2 - 118, y, window=kol_a, tags="isi")
+        cv.create_text(W // 2, y, text="\u2192",
+                       font=("Segoe UI", 22, "bold"), fill=ACCENT,
+                       tags="isi")
+        cv.create_window(W // 2 + 118, y, window=kol_b, tags="isi")
+        cv.create_text(W // 2, int(H * 0.64),
+                       text="klik angka untuk mengubah",
+                       font=("Segoe UI", 9), fill=ABU, tags="isi")
 
     # info/galat di bawah baris (muncul saat rentang dipilih)
     khusus = tk.Frame(d.body, bg=LATAR)
