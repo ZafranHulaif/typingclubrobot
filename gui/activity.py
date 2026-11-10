@@ -596,6 +596,12 @@ class ActivityMixin:
                 self._log("[PINDAI] pos bot 0 - baca progres akun dari "
                           "halaman course (latar belakang).")
                 self._pindai_berjalan = True
+                # JANGAN biarkan _rentang_terbuka menempel True (diformuir
+                # sebelum blok ini, hanya dibebaskan di finally dialog) -
+                # dulu: _lanjut_buka_range lihat True -> picker TAK dibuka
+                # & handler lain keblokir = app 'nyangkut di Memilih
+                # level', apa pun yang user klik tak bereaksi (live).
+                self._rentang_terbuka = False
                 threading.Thread(target=self._pindai_progres,
                                  daemon=True).start()
                 return "pindai"
