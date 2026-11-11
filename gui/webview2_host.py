@@ -999,18 +999,48 @@ class Wv2Host(tk.Frame):
                         continue
                     eval_gagal = 0
                     jantung[0] = time.time()
-                    # indikator login (permintaan user): sesi habis =
-                    # halaman dilempar ke /signin / anon / lagi di Google
-                    # - pengawas paling tahu lebih dulu. Attr polos lintas
-                    # thread (pola sama dgn _nav_pending).
-                    self._perlu_login = (("edclub" not in u)
-                                         or ("/signin" in u)
-                                         or ("accounts.google." in u))
-                    # AUTO-SIMPAN AKUN: nama profil edclub dipakai sbg
-                    # identitas akun (permintaan user: 'recognise the
+                    # ---- cover tahan-halaman: target tercapai / habis?
+                    tahan = getattr(self, "_tahan", None)
+                    if tahan:
+                        pot, batas = tahan
+                        if (pot in u) or (time.time() > batas):
+                            self._tahan = None
+                            self._boot_selesai = True
+                            self._boot_cover = None
+                    # ---- permintaan supervisor: cover utk pindah rute
+                    # .play klasik (state.TAHAN_NAV diset sebelum goto)
+                    try:
+                        from engine import state as _est
+                        tnav = getattr(_est, "TAHAN_NAV", None)
+                        if tnav:
+                            setattr(_est, "TAHAN_NAV", None)
+                            self.tahan_halaman(tnav, 10.0)
+                    except Exception:
+                        pass
+                    # ---- indikator login (permintaan user): sesi habis =
+                    # halaman dilempar ke /signin / anon / lagi di Google.
+                    # DEBOUNCE: boot bounce course<->signin bikin 'Login
+                    # ulang' kedip sekali (keluhan user) - baru dianggap
+                    # sungguhan setelah 3x berturut (~6 dtk).
+                    perlu_raw = (("edclub" not in u)
+                                 or ("/signin" in u)
+                                 or ("accounts.google." in u))
+                    self._login_streak = (getattr(self, "_login_streak", 0)
+                                          + 1) if perlu_raw else 0
+                    # transisi login selesai (True->False) = tahan halaman
+                    # sampai daftar level login betul2 tampil - dulu user
+                    # melihat kedipan /signin lagi lalu daftar level
+                    if (not perlu_raw
+                            and getattr(self, "_perlu_raw_lama", False)):
+                        self.tahan_halaman("/student/", 12.0)
+                    self._perlu_raw_lama = perlu_raw
+                    self._perlu_login = perlu_raw and \
+                        self._login_streak >= 3
+                    # ---- AUTO-SIMPAN AKUN: nama profil edclub dipakai
+                    # sbg identitas akun (permintaan user: 'recognise the
                     # name from the edclub profile'). Halaman student
                     # login + pill profil ada = simpan/refresh akun.
-                    if not self._perlu_login and "/student/" in u:
+                    if not perlu_raw and "/student/" in u:
                         try:
                             nm = pg.evaluate(
                                 """() => {
@@ -1078,6 +1108,7 @@ class Wv2Host(tk.Frame):
                         if selesai:
                             self._boot_selesai = True
                             self._boot_cover = None
+                            self._tahan = None   # jangan buka cover lagi
                     if (not getattr(self, "_boot_cover", None)
                             and "edclub.com" in u and _rute_lama(u)
                             and time.time() - getattr(
@@ -1092,6 +1123,9 @@ class Wv2Host(tk.Frame):
                             peta = False
                         if not peta:
                             self._bounce_lama = time.time()
+                            # cover: kedipan UI lama -> UI baru jangan
+                            # terlihat (permintaan user)
+                            self.tahan_halaman("/student/course", 8.0)
                             try:
                                 pg.evaluate("() => location.href = %r"
                                             % COURSE_URL)
@@ -1358,6 +1392,14 @@ class Wv2Host(tk.Frame):
         """TIDAK DIPAKAI: callback .NET -> Python dari thread asing
         memicu crash GIL. Penanganan init dilakukan lewat polling _jaga."""
 
+    def tahan_halaman(self, potongan, maks=8.0):
+        """Cover 'tahan halaman': sembunyikan kedipan navigasi OTOMATIS
+        (rute lama -> UI baru, pindah .play klasik, selesai login) -
+        permintaan user: kedipan halaman salah tak boleh terlihat.
+        Thread-aman (cuma set attr); _jaga (thread UI) membuka tutupnya
+        dan membuka webview balik saat potongan muncul / waktu habis."""
+        self._tahan = (potongan, time.time() + maks)
+
     def _jaga(self):
         """Polling dari thread Tk (tanpa callback .NET -> Python):
         1. begitu CoreWebView2 ada: cabut handler popup pywebview (yang
@@ -1368,6 +1410,23 @@ class Wv2Host(tk.Frame):
            webview kita yang ber-owner ke kontrol utama -> jadi CHILD
            frame ini, penuh memenuhi area. Popup menutup dirinya sendiri
            saat OAuth selesai (relasi opener tetap utuh)."""
+        # ---- cover tahan-halaman: buka bila diminta & belum terbuka
+        tahan = getattr(self, "_tahan", None)
+        if tahan and not getattr(self, "_boot_cover", None):
+            pot, batas = tahan
+            if time.time() <= batas and self._chwnd:
+                self._boot_cover = time.time()
+                self._boot_selesai = False
+                try:
+                    user32.ShowWindow(self._chwnd, 0)   # SW_HIDE
+                    st = self._stage_widget
+                    if st is not None:
+                        st.place_forget()
+                    self._boot_anim()
+                except Exception:
+                    pass
+            else:
+                self._tahan = None
         GW_OWNER = 4
         if getattr(self, "_boot_selesai", False):
             # buka tutup boot DI THREAD UI: tampilkan webview TANPA

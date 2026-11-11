@@ -113,7 +113,11 @@ def apply_update_and_restart(program_path):
         'if not exist "%EXE%" goto pasang\r\n'
         "set /a N+=1\r\n"
         # ~15 dtk masih terkunci = proses nyangkut (WebView2/teardown)
-        # - tembak sekali, lanjut tunggu (90x ~1.5 menit)
+        # - tembak PID PEMANGGIL (persis, apa pun nama exe-nya: teman
+        # live menjalankan 'TypingBot (2).exe' - taskkill /im nama
+        # kanonik meleset -> ren tak pernah sukses -> update gagal)
+        # + nama image utk instance lain yang nyangkut.
+        "if %N% equ 15 taskkill /f /pid " + str(os.getpid()) + " >nul 2>&1\r\n"
         "if %N% equ 15 taskkill /f /im " + nama + " >nul 2>&1\r\n"
         "if %N% lss 90 goto ganti\r\n"
         "exit /b 1\r\n"
@@ -229,3 +233,31 @@ def pop_pending(program_path):
         clear_pending(program_path)
         return False
     return apply_update_and_restart(program_path)
+
+
+def bersihkan_duplikat(program_path, log=None):
+    """Buang exe TypingBot* duplikat di folder app - sisa download
+    browser ('TypingBot (2).exe', 'TypingBot - Copy.exe' dll; keluhan
+    live: teman user punya banyak typingbot exe, updatenya kacau).
+    Kecuali: exe yang sedang jalan + 'TypingBot.exe' kanonik. Yang
+    terkunci (= lagi jalan) otomatis dilewati - aman."""
+    folder = os.path.dirname(os.path.abspath(program_path))
+    kecuali = {os.path.basename(program_path).lower(), "typingbot.exe"}
+    try:
+        daftar = os.listdir(folder)
+    except Exception:
+        return
+    for f in daftar:
+        low = f.lower()
+        if not low.endswith(".exe") or not low.startswith("typingbot"):
+            continue
+        if low in kecuali or low.endswith((".new.exe", ".lama.exe")):
+            continue    # .new/.lama ditangani sweep lain
+        try:
+            os.remove(os.path.join(folder, f))
+            if log:
+                log(f"[BERSIH] duplikat dibuang: {f}")
+        except OSError:
+            pass        # terkunci = instance lain hidup - biarkan
+        except Exception:
+            pass

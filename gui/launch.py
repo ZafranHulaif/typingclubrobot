@@ -553,11 +553,9 @@ class LaunchMixin:
     # ---------------------------------------------------- akun edclub
     def on_akun(self):
         """Manajer akun edclub (permintaan user 11 Nov 2026): POPOVER
-        pojok kanan-atas ala dropdown (permintaan user: 'like the speed
-        ui, only on the top right') - daftar akun, klik = ganti, x =
-        hapus, masuk akun baru, simpan sesi ini. Pakai layer dialog
-        (webview disembunyikan sebentar - airspace HWND)."""
-        from .widgets import _DIALOG_LAYER
+        pojok kanan-atas ala dropdown - daftar akun, klik = ganti, x =
+        hapus, masuk akun baru. Halaman webview tetap terlihat (jendela
+        melayang, bukan layer penutup)."""
         from . import webview2_host as _w2v
         if not getattr(self, "host", None):
             return
@@ -568,11 +566,9 @@ class LaunchMixin:
                 pass
             self._akun_pop = None
             return          # toggle: klik lagi = tutup
-        layer = _DIALOG_LAYER
-        if layer is None or not layer.webview_hidup() \
-                or getattr(layer, "_dialog_aktif", False):
-            self._log("[AKUN] browser belum siap - coba sebentar lagi.")
-            return
+        # TANPA gerbang bisu: popover selalu terbuka (dulu webview belum
+        # siap = klik tak berefek apa pun - keluhan user 'button isn't
+        # interactive'). Ganti akun tanpa CDP = gagal tercatat di log.
         # bot jalan? hentikan dulu - tukar cookie saat supervisor aktif
         # = dia mengejar halaman akun lama
         if self.bot_thread and self.bot_thread.is_alive():
@@ -605,7 +601,10 @@ class LaunchMixin:
                 pass
 
         pop.bind("<Escape>", tutup)
-        pop.bind("<FocusOut>", tutup)   # klik di luar = tutup
+        # tutup saat mouse keluar area (perilaku dropdown; DULU FocusOut
+        # + focus_set: focus tak pasti di jendela overrideredirect -
+        # popover bisa terbuka-lalu-tutup sendiri = 'tak interaktif')
+        pop.bind("<Leave>", tutup)
 
         # ---- kepala: caption + tutup
         kepala = tk.Frame(pop, bg=PANEL)
@@ -714,10 +713,6 @@ class LaunchMixin:
                 return
             refresh()
             pop.after(2000, napas)
-
-        refresh()
-        pop.focus_set()
-        pop.after(2000, napas)
 
         def tambah_baru():
             tutup()

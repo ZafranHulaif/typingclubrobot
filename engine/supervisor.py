@@ -164,6 +164,11 @@ def main_loop():
                 if klasik and klasik != mentah \
                         and browser._is_edclub_url(klasik):
                     try:
+                        # cover "tahan halaman": dulu user MELIHAT halaman
+                        # baru-UI kedip lalu reload ke .play klasik
+                        # (keluhan user: kedipan halaman salah tak boleh
+                        # terlihat). Pengawas mengubah cover jadi sembunyi.
+                        state.TAHAN_NAV = "/" + klasik.rsplit("/", 1)[-1]
                         state.PAGE.goto(klasik, timeout=25000)
                         state.last_action_time = time.time()
                         url = klasik

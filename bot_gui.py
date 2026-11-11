@@ -162,6 +162,23 @@ if __name__ == "__main__":
                     os.remove(_lama)
         except Exception:
             pass
+        # duplikat exe (hasil download browser 'TypingBot (2).exe' dkk)
+        # bikin update kacau - buang yang bukan exe jalan/kanonik
+        try:
+            if getattr(sys, "frozen", False):
+                from net import updater as _updup
+
+                def _log_dup(t:
+                             str) -> None:
+                    try:
+                        from gui.theme import LOG_FILE
+                        with open(LOG_FILE, "a", encoding="utf-8") as f:
+                            f.write(t + "\n")
+                    except Exception:
+                        pass
+                _updup.bersihkan_duplikat(sys.executable, _log_dup)
+        except Exception:
+            pass
         # DPI awareness wajib sebelum Tk dibuat (layar 125%/150%).
         import ctypes
         try:

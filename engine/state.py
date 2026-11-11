@@ -47,6 +47,10 @@ FOCUS_BROWSER_AT = 0.0   # engine meminta GUI mengangkat jendela browser ke
 LOGIN_DICEK = False       # True setelah patroli login berjalan minimal 1x
 
 AWAIT_RANGE = False    # True = GUI sedang menanya rentang; bot menunggu
+TAHAN_NAV = None       # potongan URL target utk cover "tahan halaman"
+                       # (supervisor pindah rute .play - pengawas/host
+                       # menyembunyikan kedipan halaman salah, permintaan
+                       # user: user tak boleh melihat kedipan)
 
 PETA_BANGUN = False    # True = bot sedang memakai DAFTAR LAMA (bangun
                        # peta / lompat via daftar) - pengawas tidak boleh

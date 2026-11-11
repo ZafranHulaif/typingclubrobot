@@ -352,7 +352,8 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                     # dialog dalam-app: semua popup digambar di dalam
                     # jendela (menempati area webview), bukan jendela OS
                     set_dialog_layer(self.host)
-                    self.btn_akun["state"] = "normal"   # 👤 butuh CDP
+                    self.btn_akun["state"] = "normal"
+                    self._style_btn(self.btn_akun)
                     # pengawas playwright: stub window.open + pengarah
                     # /signin aktif sejak app terbuka (bukan cuma saat
                     # sesi bot) - jalur .NET pythonnet terbukti sung
