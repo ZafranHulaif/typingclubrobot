@@ -552,82 +552,148 @@ class LaunchMixin:
 
     # ---------------------------------------------------- akun edclub
     def on_akun(self):
-        """Manajer akun edclub (permintaan user 11 Nov 2026): daftar sesi
-        tersimpan - pakai/tambah/hapus. Tampil DI DALAM app (overlay)."""
-        from .widgets import _Dialog
+        """Manajer akun edclub (permintaan user 11 Nov 2026): POPOVER
+        pojok kanan-atas ala dropdown (permintaan user: 'like the speed
+        ui, only on the top right') - daftar akun, klik = ganti, x =
+        hapus, masuk akun baru, simpan sesi ini. Pakai layer dialog
+        (webview disembunyikan sebentar - airspace HWND)."""
+        from .widgets import _DIALOG_LAYER
         from . import webview2_host as _w2v
         if not getattr(self, "host", None):
+            return
+        if getattr(self, "_akun_pop", None) is not None:
+            return          # sudah terbuka
+        layer = _DIALOG_LAYER
+        if layer is None or not layer.webview_hidup() \
+                or getattr(layer, "_dialog_aktif", False):
+            self._log("[AKUN] browser belum siap - coba sebentar lagi.")
             return
         # bot jalan? hentikan dulu - tukar cookie saat supervisor aktif
         # = dia mengejar halaman akun lama
         if self.bot_thread and self.bot_thread.is_alive():
             self.on_stop()
-        d = _Dialog(self.root, "Akun edclub",
-                    "Pilih akun tersimpan, atau masuk akun baru.",
-                    ikon="👤")
-        self._akun_dlg = d
 
-        def baris_kecil(parent, teks, cmd, warna):
-            b = tk.Label(parent, text=teks, font=("Segoe UI", 9, "bold"),
-                         fg=warna, bg=CARD, padx=10, pady=4,
-                         cursor="hand2", highlightthickness=1,
-                         highlightbackground=EDGE)
-            b.bind("<Button-1>", lambda _e: cmd())
-            return b
+        layer.lepas_untuk_dialog()
+        layar = tk.Frame(layer, bg="#0c0d11")
+        layar.place(relx=0, rely=0, relwidth=1, relheight=1)
+        pop = tk.Frame(layar, bg=PANEL, highlightthickness=1,
+                       highlightbackground=EDGE)
+        pop.place(relx=1.0, rely=0.0, x=-16, y=12, anchor="ne", width=336)
+        self._akun_pop = (layer, layar, pop)
 
-        def refresh():
-            for w in d.body.winfo_children():
-                w.destroy()
-            aktif = _w2v.akun_aktif_nama()
-            daftar = _w2v.daftar_akun()
-            if not daftar:
-                tk.Label(d.body, text="Belum ada akun tersimpan.",
-                         font=("Segoe UI", 10), fg=DIM,
-                         bg=PANEL).pack(anchor="w", pady=(0, 6))
-            for a in daftar:
-                baris = tk.Frame(d.body, bg=PANEL)
-                baris.pack(fill="x", pady=2)
-                nm = a["nama"] + ("   •  aktif" if a["nama"] == aktif
-                                  else "")
-                tk.Label(baris, text=nm, font=("Segoe UI", 10, "bold"),
-                         fg=FG if a["nama"] == aktif else DIM,
-                         bg=PANEL).pack(side="left")
-                hps = {"yakin": False}
+        def tutup(_e=None):
+            if getattr(self, "_akun_pop", None) is None:
+                return
+            self._akun_pop = None
+            try:
+                layar.destroy()
+            except Exception:
+                pass
+            layer.pasang_setelah_dialog()
 
-                def do_hapus(n=a["nama"], lbl=None):
-                    if not lbl["yakin"]:
-                        lbl["yakin"] = True
-                        tanya.configure(text="hapus?", fg=RED)
-                        return
-                    _w2v.hapus_akun(n)
-                    self._log(f"[AKUN] {n} dihapus dari daftar.")
-                    refresh()
+        layar.bind("<Button-1>", tutup)      # klik luar = tutup
+        layer.bind("<Escape>", tutup)
 
-                tanya = baris_kecil(baris, "×", lambda n=a["nama"],
-                                    l=hps: do_hapus(n, l), DIM)
-                tanya.pack(side="right", padx=(6, 0))
-                if a["nama"] != aktif:
-                    pakai = baris_kecil(baris, "Pakai",
-                                        lambda n=a["nama"]: pakai_akun(n),
-                                        GREEN)
-                    pakai.pack(side="right")
-            tk.Label(d.body,
-                     text="Tambah akun: keluar → login akun baru di "
-                          "halaman → buka 👤 lagi → Simpan akun aktif.",
-                     font=("Segoe UI", 9), fg=FAINT, bg=PANEL,
-                     wraplength=380, justify="left").pack(
-                         anchor="w", pady=(10, 0))
+        # ---- kepala: caption + tutup
+        kepala = tk.Frame(pop, bg=PANEL)
+        kepala.pack(fill="x", padx=16, pady=(14, 6))
+        tk.Label(kepala, text="A K U N   E D C L U B",
+                 font=("Segoe UI", 9, "bold"), fg=FAINT,
+                 bg=PANEL).pack(side="left")
+        tut = tk.Label(kepala, text="×", font=("Segoe UI", 13, "bold"),
+                       fg=DIM, bg=PANEL, cursor="hand2")
+        tut.pack(side="right")
+        tut.bind("<Button-1>", tutup)
+
+        badan = tk.Frame(pop, bg=PANEL)
+        badan.pack(fill="x", padx=10)
 
         def marshal(fn):
             self._ui_queue.put(fn)
 
         def pakai_akun(nama):
-            d.done(None)
+            tutup()
             self._log(f"[AKUN] memuat sesi {nama}...")
             self.host.akun_ganti(
                 nama,
                 lambda ok, pesan: marshal(
                     lambda o=ok, p=pesan: self._akun_hasil(nama, o, p)))
+
+        def baris_akun(parent, nama, aktif):
+            bgbar = "#16233a" if aktif else CARD
+            baris = tk.Frame(parent, bg=bgbar, highlightthickness=1,
+                             highlightbackground=ACCENT if aktif else EDGE,
+                             cursor="hand2")
+            baris.pack(fill="x", pady=3, ipady=7, padx=4)
+            tk.Label(baris, text=nama, font=("Segoe UI", 10, "bold"),
+                     fg=FG if aktif else DIM, bg=bgbar
+                     ).pack(side="left", padx=(12, 0))
+            if aktif:
+                tk.Label(baris, text="✓  aktif", font=("Segoe UI", 9,
+                                                        "bold"),
+                         fg=GREEN, bg=bgbar).pack(side="right",
+                                                  padx=(0, 12))
+
+            def klik(_e=None):
+                if aktif:
+                    tutup()
+                    return
+                pakai_akun(nama)
+
+            def masuk(_e):
+                if not aktif:
+                    baris.configure(bg=CARD_HOVER)
+            def keluar(_e):
+                if not aktif:
+                    baris.configure(bg=CARD)
+            baris.bind("<Enter>", masuk)
+            baris.bind("<Leave>", keluar)
+            baris.bind("<Button-1>", klik)
+            hps = {"yakin": False}
+
+            def do_hapus():
+                if not hps["yakin"]:
+                    hps["yakin"] = True
+                    x.configure(text="hapus?", fg=RED)
+                    return
+                _w2v.hapus_akun(nama)
+                self._log(f"[AKUN] {nama} dihapus dari daftar.")
+                refresh()
+
+            x = tk.Label(baris, text="×", font=("Segoe UI", 11, "bold"),
+                         fg=DIM, bg=bgbar, cursor="hand2")
+            if not aktif:
+                x.pack(side="right", padx=(0, 12))
+            x.bind("<Button-1>", lambda _e: do_hapus())
+
+        def tombol_penuh(parent, teks, cmd):
+            b = tk.Label(parent, text=teks, font=("Segoe UI", 10, "bold"),
+                         fg=FG, bg=CARD, pady=8, cursor="hand2",
+                         highlightthickness=1, highlightbackground=EDGE)
+            b.pack(fill="x", pady=3, padx=4)
+            b.bind("<Button-1>", lambda _e: cmd())
+            return b
+
+        def refresh():
+            for w in badan.winfo_children():
+                w.destroy()
+            aktif = _w2v.akun_aktif_nama()
+            daftar = _w2v.daftar_akun()
+            if not daftar:
+                tk.Label(badan, text="Belum ada akun tersimpan.",
+                         font=("Segoe UI", 9), fg=DIM,
+                         bg=PANEL).pack(anchor="w", padx=8, pady=(2, 6))
+            for a in daftar:
+                baris_akun(badan, a["nama"], a["nama"] == aktif)
+            tk.Frame(badan, bg=EDGE, height=1).pack(fill="x", pady=(8, 6))
+            tombol_penuh(badan, "＋  Masuk akun baru", tambah_baru)
+            tombol_penuh(badan, "💾  Simpan sesi ini", simpan_aktif)
+            tk.Label(badan,
+                     text="Sesi habis? Masuk lagi di halaman, lalu "
+                          "Simpan sesi ini.",
+                     font=("Segoe UI", 8), fg=FAINT, bg=PANEL,
+                     wraplength=290, justify="left").pack(
+                         anchor="w", padx=8, pady=(4, 8))
 
         def simpan_aktif():
             nama = _w2v.simpan_akun()
@@ -638,19 +704,13 @@ class LaunchMixin:
             refresh()
 
         def tambah_baru():
-            d.done(None)
+            tutup()
             self._log("[AKUN] membersihkan sesi - login akun baru...")
             self.host.akun_keluar(
                 lambda ok, pesan: marshal(
                     lambda o=ok, p=pesan: self._akun_keluar_hasil(o, p)))
 
-        d.button("Tutup", None, primer=False, cmd=lambda: d.done(None))
-        d.button("＋ Tambah akun baru", None, primer=False,
-                 cmd=tambah_baru)
-        d.button("💾 Simpan akun aktif", None, warna_btn=GREEN, cmd=simpan_aktif)
         refresh()
-        d.show()
-
     def _akun_hasil(self, nama, ok, pesan):
         if ok:
             self._log(f"[AKUN] sesi {nama} dimuat - membuka daftar level.")
