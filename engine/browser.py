@@ -223,6 +223,28 @@ def _lesson_play_url(u):
     return f"https://www.edclub.com/sportal/program-{m.group(1)}/{m.group(2)}.play"
 
 
+def _di_lesson(u):
+    """URL = halaman lesson (rute .play klasik ATAU /lesson/ UI baru).
+    Semua cek 'sedang di level' lewat sini - bot kini MENGHYAKati rute
+    baru (keluhan user: redirect ke .play = kedipan, tombol back
+    nyasar ke daftar lama)."""
+    return bool(u) and ("/lesson/" in u or ".play" in u)
+
+
+def _lesson_route_url(u):
+    """URL lesson -> RUTE UI BARU /student/course/<c>/lesson/<id> khusus
+    NAVIGASI (kebalikan _lesson_play_url). Semua goto lesson lewat sini:
+    halaman yang dilihat user tidak pernah masuk tampilan lama lagi.
+    Cek internal tetap pakai bentuk .play hasil _lesson_play_url."""
+    if not u:
+        return u
+    m = re.search(r"/program-(\d+)/(\d+)\.play", u)
+    if m:
+        return (f"https://www.edclub.com/student/course/{m.group(1)}"
+                f"/lesson/{m.group(2)}")
+    return u
+
+
 def _real_url(pg):
     """URL asli halaman via evaluate. page.url Playwright bisa stale
     (isi sudah m.stripe.network tapi masih melaporkan edclub);

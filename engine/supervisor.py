@@ -30,7 +30,7 @@ from .lessons import standard
 from .lessons import tutorial
 from . import typing_core
 from .lessons import video
-from .config import (LIST_URL)
+from .config import (LIST_URL, COURSE_URL)
 from .jstemplates import (BUKA_BLOK_JS, MODAL_HINT_JS)
 
 
@@ -60,8 +60,8 @@ def main_loop():
         # di-suspend Windows (tab lama dibuang) menggantungkan evaluate
         # TANPA timeout -> bot mati diam total tepat setelah 'Terhubung!'
         # sebelum sempat masuk loop (gerbang _page_alive belum jalan).
-        state._range_jump_done = ".play" in ((state.PAGE.url or "")
-                                             if state.PAGE else "")
+        state._range_jump_done = browser._di_lesson(
+            (state.PAGE.url or "") if state.PAGE else "")
         if state._range_jump_done and state.LEVEL_START > 1:
             print(f"[RENTANG] sudah ada lesson terbuka - kerjakan ini dulu "
                   f"(lompatan ke level {state.LEVEL_START} dilewati).")
@@ -147,33 +147,13 @@ def main_loop():
                     rh = ""
                 if "stripe" in rh or "checkout" in rh:
                     url = real
-            # Rute lesson SPA baru (/student/course/<c>/lesson/<id>)
-            # kadang TIDAK memasang mesin ketik dengan benar (live:
-            # intro 'NEW KEY' berulang terus, bot flip Berjalan/Menunggu
-            # karena _lesson_gone tak melihat .play di URL mentah).
-            # Paksa rute .play klasik yang sudah terbukti, sama seperti
-            # _goto_next_lesson_in_list. Klik level user ('Pilih di
-            # Halaman') mendarat di rute baru -> satu goto, sisanya
-            # lewat jalur lama yang normal.
-            try:
-                mentah = state.PAGE.url or ""
-            except Exception:
-                mentah = ""
-            if "/lesson/" in mentah:
-                klasik = browser._lesson_play_url(mentah)
-                if klasik and klasik != mentah \
-                        and browser._is_edclub_url(klasik):
-                    try:
-                        # cover "tahan halaman": dulu user MELIHAT halaman
-                        # baru-UI kedip lalu reload ke .play klasik
-                        # (keluhan user: kedipan halaman salah tak boleh
-                        # terlihat). Pengawas mengubah cover jadi sembunyi.
-                        state.TAHAN_NAV = "/" + klasik.rsplit("/", 1)[-1]
-                        state.PAGE.goto(klasik, timeout=25000)
-                        state.last_action_time = time.time()
-                        url = klasik
-                    except Exception:
-                        pass
+            # RUTE BARU DIBIARKAN (Nov 2026, permintaan user): dulu SEMUA
+            # /lesson/<id> dipaksa goto .play klasik - akar dari SEMUA
+            # keluhan kedipan (tampilan lama muncul, tombol back nyasar
+            # ke daftar lama, reload saat mau pilih level). Mesin ketik
+            # dan semua cek internal sudah sadar rute baru (_di_lesson /
+            # _lesson_play_url normalisasi). Fallback .play hanya bila
+            # SPA gagal mount (lihat _goto_level_via_daftar_isi).
             state.STATUS_URL = url
             # label level bisa kosong saat pertama datang (halaman belum
             # selesai memuat) -> coba lagi berkala sampai dapat
@@ -196,12 +176,12 @@ def main_loop():
                 # live: klik di area iframe premium = top-level navigation).
                 # Tutup tab stripe yang menganggur, lalu cari/buat tab edclub.
                 session._sweep_stripe_tabs(force=True)
-                # coba cari ulang tab edclub (prioritas yang di halaman .play)
+                # coba cari ulang tab edclub (prioritas yang di lesson)
                 found = None
                 for pg in state.browser.contexts[0].pages:
                     pu = browser._real_url(pg)
                     if browser._is_edclub_url(pu):
-                        if ".play" in pu:
+                        if browser._di_lesson(pu):
                             found = pg
                             break
                         if found is None:
@@ -222,7 +202,8 @@ def main_loop():
                                 "tab berulang kali dibawa ke Stripe"):
                             state._hijack_counts.pop(key, None)
                             continue
-                        target = key if ".play" in key else LIST_URL
+                        target = (browser._lesson_route_url(key)
+                                  if browser._di_lesson(key) else COURSE_URL)
                         newpg = None
                         try:
                             newpg = browser._tab_latar(state.PAGE.context)
@@ -293,7 +274,7 @@ def main_loop():
             # user asli sedang memakai browser bot di luar lesson (daftar
             # level, pengaturan, profil) - jangan ambil alih; tunggu sampai
             # user diam atau masuk lesson sendiri. >2 menit -> GUI bertanya.
-            if ".play" not in url and typing_core._user_active(25.0):
+            if not browser._di_lesson(url) and typing_core._user_active(25.0):
                 typing_core._wait_for_user(url)
                 continue
             typing_core._user_idle_again(url)
@@ -410,7 +391,7 @@ def main_loop():
             # hasil + eskalasi ESC/klik mouse - iterasi selalu 'continue'
             # sebelum handler video giliran (video tak pernah dilompat,
             # halaman malah terbawa ke halaman program; log live 116).
-            if ".play" in url and video.handle_video_level():
+            if browser._di_lesson(url) and video.handle_video_level():
                 continue
 
             if jsutil.close_overlays_all_frames():

@@ -1033,6 +1033,13 @@ class Wv2Host(tk.Frame):
                     if (not perlu_raw
                             and getattr(self, "_perlu_raw_lama", False)):
                         self.tahan_halaman("/student/", 12.0)
+                    # halaman login di tengah proses OAuth (relay/
+                    # auth_callback) = TRANSIEN - user melihat kedipan
+                    # signin setelah login (keluhan user Nov 2026).
+                    # Cover sampai /student/ benar2 mendarat.
+                    if perlu_raw and ("oauth" in u or "relay" in u
+                                      or "auth_callback" in u):
+                        self.tahan_halaman("/student/", 15.0)
                     self._perlu_raw_lama = perlu_raw
                     self._perlu_login = perlu_raw and \
                         self._login_streak >= 3

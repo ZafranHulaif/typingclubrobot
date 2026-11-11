@@ -104,8 +104,18 @@ def muat_posisi():
 
 
 def _wait_daftar(pg):
-    """Buka daftar lesson & tunggu barisnya (UI baru ATAU lama)."""
-    pg.goto(LIST_URL, timeout=30000)
+    """Buka daftar lesson & tunggu barisnya. RUTE BARU course/3 (dulu
+    LIST_URL .game = tampilan lama -> kedipan lama->baru + reload
+    dobel, keluhan user: 'jangan pakai yang lama'). SUDAH di daftar =
+    jangan reload - user bisa sedang melihat daftarnya (keluhan:
+    'was gonna press a level, but then the page reloads first')."""
+    try:
+        u = browser._real_url(pg) or ""
+    except Exception:
+        u = ""
+    if "/student/course/" not in u:
+        from engine import config as _cfg
+        pg.goto(_cfg.COURSE_URL, timeout=30000)
     pg.wait_for_selector("a[aria-label^='Lesson '], div.box-container",
                          timeout=20000)
 
@@ -154,9 +164,12 @@ def _read_unlock_set():
     except Exception:
         return None
     finally:
-        if kembali:
+        if kembali and browser._di_lesson(kembali):
             try:
-                pg.goto(kembali, timeout=25000)
+                # balik lewat RUTE BARU (dulu .play = tampilan lama
+                # muncul lagi - keluhan user: kedipan)
+                pg.goto(browser._lesson_route_url(kembali),
+                        timeout=25000)
             except Exception:
                 pass
 
@@ -189,7 +202,7 @@ def _range_validate_step():
     # lompatan (level terkunci yang dibuka sendiri oleh user adalah urusan
     # user - edclub yang mengizinkan/menolaknya, bukan bot)
     try:
-        if ".play" in (browser._real_url(state.PAGE) or ""):
+        if browser._di_lesson(browser._real_url(state.PAGE) or ""):
             state._range_validated = True
             return True
     except Exception:
@@ -250,10 +263,10 @@ def _lesson_hidup(pg, batas=8.0):
                 "u: location.href})")
         except Exception:
             n = None
-        if n and ".play" in (n.get("u") or "") \
+        if n and browser._di_lesson(n.get("u")) \
                 and (n.get("c") or n.get("v") or (n.get("b") or 0) > 200):
             return True
-        if n and ".play" in (n.get("u") or "") \
+        if n and browser._di_lesson(n.get("u")) \
                 and _gate_atau_mulai(pg):
             # lesson di balik gerbang audio ('Sound can only play once
             # you start' + tombol Start, body cuma 59) = HALAMAN HIDUP
@@ -335,13 +348,15 @@ def _goto_level_via_daftar_isi(nomor):
         return False
     if not url:
         return False
-    # rute SPA baru kadang tidak mount lesson (live: body 61) - paksa
-    # rute .play klasik yang sudah terbukti buat mesin ketik.
-    try:
-        mentah = pg.evaluate("() => location.href") or ""
-    except Exception:
-        mentah = ""
-    if mentah and "/lesson/" in mentah and mentah != url:
+    # RUTE BARU dibiarkan TETAP (dulu dipaksa .play klasik = tampilan
+    # lama muncul + tombol back nyasar - keluhan user). Hanya kalau SPA
+    # gagal mount lesson (jarang, live: body 61) baru fallback .play -
+    # dicover tahan-halaman supaya kedipannya tak terlihat.
+    if not _lesson_hidup(pg, 6.0):
+        try:
+            state.TAHAN_NAV = "/" + url.rsplit("/", 1)[-1]
+        except Exception:
+            pass
         try:
             pg.goto(url, timeout=25000)
         except Exception:
@@ -357,7 +372,9 @@ def url_untuk_level(nomor):
     mengarahkan browser embed via watcher (ke_url) saat user memilih
     level di dialog - tanpa menyentuh state.PAGE dari thread Tk."""
     u = state._level_map.get(str(nomor)) or ""
-    return u if ".play" in u else ""
+    # RUTE BARU utk navigasi yang terlihat (keluhan user: redirect
+    # .play = tampilan lama muncul)
+    return browser._lesson_route_url(u) if u else ""
 
 
 def _goto_level_url(nomor):
@@ -370,7 +387,8 @@ def _goto_level_url(nomor):
     url = state._level_map.get(str(nomor))
     if url:
         try:
-            state.PAGE.goto(url, timeout=25000)
+            state.PAGE.goto(browser._lesson_route_url(url),
+                            timeout=25000)
         except Exception:
             pass
         if _lesson_hidup(state.PAGE):
@@ -626,7 +644,9 @@ def build_level_map():
         kembali = asal if ".play" in asal else ""
         if kembali:
             try:
-                pg.goto(kembali, timeout=25000)
+                # balik ke RUTE BARU (dulu .play = tampilan lama)
+                pg.goto(browser._lesson_route_url(kembali),
+                        timeout=25000)
             except Exception:
                 pass
     return baru
@@ -788,18 +808,9 @@ def _goto_next_lesson_in_list(newpg, current_url):
         url = _wait_play_url(newpg)
         if not url:
             continue
-        # rute SPA baru kadang TIDAK mount lesson-nya (live: body 61
-        # terus di /lesson/117) - paksa rute .play klasik yang sudah
-        # terbukti buat mesin ketik.
-        try:
-            mentah = newpg.evaluate("() => location.href") or ""
-        except Exception:
-            mentah = ""
-        if mentah and "/lesson/" in mentah and mentah != url:
-            try:
-                newpg.goto(url, timeout=25000)
-            except Exception:
-                pass
+        # RUTE BARU dibiarkan (fallback .play dihapus - keluhan user:
+        # tampilan lama muncul). Mount-check lewat supervisor recovery
+        # bila lesson mati.
         lid = _lesson_id(url)
         if lid != cur and lid not in state._broken_lessons:
             return url

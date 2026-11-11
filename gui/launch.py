@@ -560,12 +560,18 @@ class LaunchMixin:
         if not getattr(self, "host", None):
             return
         if getattr(self, "_akun_pop", None) is not None:
+            # ANTI-DOBLKLIK: klik kedua dalam 0.6 dtk (kebiasaan klik
+            # dobel / bouncing mouse) dulu men-toggle tutup = popover
+            # 'tidak muncul sama sekali' (keluhan user Nov 2026)
+            if time.time() - getattr(self, "_akun_pop_laju", 0) < 0.6:
+                return
             try:
                 self._akun_pop.destroy()
             except Exception:
                 pass
             self._akun_pop = None
             return          # toggle: klik lagi = tutup
+        self._akun_pop_laju = time.time()
         # TANPA gerbang bisu: popover selalu terbuka (dulu webview belum
         # siap = klik tak berefek apa pun - keluhan user 'button isn't
         # interactive'). Ganti akun tanpa CDP = gagal tercatat di log.
@@ -591,20 +597,33 @@ class LaunchMixin:
             pop.geometry("+400+80")
         self._akun_pop = pop
 
-        def tutup(_e=None):
+        def tutup(_e=None, alasan=""):
             if getattr(self, "_akun_pop", None) is None:
                 return
             self._akun_pop = None
             try:
+                pop.grab_release()
+            except Exception:
+                pass
+            try:
                 pop.destroy()
             except Exception:
                 pass
+            if alasan:
+                self._log(f"[AKUN] popover ditutup ({alasan})")
 
-        pop.bind("<Escape>", tutup)
-        # tutup saat mouse keluar area (perilaku dropdown; DULU FocusOut
-        # + focus_set: focus tak pasti di jendela overrideredirect -
-        # popover bisa terbuka-lalu-tutup sendiri = 'tak interaktif')
-        pop.bind("<Leave>", tutup)
+        pop.bind("<Escape>", lambda e: tutup(alasan="esc"))
+
+        # GRAB LOKAL + klik-luar-tutup (dropdown pattern). DULU pakai
+        # <Leave>: kursor menyusur jarak 4px antara tombol & popover bisa
+        # memicu Leave sintetis Tk saat mapping = popover menutup INSTAN
+        # = 'button does nothing' (keluhan user Nov 2026) - dihapus.
+        def klik_luar(e):
+            rx, ry = pop.winfo_rootx(), pop.winfo_rooty()
+            w, h = pop.winfo_width(), pop.winfo_height()
+            if not (rx <= e.x_root <= rx + w and ry <= e.y_root <= ry + h):
+                tutup(alasan="klik luar")
+        pop.bind("<Button-1>", klik_luar, add="+")
 
         # ---- kepala: caption + tutup
         kepala = tk.Frame(pop, bg=PANEL)
@@ -722,6 +741,14 @@ class LaunchMixin:
                     lambda o=ok, p=pesan: self._akun_keluar_hasil(o, p)))
 
         refresh()
+        # ambil semua klik selama popover terbuka (dropdown pattern)
+        try:
+            pop.grab_set()
+        except Exception:
+            pass
+        self._log("[AKUN] popover dibuka")
+        pop.after(2000, napas)
+
     def _akun_hasil(self, nama, ok, pesan):
         if ok:
             self._log(f"[AKUN] sesi {nama} dimuat - membuka daftar level.")

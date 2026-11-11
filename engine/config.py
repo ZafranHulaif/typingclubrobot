@@ -82,6 +82,11 @@ UI_WORDS = {
 
 LIST_URL = "https://www.edclub.com/sportal/program-3.game"
 
+# Daftar lesson TAMPILAN BARU (dipakai navigasi yang TERLIHAT user -
+# dulu _wait_daftar pergi ke LIST_URL tampilan lama = kedipan lama->
+# baru + reload dobel, keluhan user Nov 2026: 'jangan pakai yang lama')
+COURSE_URL = "https://www.edclub.com/student/course/3"
+
 # Modal 'When is your birthday?' edclub (update UI student Nov 2026):
 # muncul sekali per akun dan menahan semua lesson sampai diisi. Diisi
 # tanggal netral dewasa supaya fitur akun tidak terkunci; ganti di sini
