@@ -590,9 +590,13 @@ class LaunchMixin:
         pop.transient(self.root)
         try:
             bx = self.btn_akun.winfo_rootx()
+            bw = self.btn_akun.winfo_width()
             by = self.btn_akun.winfo_rooty()
             bh = self.btn_akun.winfo_height()
-            pop.geometry(f"+{max(8, bx - 336 + 90)}+{by + bh + 4}")
+            # tepi KANAN popover sejajar tepi kanan tombol (dulu offset
+            # tetap ke kiri = celah aneh, keluhan user Nov 2026)
+            x = max(8, bx + bw - 336)
+            pop.geometry(f"+{x}+{by + bh + 4}")
         except Exception:
             pop.geometry("+400+80")
         self._akun_pop = pop
@@ -706,10 +710,21 @@ class LaunchMixin:
             return b
 
         def refresh():
+            # SNAPSHOT-GUARD: bangun ulang HANYA bila data berubah -
+            # dulu rebuild tiap 2 dtk = popover kedip-kedip terus &
+            # interaksi user ke-reset (keluhan user Nov 2026)
+            try:
+                aktif = _w2v.akun_aktif_nama()
+                daftar = _w2v.daftar_akun()
+                snap = (aktif, tuple((a["nama"], a.get("waktu", 0))
+                                     for a in daftar))
+            except Exception:
+                return
+            if snap == refresh._snap and badan.winfo_children():
+                return
+            refresh._snap = snap
             for w in badan.winfo_children():
                 w.destroy()
-            aktif = _w2v.akun_aktif_nama()
-            daftar = _w2v.daftar_akun()
             if not daftar:
                 tk.Label(badan, text="Belum ada akun tersimpan.",
                          font=("Segoe UI", 9), fg=DIM,
@@ -718,12 +733,7 @@ class LaunchMixin:
                 baris_akun(badan, a["nama"], a["nama"] == aktif)
             tk.Frame(badan, bg=EDGE, height=1).pack(fill="x", pady=(8, 6))
             tombol_penuh(badan, "＋  Masuk akun lain", tambah_baru)
-            tk.Label(badan,
-                     text="Nama akun otomatis dari profil edclub. Login "
-                          "akun baru = langsung tersimpan.",
-                     font=("Segoe UI", 8), fg=FAINT, bg=PANEL,
-                     wraplength=290, justify="left").pack(
-                         anchor="w", padx=8, pady=(4, 10))
+        refresh._snap = None
 
         # daftar hidup: auto-simpan akun terjadi di latar (pengawas) -
         # segarkan popover tiap 2 dtk selama terbuka
