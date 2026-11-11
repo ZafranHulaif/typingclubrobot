@@ -348,6 +348,13 @@ def main_loop():
             # recovery menembak & membuka level terdepan L106 saat popup
             # rentang masih terbuka)
             if state.AWAIT_RANGE:
+                if not _tunggu_rentang_baru:
+                    # DULU BISU: gerbang ini tidur tanpa jejak - lupa
+                    # lepas AWAIT_RANGE di jalur manapun = 'berjalan' tapi
+                    # nol aktivitas, mustahil dibedakan dari hang
+                    # (keluhan live 11 Nov 2026). Sekarang kabar sekali.
+                    print("[RENTANG] menahan bot - menunggu pilihan level "
+                          "dari GUI...")
                 _tunggu_rentang_baru = True
                 time.sleep(0.3)
                 continue

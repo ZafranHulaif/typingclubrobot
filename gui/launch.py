@@ -469,11 +469,51 @@ class LaunchMixin:
             d.on_start = lambda: self._update_mulai(d, info, tok)
 
         tahap = "siap" if getattr(self, "_update_ready", False) else "awal"
-        hasil = dialog_update(self.root, info, ver, tahap=tahap, on_ready=siap)
+
+        # JANGAN jadikan jendela OS: kalau webview belum siap / masih
+        # ditempati dialog lain, TUNGUU sebentar (webview boot beberapa
+        # detik setelah Start) - user klik tombol saat boot dan dialah
+        # yang melihat popup terpisah "kuno" (keluhan live 11 Nov 2026:
+        # 'update pop up is a separate window, it's outdated').
+        if not getattr(self, "_embed_aktif", False):
+            hasil = dialog_update(self.root, info, ver, tahap=tahap,
+                                  on_ready=siap)
+        else:
+            self._update_dialog_tunda = (info, ver, tahap, siap)
+            self._tunggu_overlay_lalu_buka(0)
+            return
         if hasil == "restart":
             self._update_apply_now(info)
         elif hasil == "later":
             self._update_nanti(info)
+
+    def _tunggu_overlay_lalu_buka(self, coba):
+        """Buka dialog pembaruan begitu area webview benar2 kosong untuk
+        overlay (webview hidup + tak ditempati dialog lain). Maks ~15 dtk
+        tunggu, lalu fallback jendela OS (mode tanpa embed saja yang
+        datang ke sini - lihat on_update)."""
+        from .dialogs import dialog_update
+        from .widgets import _DIALOG_LAYER
+        tunda = getattr(self, "_update_dialog_tunda", None)
+        if tunda is None:
+            return
+        siap = (_DIALOG_LAYER is not None
+                and _DIALOG_LAYER.webview_hidup()
+                and not getattr(_DIALOG_LAYER, "_dialog_aktif", False))
+        if siap or coba >= 30:
+            self._update_dialog_tunda = None
+            if not siap:
+                self._log("[net] webview belum siap - popup pembaruan "
+                          "dijadikan jendela")
+            info, ver, tahap, siap_cb = tunda
+            hasil = dialog_update(self.root, info, ver, tahap=tahap,
+                                  on_ready=siap_cb)
+            if hasil == "restart":
+                self._update_apply_now(info)
+            elif hasil == "later":
+                self._update_nanti(info)
+            return
+        self.root.after(500, lambda: self._tunggu_overlay_lalu_buka(coba + 1))
 
     def _update_mulai(self, d, info, tok):
         """Dipanggil dialog saat user menyetujui unduh (thread utama)."""

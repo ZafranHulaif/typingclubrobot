@@ -251,6 +251,12 @@ class ActivityMixin:
                     bot.LEVEL_START = lvl
                     bot._range_jump_done = True
                     bot.RANGE_READY = True
+                    # WAJIB lepas tahan: Start selalu pre-hold AWAIT_RANGE
+                    # (launch.py) - dulu jalur auto-lanjut ini tak pernah
+                    # melepasnya -> supervisor tidur BISU selamanya di
+                    # gerbangnya (label 'berjalan', nol ketikan - keluhan
+                    # live 11 Nov 2026: mesin user & teman sama2 mati diam)
+                    bot.AWAIT_RANGE = False
                     self._rentang_btn.configure(
                         text=f"🎯  {lvl} - "
                              f"{self._rentang_akhir or self._total_level}")
