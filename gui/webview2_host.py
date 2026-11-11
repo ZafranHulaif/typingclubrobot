@@ -441,6 +441,129 @@ def _sesi_tulis(cookies):
         pass
 
 
+# ----------------------------------------------------- simpanan akun
+# Ganti akun (permintaan user 11 Nov 2026): daftar sesi edclub yang
+# tersimpan di folder akun/ - pilih satu = cookie-nya dipasang ke
+# webview. Sesi AKTIF tetap sesi_edclub.json (restorasi boot tidak
+# berubah); folder ini hanya buku alamat akun.
+
+def _dir_akun():
+    """Folder buku alamat akun (satu folder dgn bot.log - otomatis ikut
+    %LOCALAPPDATA%/TypingBot, dan TypingBot-SIM saat sandbox)."""
+    try:
+        from .theme import LOG_FILE
+        return os.path.join(os.path.dirname(LOG_FILE), "akun")
+    except Exception:
+        return os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "akun")
+
+
+def daftar_akun():
+    """[{nama, waktu}] akun tersimpan, urut abjad."""
+    d = _dir_akun()
+    out = []
+    try:
+        for f in sorted(os.listdir(d)):
+            if not f.endswith(".json") or f == "aktif.json":
+                continue
+            try:
+                with open(os.path.join(d, f), encoding="utf-8") as fh:
+                    meta = json.load(fh)
+                out.append({"nama": meta.get("nama") or f[:-5],
+                            "waktu": meta.get("waktu", 0)})
+            except Exception:
+                continue
+    except Exception:
+        pass
+    out.sort(key=lambda a: a["nama"].lower())
+    return out
+
+
+def akun_aktif_nama():
+    try:
+        with open(os.path.join(_dir_akun(), "aktif.json"),
+                  encoding="utf-8") as f:
+            return (json.load(f) or {}).get("nama")
+    except Exception:
+        return None
+
+
+def _akun_aktif_set(nama):
+    try:
+        os.makedirs(_dir_akun(), exist_ok=True)
+        with open(os.path.join(_dir_akun(), "aktif.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"nama": nama}, f)
+    except Exception:
+        pass
+
+
+def simpan_akun(nama=None):
+    """Daftarkan sesi AKTIF sebagai akun tersimpan. Return nama terpakai,
+    None kalau tidak ada sesi hidup."""
+    c = _sesi_muat()
+    if not c:
+        return None
+    d = _dir_akun()
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        return None
+    if not nama:
+        n = 1
+        while os.path.exists(os.path.join(d, f"akun-{n}.json")):
+            n += 1
+        nama = f"Akun {n}"
+    aman = "".join(ch for ch in nama
+                   if ch.isalnum() or ch in " -_.").strip() or "akun"
+    try:
+        with open(os.path.join(d, f"akun-{aman}.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"nama": nama, "waktu": time.time(), "cookies": c}, f)
+    except Exception:
+        return None
+    _akun_aktif_set(nama)
+    return nama
+
+
+def hapus_akun(nama):
+    """Buang akun tersimpan (berdasarkan nama di meta). Return bool."""
+    d = _dir_akun()
+    try:
+        for f in os.listdir(d):
+            if not f.endswith(".json") or f == "aktif.json":
+                continue
+            try:
+                with open(os.path.join(d, f), encoding="utf-8") as fh:
+                    meta = json.load(fh)
+            except Exception:
+                continue
+            if meta.get("nama") == nama:
+                os.remove(os.path.join(d, f))
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _akun_cookies(nama):
+    d = _dir_akun()
+    try:
+        for f in os.listdir(d):
+            if not f.endswith(".json") or f == "aktif.json":
+                continue
+            try:
+                with open(os.path.join(d, f), encoding="utf-8") as fh:
+                    meta = json.load(fh)
+            except Exception:
+                continue
+            if meta.get("nama") == nama:
+                return meta.get("cookies") or []
+    except Exception:
+        pass
+    return None
+
+
 def jalankan_sta(main_fn):
     """Jalankan main_fn (seluruh app Tk) di CLR thread STA.
 
@@ -521,6 +644,73 @@ class Wv2Host(tk.Frame):
             except Exception:
                 pass
             self.after_idle(self._pas_ukuran)
+
+    # ----------------------------------------------- ganti akun edclub
+    @staticmethod
+    def _cdp_cookie(kerja_cookie):
+        """Koneksi CDP pendek utk operasi cookie (clear/add) di thread
+        apa pun. Return (ok, pesan). Port = estate.DEBUG_PORT (webview
+        dinyalakan dgn port itu - lihat App saat boot)."""
+        try:
+            from engine import state as estate
+            port = estate.DEBUG_PORT
+        except Exception:
+            port = 9222
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                br = p.chromium.connect_over_cdp(
+                    f"http://127.0.0.1:{port}", timeout=15000)
+                try:
+                    for ctx in br.contexts:
+                        kerja_cookie(ctx)
+                finally:
+                    br.close()
+            return True, "ok"
+        except Exception as ex:
+            return False, str(ex)[:150]
+
+    def akun_ganti(self, nama, selesai=None):
+        """Pasang sesi akun 'nama' ke webview (hapus cookie lama -> add
+        cookie akun -> tulis sesi aktif). Thread belakang; selesai(ok,
+        pesan) dipanggil dari thread itu - pemanggil yang marshal ke UI
+        (pola _ui_queue)."""
+        def kerja():
+            cookies = _akun_cookies(nama)
+            if not cookies:
+                if selesai:
+                    selesai(False, "akun tidak ditemukan")
+                return
+            ok, pesan = self._cdp_cookie(lambda ctx: (
+                ctx.clear_cookies(), ctx.add_cookies(cookies)))
+            if ok:
+                _sesi_tulis(cookies)
+                _akun_aktif_set(nama)
+                pesan = "sesi dimuat"
+            if selesai:
+                selesai(ok, pesan)
+        import threading as _th
+        _th.Thread(target=kerja, daemon=True).start()
+
+    def akun_keluar(self, selesai=None):
+        """Keluar bersih utk TAMBAH akun: hapus semua cookie webview +
+        file sesi aktif (biar boot tak restore akun lama). Thread belakang."""
+        def kerja():
+            ok, pesan = self._cdp_cookie(lambda ctx: ctx.clear_cookies())
+            if ok:
+                try:
+                    os.remove(_sesi_path())
+                except Exception:
+                    pass
+                try:
+                    os.remove(os.path.join(_dir_akun(), "aktif.json"))
+                except Exception:
+                    pass
+                pesan = "sesi dibersihkan"
+            if selesai:
+                selesai(ok, pesan)
+        import threading as _th
+        _th.Thread(target=kerja, daemon=True).start()
 
     # --------------------------------------------------- pengawas halaman
     def mulai_pengawas(self, port):
@@ -778,6 +968,13 @@ class Wv2Host(tk.Frame):
                         continue
                     eval_gagal = 0
                     jantung[0] = time.time()
+                    # indikator login (permintaan user): sesi habis =
+                    # halaman dilempar ke /signin / anon / lagi di Google
+                    # - pengawas paling tahu lebih dulu. Attr polos lintas
+                    # thread (pola sama dgn _nav_pending).
+                    self._perlu_login = (("edclub" not in u)
+                                         or ("/signin" in u)
+                                         or ("accounts.google." in u))
                     nav = getattr(self, "_nav_pending", None)
                     if nav:
                         self._nav_pending = None

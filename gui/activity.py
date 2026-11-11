@@ -67,6 +67,23 @@ class ActivityMixin:
 
         bot = self.bot
         bot_thread_hidup = bool(self.bot_thread and self.bot_thread.is_alive())
+        # indikator perlu login: tombol 👤 berubah 'Login ulang' (kuning)
+        # saat sesi edclub mati - sinyal dari pengawas (halaman dilempar
+        # ke /signin) atau gerbang login engine (permintaan user)
+        if getattr(self, "btn_akun", None) is not None:
+            perlu = (bool(getattr(bot, "NEEDS_LOGIN", False))
+                     or bool(getattr(getattr(self, "host", None),
+                                     "_perlu_login", False)))
+            if perlu != getattr(self, "_akun_perlu_login", None):
+                self._akun_perlu_login = perlu
+                try:
+                    if perlu:
+                        self.btn_akun.configure(text="👤 Login ulang",
+                                                fg=YELLOW)
+                    else:
+                        self.btn_akun.configure(text="👤 Akun", fg=FG)
+                except Exception:
+                    pass
         # app kembali ke depan 1x saat bot selesai tersambung: browser
         # selalu merebut fokus saat dibuka - tanpa ini user harus alt-tab
         # sendiri hanya untuk melihat status bot (live: terasa 'bot hilang')

@@ -169,6 +169,13 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
         self.kanan = tk.Frame(ctrl, bg=BG)
         self.kanan.pack(side="right")
+        # 👤 Akun: manajer sesi edclub - ganti/tambah/hapus akun
+        # (permintaan user 11 Nov 2026). Butuh CDP webview utk tukar
+        # cookie -> nonaktif sampai WebView2 siap (lihat boot).
+        self.btn_akun = self._btn(self.kanan, "👤 Akun", ACCENT,
+                                  self.on_akun, kecil=True, gaya="hantu")
+        self.btn_akun["state"] = "disabled"
+        self._akun_perlu_login = None
         # v3.2: tombol Pulihkan & ❓ DIHAPUS (permintaan user) - Pulihkan
         # warisan mode browser eksternal (supervisor + pengawas dalam-app
         # kini memulihkan otomatis), tips ❓ masih menjelaskan alur lama.
@@ -345,6 +352,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                     # dialog dalam-app: semua popup digambar di dalam
                     # jendela (menempati area webview), bukan jendela OS
                     set_dialog_layer(self.host)
+                    self.btn_akun["state"] = "normal"   # 👤 butuh CDP
                     # pengawas playwright: stub window.open + pengarah
                     # /signin aktif sejak app terbuka (bukan cuma saat
                     # sesi bot) - jalur .NET pythonnet terbukti sung

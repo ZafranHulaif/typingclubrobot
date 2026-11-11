@@ -22,7 +22,7 @@ from tkinter.scrolledtext import ScrolledText
 from .dialogs import (dialog_online_activation, dialog_open_browser, dialog_pick_browser, dialog_pick_profile, dialog_tips, dialog_force_close)
 from .icons import _icon_widget
 from .licensing import _machine_code
-from .theme import (ACCENT, APP_VERSION, BROWSER_COLORS, CARD, CARD_HOVER, DIM, EDGE, FG, GREEN, LOG_FILE, PANEL, PROGRAM_PATH, RED, SETTINGS_FILE)
+from .theme import (ACCENT, APP_VERSION, BROWSER_COLORS, CARD, CARD_HOVER, DIM, EDGE, FAINT, FG, GREEN, LOG_FILE, PANEL, PROGRAM_PATH, RED, SETTINGS_FILE)
 from .widgets import _Dialog
 
 
@@ -549,6 +549,128 @@ class LaunchMixin:
                 self._updating = False
 
         threading.Thread(target=kerja, daemon=True).start()
+
+    # ---------------------------------------------------- akun edclub
+    def on_akun(self):
+        """Manajer akun edclub (permintaan user 11 Nov 2026): daftar sesi
+        tersimpan - pakai/tambah/hapus. Tampil DI DALAM app (overlay)."""
+        from .widgets import _Dialog
+        from . import webview2_host as _w2v
+        if not getattr(self, "host", None):
+            return
+        # bot jalan? hentikan dulu - tukar cookie saat supervisor aktif
+        # = dia mengejar halaman akun lama
+        if self.bot_thread and self.bot_thread.is_alive():
+            self.on_stop()
+        d = _Dialog(self.root, "Akun edclub",
+                    "Pilih akun tersimpan, atau masuk akun baru.",
+                    ikon="👤")
+        self._akun_dlg = d
+
+        def baris_kecil(parent, teks, cmd, warna):
+            b = tk.Label(parent, text=teks, font=("Segoe UI", 9, "bold"),
+                         fg=warna, bg=CARD, padx=10, pady=4,
+                         cursor="hand2", highlightthickness=1,
+                         highlightbackground=EDGE)
+            b.bind("<Button-1>", lambda _e: cmd())
+            return b
+
+        def refresh():
+            for w in d.body.winfo_children():
+                w.destroy()
+            aktif = _w2v.akun_aktif_nama()
+            daftar = _w2v.daftar_akun()
+            if not daftar:
+                tk.Label(d.body, text="Belum ada akun tersimpan.",
+                         font=("Segoe UI", 10), fg=DIM,
+                         bg=PANEL).pack(anchor="w", pady=(0, 6))
+            for a in daftar:
+                baris = tk.Frame(d.body, bg=PANEL)
+                baris.pack(fill="x", pady=2)
+                nm = a["nama"] + ("   •  aktif" if a["nama"] == aktif
+                                  else "")
+                tk.Label(baris, text=nm, font=("Segoe UI", 10, "bold"),
+                         fg=FG if a["nama"] == aktif else DIM,
+                         bg=PANEL).pack(side="left")
+                hps = {"yakin": False}
+
+                def do_hapus(n=a["nama"], lbl=None):
+                    if not lbl["yakin"]:
+                        lbl["yakin"] = True
+                        tanya.configure(text="hapus?", fg=RED)
+                        return
+                    _w2v.hapus_akun(n)
+                    self._log(f"[AKUN] {n} dihapus dari daftar.")
+                    refresh()
+
+                tanya = baris_kecil(baris, "×", lambda n=a["nama"],
+                                    l=hps: do_hapus(n, l), DIM)
+                tanya.pack(side="right", padx=(6, 0))
+                if a["nama"] != aktif:
+                    pakai = baris_kecil(baris, "Pakai",
+                                        lambda n=a["nama"]: pakai_akun(n),
+                                        GREEN)
+                    pakai.pack(side="right")
+            tk.Label(d.body,
+                     text="Tambah akun: keluar → login akun baru di "
+                          "halaman → buka 👤 lagi → Simpan akun aktif.",
+                     font=("Segoe UI", 9), fg=FAINT, bg=PANEL,
+                     wraplength=380, justify="left").pack(
+                         anchor="w", pady=(10, 0))
+
+        def marshal(fn):
+            self._ui_queue.put(fn)
+
+        def pakai_akun(nama):
+            d.done(None)
+            self._log(f"[AKUN] memuat sesi {nama}...")
+            self.host.akun_ganti(
+                nama,
+                lambda ok, pesan: marshal(
+                    lambda o=ok, p=pesan: self._akun_hasil(nama, o, p)))
+
+        def simpan_aktif():
+            nama = _w2v.simpan_akun()
+            if nama:
+                self._log(f"[AKUN] sesi aktif disimpan sebagai {nama}.")
+            else:
+                self._log("[AKUN] belum ada sesi hidup - login dulu.")
+            refresh()
+
+        def tambah_baru():
+            d.done(None)
+            self._log("[AKUN] membersihkan sesi - login akun baru...")
+            self.host.akun_keluar(
+                lambda ok, pesan: marshal(
+                    lambda o=ok, p=pesan: self._akun_keluar_hasil(o, p)))
+
+        d.button("Tutup", None, primer=False, cmd=lambda: d.done(None))
+        d.button("＋ Tambah akun baru", None, primer=False,
+                 cmd=tambah_baru)
+        d.button("💾 Simpan akun aktif", None, warna_btn=GREEN, cmd=simpan_aktif)
+        refresh()
+        d.show()
+
+    def _akun_hasil(self, nama, ok, pesan):
+        if ok:
+            self._log(f"[AKUN] sesi {nama} dimuat - membuka daftar level.")
+            try:
+                self.host.ke_url("https://www.edclub.com/student/course/3")
+            except Exception:
+                pass
+        else:
+            self._log(f"[AKUN] gagal memuat {nama}: {pesan}")
+
+    def _akun_keluar_hasil(self, ok, pesan):
+        if ok:
+            try:
+                self.host.ke_url("https://www.edclub.com/signin")
+            except Exception:
+                pass
+            self._log("[AKUN] login akun baru di halaman, lalu buka "
+                      "👤 Akun → Simpan akun aktif.")
+        else:
+            self._log(f"[AKUN] gagal membersihkan sesi: {pesan}")
 
     def _update_apply_now(self, info):
         from net import updater as netupd
