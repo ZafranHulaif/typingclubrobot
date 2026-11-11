@@ -562,7 +562,12 @@ class LaunchMixin:
         if not getattr(self, "host", None):
             return
         if getattr(self, "_akun_pop", None) is not None:
-            return          # sudah terbuka
+            try:
+                self._akun_pop.destroy()
+            except Exception:
+                pass
+            self._akun_pop = None
+            return          # toggle: klik lagi = tutup
         layer = _DIALOG_LAYER
         if layer is None or not layer.webview_hidup() \
                 or getattr(layer, "_dialog_aktif", False):
@@ -573,30 +578,38 @@ class LaunchMixin:
         if self.bot_thread and self.bot_thread.is_alive():
             self.on_stop()
 
-        layer.lepas_untuk_dialog()
-        layar = tk.Frame(layer, bg="#0c0d11")
-        layar.place(relx=0, rely=0, relwidth=1, relheight=1)
-        pop = tk.Frame(layar, bg=PANEL, highlightthickness=1,
-                       highlightbackground=EDGE)
-        pop.place(relx=1.0, rely=0.0, x=-16, y=12, anchor="ne", width=336)
-        self._akun_pop = (layer, layar, pop)
+        # POPOVER = jendela tanpa bingkai melayang di pojok kanan-atas,
+        # DI ATAS halaman (dulu layer gelap menutupi webview - keluhan
+        # user: 'why does the page become black'). Halaman tetap hidup.
+        pop = tk.Toplevel(self.root)
+        pop.overrideredirect(True)
+        pop.configure(bg=PANEL, highlightthickness=1,
+                      highlightbackground=EDGE)
+        pop.transient(self.root)
+        try:
+            bx = self.btn_akun.winfo_rootx()
+            by = self.btn_akun.winfo_rooty()
+            bh = self.btn_akun.winfo_height()
+            pop.geometry(f"+{max(8, bx - 336 + 90)}+{by + bh + 4}")
+        except Exception:
+            pop.geometry("+400+80")
+        self._akun_pop = pop
 
         def tutup(_e=None):
             if getattr(self, "_akun_pop", None) is None:
                 return
             self._akun_pop = None
             try:
-                layar.destroy()
+                pop.destroy()
             except Exception:
                 pass
-            layer.pasang_setelah_dialog()
 
-        layar.bind("<Button-1>", tutup)      # klik luar = tutup
-        layer.bind("<Escape>", tutup)
+        pop.bind("<Escape>", tutup)
+        pop.bind("<FocusOut>", tutup)   # klik di luar = tutup
 
         # ---- kepala: caption + tutup
         kepala = tk.Frame(pop, bg=PANEL)
-        kepala.pack(fill="x", padx=16, pady=(14, 6))
+        kepala.pack(fill="x", padx=16, pady=(12, 6))
         tk.Label(kepala, text="A K U N   E D C L U B",
                  font=("Segoe UI", 9, "bold"), fg=FAINT,
                  bg=PANEL).pack(side="left")
@@ -686,22 +699,25 @@ class LaunchMixin:
             for a in daftar:
                 baris_akun(badan, a["nama"], a["nama"] == aktif)
             tk.Frame(badan, bg=EDGE, height=1).pack(fill="x", pady=(8, 6))
-            tombol_penuh(badan, "＋  Masuk akun baru", tambah_baru)
-            tombol_penuh(badan, "💾  Simpan sesi ini", simpan_aktif)
+            tombol_penuh(badan, "＋  Masuk akun lain", tambah_baru)
             tk.Label(badan,
-                     text="Sesi habis? Masuk lagi di halaman, lalu "
-                          "Simpan sesi ini.",
+                     text="Nama akun otomatis dari profil edclub. Login "
+                          "akun baru = langsung tersimpan.",
                      font=("Segoe UI", 8), fg=FAINT, bg=PANEL,
                      wraplength=290, justify="left").pack(
-                         anchor="w", padx=8, pady=(4, 8))
+                         anchor="w", padx=8, pady=(4, 10))
 
-        def simpan_aktif():
-            nama = _w2v.simpan_akun()
-            if nama:
-                self._log(f"[AKUN] sesi aktif disimpan sebagai {nama}.")
-            else:
-                self._log("[AKUN] belum ada sesi hidup - login dulu.")
+        # daftar hidup: auto-simpan akun terjadi di latar (pengawas) -
+        # segarkan popover tiap 2 dtk selama terbuka
+        def napas():
+            if getattr(self, "_akun_pop", None) is not pop:
+                return
             refresh()
+            pop.after(2000, napas)
+
+        refresh()
+        pop.focus_set()
+        pop.after(2000, napas)
 
         def tambah_baru():
             tutup()

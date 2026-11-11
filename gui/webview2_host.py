@@ -498,10 +498,10 @@ def _akun_aktif_set(nama):
         pass
 
 
-def simpan_akun(nama=None):
-    """Daftarkan sesi AKTIF sebagai akun tersimpan. Return nama terpakai,
-    None kalau tidak ada sesi hidup."""
-    c = _sesi_muat()
+def simpan_akun(nama=None, cookies=None):
+    """Daftarkan sesi sebagai akun tersimpan. Default = sesi AKTIF +
+    nama otomatis 'Akun N'. Return nama terpakai, None kalau tak ada sesi."""
+    c = cookies or _sesi_muat()
     if not c:
         return None
     d = _dir_akun()
@@ -544,6 +544,35 @@ def hapus_akun(nama):
     except Exception:
         pass
     return False
+
+
+def akun_auto_simpan(nama, cookies):
+    """Simpan OTOMATIS saat login (permintaan user: 'when we're logged
+    in, it should automatically save it'): nama = nama profil edclub.
+    Akun baru = dibuat; akun yang sudah ada = cookie-nya disegarkan bila
+    file lebih tua 30 menit (sesi simpanan tetap hidup utk ganti akun).
+    Selalu set aktif. Thread pengawas aman (file saja)."""
+    d = _dir_akun()
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        return False
+    aman = "".join(ch for ch in nama
+                   if ch.isalnum() or ch in " -_.").strip() or "akun"
+    pth = os.path.join(d, f"akun-{aman}.json")
+    try:
+        lama = 0.0
+        if os.path.exists(pth):
+            with open(pth, encoding="utf-8") as f:
+                lama = json.load(f).get("waktu", 0)
+        if time.time() - lama > 1800:
+            with open(pth, "w", encoding="utf-8") as f:
+                json.dump({"nama": nama, "waktu": time.time(),
+                           "cookies": cookies}, f)
+        _akun_aktif_set(nama)
+        return True
+    except Exception:
+        return False
 
 
 def _akun_cookies(nama):
@@ -686,6 +715,7 @@ class Wv2Host(tk.Frame):
             if ok:
                 _sesi_tulis(cookies)
                 _akun_aktif_set(nama)
+                self._akun_swap_at = time.time()
                 pesan = "sesi dimuat"
             if selesai:
                 selesai(ok, pesan)
@@ -706,6 +736,7 @@ class Wv2Host(tk.Frame):
                     os.remove(os.path.join(_dir_akun(), "aktif.json"))
                 except Exception:
                     pass
+                self._akun_swap_at = time.time()
                 pesan = "sesi dibersihkan"
             if selesai:
                 selesai(ok, pesan)
@@ -975,6 +1006,39 @@ class Wv2Host(tk.Frame):
                     self._perlu_login = (("edclub" not in u)
                                          or ("/signin" in u)
                                          or ("accounts.google." in u))
+                    # AUTO-SIMPAN AKUN: nama profil edclub dipakai sbg
+                    # identitas akun (permintaan user: 'recognise the
+                    # name from the edclub profile'). Halaman student
+                    # login + pill profil ada = simpan/refresh akun.
+                    if not self._perlu_login and "/student/" in u:
+                        try:
+                            nm = pg.evaluate(
+                                """() => {
+                                  const el = document.querySelector(
+                                    'button [class*="truncate"]');
+                                  return el ?
+                                    (el.textContent || '').trim() : '';
+                                }""")
+                        except Exception:
+                            nm = ""
+                        if nm and len(nm) <= 40:
+                            if nm != getattr(self, "_nama_profil", None):
+                                self._nama_profil = nm
+                            # JANGAN simpan di detik pertama setelah tukar
+                            # akun: listener sesi belum menulis cookie akun
+                            # baru -> cookie LAMA bisa tertulis atas nama
+                            # akun baru (racun buku alamat).
+                            if time.time() - getattr(
+                                    self, "_akun_swap_at", 0.0) < 20:
+                                continue
+                            try:
+                                cookies = json.load(open(
+                                    _sesi_path(), encoding="utf-8"
+                                    )).get("cookies") or []
+                            except Exception:
+                                cookies = []
+                            if cookies:
+                                akun_auto_simpan(nm, cookies)
                     nav = getattr(self, "_nav_pending", None)
                     if nav:
                         self._nav_pending = None
