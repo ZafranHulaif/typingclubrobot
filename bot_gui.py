@@ -105,6 +105,36 @@ if __name__ == "__main__":
     # pythonnet, jalan di thread utama seperti biasa (jalur WebView2
     # otomatis nonaktif).
     def _main():
+        # crash startup HARUS terlihat: build windowed tanpa konsol,
+        # exception yang tak tertangani = mati diam tanpa jejak
+        # (keluhan live: teman user "app won't start" 11 Nov 2026).
+        # Tulis bot.log + MessageBox native (ctypes, tanpa Tk).
+        try:
+            _main_isi()
+        except SystemExit:
+            raise
+        except BaseException as ex:
+            import traceback as _tb
+            try:
+                from gui.theme import LOG_FILE as _LF
+                with open(_LF, "a", encoding="utf-8") as f:
+                    f.write("[CRASH] startup gagal: %r\n%s\n" % (
+                        ex, _tb.format_exc()))
+            except Exception:
+                _LF = "bot.log"
+            try:
+                import ctypes as _ct
+                _ct.windll.user32.MessageBoxW(
+                    0,
+                    "TypingBot gagal dijalankan:\n%s\n\n"
+                    "Detail teknis ada di log:\n%s" % (
+                        str(ex)[:300] or type(ex).__name__, _LF),
+                    "TypingBot", 0x10)
+            except Exception:
+                pass
+            raise
+
+    def _main_isi():
         # bersih-bersih sisa ekstraksi update lama di Temp (leak onefile:
         # exit keras = folder _MEI ~180 MB tertinggal - C: penuh, keluhan
         # live). Uji-lock: folder instance lain yang masih jalan UTUH.
@@ -121,6 +151,15 @@ if __name__ == "__main__":
                 except Exception:
                     pass
             sweep_mei(log=_log_bersih)
+        except Exception:
+            pass
+        # sisa swap pembaruan: exe lama yang gagal dihapus cmd (AV
+        # mengunci saat peluncuran) - di app start ini sudah pasti basi
+        try:
+            if getattr(sys, "frozen", False):
+                _lama = sys.executable + ".lama.exe"
+                if os.path.exists(_lama):
+                    os.remove(_lama)
         except Exception:
             pass
         # DPI awareness wajib sebelum Tk dibuat (layar 125%/150%).

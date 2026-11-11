@@ -16,6 +16,7 @@ from .license import download_param
 NEW_SUFFIX = ".new.exe"
 CMD_NAME = "_update.cmd"
 PENDING_NAME = "update_pending.json"
+OLD_SUFFIX = ".lama.exe"
 
 
 class UpdateCancelled(Exception):
@@ -97,24 +98,51 @@ def apply_update_and_restart(program_path):
         "setlocal\r\n"
         'set EXE="%~dp0' + nama + '"\r\n'
         'set NEW="%~dp0' + nama + NEW_SUFFIX + '"\r\n'
+        'set OLD="' + nama + OLD_SUFFIX + '"\r\n'
         "set /a N=0\r\n"
-        ":wait\r\n"
+        ":ganti\r\n"
         # ping, bukan timeout: timeout butuh konsol nyata - dulu cmd
         # membuka jendela terminal sebentar (membingungkan user awam)
         "ping -n 2 127.0.0.1 >nul\r\n"
-        'del /f /q "%EXE%" >nul 2>&1\r\n'
-        'if not exist "%EXE%" goto moved\r\n'
+        # REN dulu, JANGAN del: exe yang lagi jalan boleh di-RENAME
+        # (delete tidak) - dan kalau move sesudahnya gagal kita tinggal
+        # balikkan. Dulu del sukses lalu move gagal (AV memindai file
+        # baru 78 MB) = TANPA exe sama sekali = "app won't start"
+        # (keluhan live: teman user 11 Nov 2026).
+        'ren "%EXE%" "%OLD%" >nul 2>&1\r\n'
+        'if not exist "%EXE%" goto pasang\r\n'
         "set /a N+=1\r\n"
-        # ~15 dtk masih terkunci = proses nyangkut (WebView2/teardown
-        # live: swap 2.9.28 batal bisu setelah 30x) - tembak sekali,
-        # lanjut tunggu. Tukar yang gagal menyembuhkan sendiri lewat
-        # pop_pending di buka berikutnya, tapi paksa ini mempercepat.
-        "if %N% equ 15 taskkill /f /im %nama% >nul 2>&1\r\n"
-        "if %N% lss 90 goto wait\r\n"
+        # ~15 dtk masih terkunci = proses nyangkut (WebView2/teardown)
+        # - tembak sekali, lanjut tunggu (90x ~1.5 menit)
+        "if %N% equ 15 taskkill /f /im " + nama + " >nul 2>&1\r\n"
+        "if %N% lss 90 goto ganti\r\n"
         "exit /b 1\r\n"
-        ":moved\r\n"
-        'if not exist "%NEW%" exit /b 1\r\n'
+        ":pasang\r\n"
+        'if not exist "%NEW%" goto gulung\r\n'
         'move /y "%NEW%" "%EXE%" >nul 2>&1\r\n'
+        'if exist "%EXE%" goto tunggu_proses\r\n'
+        # AV masih memegang file baru - coba lagi sampai 15x
+        "set /a N=0\r\n"
+        ":coba\r\n"
+        "ping -n 2 127.0.0.1 >nul\r\n"
+        'move /y "%NEW%" "%EXE%" >nul 2>&1\r\n'
+        'if exist "%EXE%" goto tunggu_proses\r\n'
+        "set /a N+=1\r\n"
+        "if %N% lss 15 goto coba\r\n"
+        ":gulung\r\n"
+        # ROLLBACK: balikkan exe lama - JANGAN PERNAH tinggal tanpa exe
+        'ren "%OLD%" "' + nama + '" >nul 2>&1\r\n'
+        "exit /b 1\r\n"
+        ":tunggu_proses\r\n"
+        "del /f /q \"%OLD%\" >nul 2>&1\r\n"
+        "set /a T=0\r\n"
+        ":tunggu2\r\n"
+        # proses lama harus benar2 keluar sebelum versi baru diluncurkan
+        "tasklist /fi \"imagename eq " + nama + "\" | find /i \"" + nama
+        + "\" >nul\r\n"
+        "if not errorlevel 1 ping -n 2 127.0.0.1 >nul\r\n"
+        "if not errorlevel 1 set /a T+=1\r\n"
+        "if not errorlevel 1 if %T% lss 30 goto tunggu2\r\n"
         # luncurkan lewat explorer = seperti klik ganda user; 'start'
         # dari cmd menjadikan cmd orang tua proses dan ditolak lapisan
         # keamanan Windows ("security validation failure")
@@ -164,7 +192,8 @@ def pending_info(program_path):
 
 
 def clear_pending(program_path):
-    for p in (_pending_path(program_path), program_path + NEW_SUFFIX):
+    for p in (_pending_path(program_path), program_path + NEW_SUFFIX,
+              program_path + OLD_SUFFIX):
         try:
             os.remove(p)
         except Exception:
