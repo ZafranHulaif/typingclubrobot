@@ -741,7 +741,18 @@ class LaunchMixin:
                     lambda o=ok, p=pesan: self._akun_keluar_hasil(o, p)))
 
         refresh()
-        # ambil semua klik selama popover terbuka (dropdown pattern)
+        # URUTAN KRITIS (bug 'no UI + hover mati', Nov 2026): map dulu,
+        # angkat DI ATAS jendela utama, topmost, BARU grab. Dulu grab
+        # langsung saat window belum ter-map: popover bisa ter-map DI
+        # BAWAH jendela utama (overrideredirect + transient tak selalu
+        # diangkat WM) = tak terlihat tapi memegang grab - hover tombol
+        # mati, klik kedua men-toggle-nya tutup. Persis keluhan user.
+        pop.update_idletasks()
+        pop.lift()
+        try:
+            pop.attributes("-topmost", True)
+        except Exception:
+            pass
         try:
             pop.grab_set()
         except Exception:
