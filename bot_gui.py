@@ -179,6 +179,13 @@ if __name__ == "__main__":
                 _updup.bersihkan_duplikat(sys.executable, _log_dup)
         except Exception:
             pass
+        # buang entri akun duplikat 'Akun N' (sisa build lama tanpa nama
+        # profil) sebelum daftar akun dibaca mana pun
+        try:
+            from gui import webview2_host as _w2v_dup
+            _w2v_dup.akun_bersih_dupe()
+        except Exception:
+            pass
         # DPI awareness wajib sebelum Tk dibuat (layar 125%/150%).
         import ctypes
         try:

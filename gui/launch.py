@@ -462,6 +462,67 @@ class LaunchMixin:
         except Exception:
             pass
 
+    def _pop_tempatkan(self, pop, jangkar):
+        """Pojok KANAN popover sejajar tepi kanan tombol jangkar - pakai
+        lebar ASLI popover (winfo_reqwidth setelah layout), bukan angka
+        tebasan 336 (dulu hard-code: popover lebih lebar/lebih sempit =
+        tampak bergeser, keluhan user Nov 2026 'now it's offset again')."""
+        pop.update_idletasks()
+        try:
+            bx = jangkar.winfo_rootx()
+            bw = jangkar.winfo_width()
+            by = jangkar.winfo_rooty()
+            bh = jangkar.winfo_height()
+            x = max(8, bx + bw - pop.winfo_reqwidth())
+            pop.geometry(f"+{x}+{by + bh + 4}")
+        except Exception:
+            pop.geometry("+400+80")
+
+    def _pop_jaga_diam(self, pop, attr, tutup, detik=8):
+        """Auto-dismiss: pointer di LUAR popover 8 dtk berturut-turut =
+        tutup sendiri (permintaan user: popover tak hilang kalau tak
+        diklik, dan karena topmost ia menempel di atas app lain - T3
+        Code dsb - sampai user mengklik; sekarang menghilang sendiri).
+        Polling posisi pointer, bukan event Leave (Leave sintetis Tk
+        saat mapping dulu membunuh popover INSTAN - Nov 2026)."""
+        batas = {"n": 0}
+
+        def jaga():
+            if getattr(self, attr, None) is not pop:
+                return
+            try:
+                px, py = pop.winfo_pointerxy()
+                rx, ry = pop.winfo_rootx(), pop.winfo_rooty()
+                w, h = pop.winfo_width(), pop.winfo_height()
+                dalam = (rx - 12 <= px <= rx + w + 12
+                         and ry - 12 <= py <= ry + h + 12)
+            except Exception:
+                dalam = True
+            batas["n"] = 0 if dalam else batas["n"] + 1
+            if batas["n"] >= detik:
+                tutup()
+                return
+            pop.after(1000, jaga)
+        pop.after(1000, jaga)
+
+    def _pop_angkat(self, pop):
+        """URUTAN KRITIS (bug 'no UI + hover mati', Nov 2026): map dulu,
+        angkat DI ATAS jendela utama, topmost, BARU grab. Dulu grab
+        langsung saat window belum ter-map: popover bisa ter-map DI
+        BAWAH jendela utama (overrideredirect + transient tak selalu
+        diangkat WM) = tak terlihat tapi memegang grab - hover tombol
+        mati, klik kedua men-toggle-nya tutup. Persis keluhan user."""
+        pop.update_idletasks()
+        pop.lift()
+        try:
+            pop.attributes("-topmost", True)
+        except Exception:
+            pass
+        try:
+            pop.grab_set()
+        except Exception:
+            pass
+
     def on_update(self):
         """POPOVER pembaruan (Nov 2026, permintaan user): TANPA overlay
         gelap - halaman tetap hidup, unduhan jalan di latar, progres
@@ -487,12 +548,6 @@ class LaunchMixin:
         pop.configure(bg=PANEL, highlightthickness=1,
                       highlightbackground=EDGE)
         pop.transient(self.root)
-        try:
-            bx, bw = jangkar.winfo_rootx(), jangkar.winfo_width()
-            by, bh = jangkar.winfo_rooty(), jangkar.winfo_height()
-            pop.geometry(f"+{max(8, bx + bw - 336)}+{by + bh + 4}")
-        except Exception:
-            pop.geometry("+400+80")
         self._update_pop = pop
 
         tk.Label(pop, text=f"PEMBARUAN v{ver}", font=("Segoe UI", 10,
@@ -583,16 +638,9 @@ class LaunchMixin:
             if not (rx <= e.x_root <= rx + w and ry <= e.y_root <= ry + h):
                 tutup()
         pop.bind("<Button-1>", klik_luar, add="+")
-        pop.update_idletasks()
-        pop.lift()
-        try:
-            pop.attributes("-topmost", True)
-        except Exception:
-            pass
-        try:
-            pop.grab_set()
-        except Exception:
-            pass
+        self._pop_tempatkan(pop, jangkar)
+        self._pop_angkat(pop)
+        self._pop_jaga_diam(pop, "_update_pop", tutup)
 
     def _update_mulai(self):
         """Unduh di LATAR (permintaan user Nov 2026: app tetap bisa
@@ -680,17 +728,8 @@ class LaunchMixin:
         pop.configure(bg=PANEL, highlightthickness=1,
                       highlightbackground=EDGE)
         pop.transient(self.root)
-        try:
-            bx = self.btn_akun.winfo_rootx()
-            bw = self.btn_akun.winfo_width()
-            by = self.btn_akun.winfo_rooty()
-            bh = self.btn_akun.winfo_height()
-            # tepi KANAN popover sejajar tepi kanan tombol (dulu offset
-            # tetap ke kiri = celah aneh, keluhan user Nov 2026)
-            x = max(8, bx + bw - 336)
-            pop.geometry(f"+{x}+{by + bh + 4}")
-        except Exception:
-            pop.geometry("+400+80")
+        # posisi diatur SETELAH isi popover jadi (_pop_tempatkan pakai
+        # lebar asli) - dulu geometri tebasan 336 di sini = offset
         self._akun_pop = pop
 
         def tutup(_e=None, alasan=""):
@@ -776,6 +815,7 @@ class LaunchMixin:
             baris.bind("<Enter>", masuk)
             baris.bind("<Leave>", keluar)
             baris.bind("<Button-1>", klik)
+
             hps = {"yakin": False}
 
             def do_hapus():
@@ -792,6 +832,20 @@ class LaunchMixin:
             if not aktif:
                 x.pack(side="right", padx=(0, 12))
             x.bind("<Button-1>", lambda _e: do_hapus())
+
+            # KLIK DILANJUTKAN KE SEMUA ANAK (kecuali tombol hapus x):
+            # dulu hanya frame baris yang di-bind - klik di LABEL nama
+            # tidak membawa binding baris (Tk tak bubble ke parent), dan
+            # binding pop klik_luar yang ikut terpicu membuat klik tsb
+            # terasa 'kadang ganti, kadang tutup saja' (keluhan user
+            # Nov 2026: 'sometimes it doesn't, it's so buggy')
+            def ikat_anak(w):
+                for c in w.winfo_children():
+                    if c is x:
+                        continue
+                    c.bind("<Button-1>", klik, add="+")
+                    ikat_anak(c)
+            ikat_anak(baris)
 
         def tombol_penuh(parent, teks, cmd):
             b = tk.Label(parent, text=teks, font=("Segoe UI", 10, "bold"),
@@ -843,22 +897,9 @@ class LaunchMixin:
                     lambda o=ok, p=pesan: self._akun_keluar_hasil(o, p)))
 
         refresh()
-        # URUTAN KRITIS (bug 'no UI + hover mati', Nov 2026): map dulu,
-        # angkat DI ATAS jendela utama, topmost, BARU grab. Dulu grab
-        # langsung saat window belum ter-map: popover bisa ter-map DI
-        # BAWAH jendela utama (overrideredirect + transient tak selalu
-        # diangkat WM) = tak terlihat tapi memegang grab - hover tombol
-        # mati, klik kedua men-toggle-nya tutup. Persis keluhan user.
-        pop.update_idletasks()
-        pop.lift()
-        try:
-            pop.attributes("-topmost", True)
-        except Exception:
-            pass
-        try:
-            pop.grab_set()
-        except Exception:
-            pass
+        self._pop_tempatkan(pop, self.btn_akun)
+        self._pop_angkat(pop)
+        self._pop_jaga_diam(pop, "_akun_pop", tutup)
         self._log("[AKUN] popover dibuka")
         pop.after(2000, napas)
 

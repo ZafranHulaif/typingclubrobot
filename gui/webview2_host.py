@@ -498,11 +498,71 @@ def _akun_aktif_set(nama):
         pass
 
 
+def _kuki_ttd(cookies):
+    """Sidik jari sesi dari cookies (md5 urut nama=nilai) - untuk
+    mengenali dua entri yang menyimpan sesi edclub yang SAMA."""
+    import hashlib
+    pasang = sorted(f"{c.get('name','')}={c.get('value','')}"
+                    for c in (cookies or []) if c.get("name"))
+    return hashlib.md5(";".join(pasang).encode(
+        "utf-8", "ignore")).hexdigest()
+
+
+def _akun_semua_meta():
+    """[(nama, meta, pathfile)] untuk semua akun tersimpan."""
+    d = _dir_akun()
+    hasil = []
+    try:
+        for f in os.listdir(d):
+            if not f.endswith(".json") or f == "aktif.json":
+                continue
+            try:
+                with open(os.path.join(d, f), encoding="utf-8") as fh:
+                    meta = json.load(fh)
+                hasil.append((meta.get("nama") or "", meta,
+                              os.path.join(d, f)))
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return hasil
+
+
+def akun_bersih_dupe():
+    """Buang entri duplikat temporer 'Akun N' yang sesinya SAMA dengan
+    entri bernama asli (sisa build lama yg menyimpan tanpa nama profil
+    - keluhan user Nov 2026: 'why is there an akun 1 on my list').
+    aktif.json diarahkan ke si kembar bila ternyata menunjuk dupe.
+    Dipanggil sekali saat app start; aman thd file rusak."""
+    import re
+    meta_all = _akun_semua_meta()
+    for nama, meta, pth in meta_all:
+        if not re.fullmatch(r"Akun \d+", nama or ""):
+            continue
+        ttd = _kuki_ttd(meta.get("cookies"))
+        kembar = next(((n for n, m, _ in meta_all
+                        if not re.fullmatch(r"Akun \d+", n or "")
+                        and _kuki_ttd(m.get("cookies")) == ttd
+                        and m.get("cookies"))), None)
+        if not kembar:
+            continue
+        try:
+            os.remove(pth)
+        except Exception:
+            continue
+        try:
+            if akun_aktif_nama() == nama:
+                _akun_aktif_set(kembar)
+        except Exception:
+            pass
+
+
 def simpan_akun(nama=None, cookies=None):
-    """Daftarkan sesi sebagai akun tersimpan. Default = sesi AKTIF +
-    nama otomatis 'Akun N'. Return nama terpakai, None kalau tak ada sesi."""
+    """Daftarkan sesi sebagai akun tersimpan. TANPA nama = menolak
+    (dulu bikin 'Akun 1'/'Akun 2' tak berarti - keluhan user Nov 2026).
+    Return nama terpakai, None kalau tak ada sesi/nama."""
     c = cookies or _sesi_muat()
-    if not c:
+    if not c or not (nama or "").strip():
         return None
     d = _dir_akun()
     try:
@@ -557,6 +617,10 @@ def akun_auto_simpan(nama, cookies):
         os.makedirs(d, exist_ok=True)
     except Exception:
         return False
+    if not (nama or "").strip():
+        # nama profil tak terbaca: JANGAN bikin entri tanpa nama (sisa
+        # 'Akun 1' dulu) - coba lagi di gelombang pengawas berikutnya
+        return False
     aman = "".join(ch for ch in nama
                    if ch.isalnum() or ch in " -_.").strip() or "akun"
     pth = os.path.join(d, f"akun-{aman}.json")
@@ -569,6 +633,8 @@ def akun_auto_simpan(nama, cookies):
             with open(pth, "w", encoding="utf-8") as f:
                 json.dump({"nama": nama, "waktu": time.time(),
                            "cookies": cookies}, f)
+            # entri BARU: buang duplikat temporer 'Akun N' yg sesinya sama
+            akun_bersih_dupe()
         _akun_aktif_set(nama)
         return True
     except Exception:
