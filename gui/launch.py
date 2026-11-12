@@ -513,45 +513,52 @@ class LaunchMixin:
             self._update_apply_now(info)
 
         def unduh_sekarang():
-            for w in aksi.winfo_children():
-                w.destroy()
-            tk.Label(aksi, text="Mengunduh di latar - app tetap bisa "
-                     "dipakai.", font=("Segoe UI", 8), fg=DIM,
-                     bg=PANEL).pack(anchor="w")
             self._update_mulai()
 
-        fase = getattr(self, "_update_fase", "awal")
+        def render_aksi(fase):
+            # RENDER ULANG saat fase berubah - dulu area aksi dibangun
+            # SEKALI saat popover dibuka: unduhan selesai saat popover
+            # terbuka = tombol 'Mulai ulang' TAK PERNAH muncul (keluhan
+            # user Nov 2026: 'mana mulai ulangnya').
+            for w in aksi.winfo_children():
+                w.destroy()
+            if fase == "siap":
+                tk.Button(aksi, text="\u27f3 Mulai ulang & pasang",
+                          font=("Segoe UI", 10, "bold"), bg=GREEN,
+                          fg="#0d130d", relief="flat", cursor="hand2",
+                          command=pasang_sekarang).pack(fill="x", ipady=6)
+            elif fase == "awal":
+                tk.Button(aksi, text="\u2b07 Unduh pembaruan",
+                          font=("Segoe UI", 10, "bold"), bg=GREEN,
+                          fg="#0d130d", relief="flat", cursor="hand2",
+                          command=unduh_sekarang).pack(fill="x", ipady=6)
+            # fase 'unduh': kosong - bar + % cukup (tanpa teks penjelas:
+            # keluhan user 'bloat, keliatan banget ainya')
+
+        fase0 = getattr(self, "_update_fase", "awal")
         if getattr(self, "_update_ready", False):
-            tk.Button(aksi, text="\u27f3 Mulai ulang & pasang",
-                      font=("Segoe UI", 10, "bold"), bg=GREEN,
-                      fg="#0d130d", relief="flat", cursor="hand2",
-                      command=pasang_sekarang).pack(fill="x", ipady=6)
-        elif fase == "unduh":
-            tk.Label(aksi, text="Mengunduh di latar - app tetap bisa "
-                     "dipakai.", font=("Segoe UI", 8), fg=DIM,
-                     bg=PANEL).pack(anchor="w")
-        else:
-            tk.Button(aksi, text="\u2b07 Unduh pembaruan",
-                      font=("Segoe UI", 10, "bold"), bg=GREEN,
-                      fg="#0d130d", relief="flat", cursor="hand2",
-                      command=unduh_sekarang).pack(fill="x", ipady=6)
+            fase0 = "siap"
+        aksi_fase = {"v": fase0}
+        render_aksi(fase0)
 
         def napas():
             if getattr(self, "_update_pop", None) is not pop:
                 return
             fase = getattr(self, "_update_fase", "awal")
+            if getattr(self, "_update_ready", False):
+                fase = "siap"
             pct = int(getattr(self, "_update_pct", 0))
             bar["value"] = pct
-            pct_lbl["text"] = f"{pct}%" if fase == "unduh" else \
-                ("Siap dipasang - klik Mulai ulang." if fase == "siap" else "")
+            pct_lbl["text"] = f"{pct}%" if fase == "unduh" else ""
             if fase in ("unduh", "siap"):
                 try:
                     bar.pack(fill="x", padx=12)
                     pct_lbl.pack(anchor="w", padx=12)
                 except Exception:
                     pass
-            if fase == "siap" and not getattr(self, "_update_ready", False):
-                pass
+            if aksi_fase["v"] != fase:
+                aksi_fase["v"] = fase
+                render_aksi(fase)
             pop.after(400, napas)
         pop.after(400, napas)
 
