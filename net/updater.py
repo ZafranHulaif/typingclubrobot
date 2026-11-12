@@ -7,6 +7,7 @@ dijalankan dari sumber, file baru diunduh dan user mengganti manual.
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -223,12 +224,21 @@ def clear_pending(program_path):
             pass
 
 
+def _ver_tuple(v):
+    """'3.3.5' -> (3, 3, 5); string kotor aman (non-digit dibuang)."""
+    try:
+        return tuple(int(x) for x in re.findall(r"\d+", str(v))[:3]) or (0,)
+    except Exception:
+        return (0,)
+
+
 def pop_pending(program_path):
     """Dipanggil SEBELUM GUI saat aplikasi mulai.
 
     True = proses tukar sedang berjalan (pemanggil wajib keluar segera;
     script kemudian menjalankan versi baru). Marker/unduhan basi
-    (hilang atau hash tidak cocok) dibersihkan diam-diam.
+    (hilang, hash tidak cocok, atau VERSI LEBIH LAMA dari yang jalan)
+    dibersihkan diam-diam.
     """
     info = pending_info(program_path)
     if not info:
@@ -251,6 +261,25 @@ def pop_pending(program_path):
     if not sah:
         clear_pending(program_path)
         return False
+    # PENGAMAT VERSI BASI (kasus nyata 12 Nov 2026): .new.exe + pending
+    # sisa uji pagi hari di-apply ulang jam 10:11 saat app dari folder
+    # yang sama diluncurkan lagi - app BALIK ke versi lama tanpa jejak
+    # (user melihat popover versi lama + tombol restart hilang). Pending
+    # yang versinya <= versi yang sedang jalan = buang. Hanya utk exe
+    # frozen - mode dev bebas uji versi lama (file tetap utuh utk ganti
+    # manual, kontrak uji _test_net).
+    if getattr(sys, "frozen", False):
+        try:
+            from gui.theme import APP_VERSION as ver_kini
+            if _ver_tuple(info.get("version", "")) <= _ver_tuple(ver_kini):
+                clear_pending(program_path)
+                try:
+                    os.remove(baru)
+                except Exception:
+                    pass
+                return False
+        except Exception:
+            pass
     return apply_update_and_restart(program_path)
 
 
