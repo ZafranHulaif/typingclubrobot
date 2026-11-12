@@ -716,6 +716,19 @@ def jalankan_sta(main_fn):
     t.Join()
 
 
+def _cover_log(pesan):
+    """Log diagnostik siklus cover (cari [COVER] di bot.log)."""
+    try:
+        from .theme import LOG_FILE
+        import time as _t
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write("[COVER] " + _t.strftime("%H:%M:%S") + " "
+                    + pesan + chr(10))
+    except Exception:
+        pass
+
+
+
 class Wv2Host(tk.Frame):
     """Frame Tk yang menjadi permukaan halaman web (WebView2)."""
 
@@ -755,6 +768,7 @@ class Wv2Host(tk.Frame):
         login & posisi scroll tetap hidup, begitu dialog tertutup
         webview muncul lagi persis seperti semula."""
         self._dialog_aktif = True
+        _cover_log("dialog: sembunyikan webview")
         if self._chwnd:
             try:
                 user32.ShowWindow(self._chwnd, 0)   # SW_HIDE
@@ -766,6 +780,7 @@ class Wv2Host(tk.Frame):
         """Kembalikan webview setelah dialog dalam-app selesai."""
         self._overlay.place_forget()
         self._dialog_aktif = False
+        _cover_log("dialog selesai: tampilkan webview")
         if self._chwnd:
             try:
                 # SW_SHOWNA: tampil TANPA mencuri fokus dari user
@@ -1132,6 +1147,7 @@ class Wv2Host(tk.Frame):
                     # melihat kedipan /signin lagi lalu daftar level
                     if (not perlu_raw
                             and getattr(self, "_perlu_raw_lama", False)):
+                        _cover_log("login selesai -> tahan 12s")
                         self.tahan_halaman("/student/", 12.0)
                     # halaman login di tengah proses OAuth (relay/
                     # auth_callback) = TRANSIEN - user melihat kedipan
@@ -1144,6 +1160,7 @@ class Wv2Host(tk.Frame):
                                       or "auth_callback" in u):
                         ua = self._user_aktif_pg(pg)
                         if ua is None or ua >= 5.0:
+                            _cover_log(f"oauth tahan 15s (u={u[:60]})")
                             self.tahan_halaman("/student/", 15.0)
                     self._perlu_raw_lama = perlu_raw
                     self._perlu_login = perlu_raw and \
@@ -1251,6 +1268,7 @@ class Wv2Host(tk.Frame):
                             # cover: kedipan UI lama -> UI baru jangan
                             # terlihat (permintaan user)
                             self.tahan_halaman("/student/course", 8.0)
+                            _cover_log("bounce rute lama -> course/3")
                             try:
                                 pg.evaluate("() => location.href = %r"
                                             % COURSE_URL)
@@ -1459,6 +1477,7 @@ class Wv2Host(tk.Frame):
             self._chwnd = int(str(control.Handle))
             user32.SetParent(self._chwnd, self.winfo_id())
             self._pas_ukuran()
+            self._mulai_detak_kondisi()
             # TUTUP BOOT (permintaan user: kilat 'belum login' saat buka
             # app membingungkan): kalau ada sesi tersimpan, webview
             # DISEMBUNYIKAN + overlay tertutup sampai pengawas melihat
@@ -1466,6 +1485,7 @@ class Wv2Host(tk.Frame):
             # daftar level sudah login. Timeout 45 dtk: sesi memang mati,
             # tampilkan seperti biasa (user login manual).
             if os.path.exists(_sesi_path()):
+                _cover_log("boot naik (ada file sesi)")
                 self._boot_cover = time.time()
                 self._boot_selesai = False
                 try:
@@ -1548,6 +1568,27 @@ class Wv2Host(tk.Frame):
         dan membuka webview balik saat potongan muncul / waktu habis."""
         self._tahan = (potongan, time.time() + maks)
 
+    def _mulai_detak_kondisi(self):
+        """Log kondisi tampil/sembunyi tiap 10 dtk - diagnosa siklus
+        abu/normal (keluhan user 12 Nov 2026). Cari [COVER] di bot.log."""
+        try:
+            from .theme import LOG_FILE as _lf
+        except Exception:
+            return
+        def detak():
+            try:
+                hwnd = bool(self._chwnd) and bool(
+                    user32.IsWindowVisible(self._chwnd))
+                ov = "y" if self._overlay.winfo_ismapped() else "n"
+                tahan = getattr(self, "_tahan", None)
+                _cover_log(f"kondisi hwnd={int(hwnd)} overlay={ov} "
+                           f"cover={bool(getattr(self, '_boot_cover', None))} "
+                           f"tahan={tahan[0] if tahan else None}")
+            except Exception:
+                pass
+            self.after(10000, detak)
+        self.after(10000, detak)
+
     def _jaga(self):
         """Polling dari thread Tk (tanpa callback .NET -> Python):
         1. begitu CoreWebView2 ada: cabut handler popup pywebview (yang
@@ -1563,6 +1604,7 @@ class Wv2Host(tk.Frame):
         if tahan and not getattr(self, "_boot_cover", None):
             pot, batas = tahan
             if time.time() <= batas and self._chwnd:
+                _cover_log(f"naik (tahan {pot!r} sisa {batas - time.time():.0f}s)")
                 self._boot_cover = time.time()
                 self._boot_selesai = False
                 try:
@@ -1577,6 +1619,7 @@ class Wv2Host(tk.Frame):
                 self._tahan = None
         GW_OWNER = 4
         if getattr(self, "_boot_selesai", False):
+            _cover_log("buka (pengawas selesai/timeout)")
             # buka tutup boot DI THREAD UI: tampilkan webview TANPA
             # mencuri fokus (SW_SHOWNA, sama seperti setelah dialog)
             self._boot_selesai = False
