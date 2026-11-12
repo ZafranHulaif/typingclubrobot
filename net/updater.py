@@ -93,6 +93,15 @@ def apply_update_and_restart(program_path):
     folder = os.path.dirname(os.path.abspath(program_path))
     nama = os.path.basename(program_path)
     cmd = os.path.join(folder, CMD_NAME)
+    # ONEFILE = DUA proses: parent bootloader + child python. os.getpid()
+    # = CHILD; PARENT yang memegang handle exe. Dulu cuma child yang
+    # ditembak -> parent hidup terus -> ren gagal 90x -> exit /b 1 TANPA
+    # meluncurkan apa pun = 'mulai ulang tidak menjalankan aplikasi'
+    # (keluhan live 12 Nov 2026, update 3.2.7 -> 3.2.9).
+    try:
+        pid_parent = str(os.getppid())
+    except Exception:
+        pid_parent = "0"
     isi = (
         "@echo off\r\n"
         "setlocal\r\n"
@@ -112,14 +121,20 @@ def apply_update_and_restart(program_path):
         'ren "%EXE%" "%OLD%" >nul 2>&1\r\n'
         'if not exist "%EXE%" goto pasang\r\n'
         "set /a N+=1\r\n"
-        # ~15 dtk masih terkunci = proses nyangkut (WebView2/teardown)
-        # - tembak PID PEMANGGIL (persis, apa pun nama exe-nya: teman
-        # live menjalankan 'TypingBot (2).exe' - taskkill /im nama
-        # kanonik meleset -> ren tak pernah sukses -> update gagal)
-        # + nama image utk instance lain yang nyangkut.
-        "if %N% equ 15 taskkill /f /pid " + str(os.getpid()) + " >nul 2>&1\r\n"
-        "if %N% equ 15 taskkill /f /im " + nama + " >nul 2>&1\r\n"
+        # ~15 dtk masih terkunci: tembak CHILD (pid pemanggil), PARENT
+        # bootloader (pemegang handle exe - lihat catatan atas), dan
+        # SEMUA image se-nama utk instance lain. GEQ, bukan equ: ulang
+        # tiap putaran - dulu equ 15 sekali saja, parent kadang baru
+        # mati setelah itu dan 75 percobaan ren sisanya sia-sia.
+        "if %N% geq 15 taskkill /f /pid " + str(os.getpid()) + " >nul 2>&1\r\n"
+        "if %N% geq 15 taskkill /f /pid " + pid_parent + " >nul 2>&1\r\n"
+        "if %N% geq 15 taskkill /f /im \"" + nama + "\" >nul 2>&1\r\n"
         "if %N% lss 90 goto ganti\r\n"
+        # GAGAL TOTAL: jangan pernah mati diam - luncurkan exe lama
+        # balik (pop_pending di app start akan menyelesaikan swap saat
+        # lock sudah hilang). explorer, bukan start: start dari cmd
+        # ditolak lapisan keamanan Windows (lihat :tunggu_proses).
+        'if exist "%EXE%" explorer "%EXE%"\r\n'
         "exit /b 1\r\n"
         ":pasang\r\n"
         'if not exist "%NEW%" goto gulung\r\n'
@@ -136,6 +151,9 @@ def apply_update_and_restart(program_path):
         ":gulung\r\n"
         # ROLLBACK: balikkan exe lama - JANGAN PERNAH tinggal tanpa exe
         'ren "%OLD%" "' + nama + '" >nul 2>&1\r\n'
+        # dan pastikan aplikasi HIDUP balik (dulu exit 1 diam-diam =
+        # 'mulai ulang tidak menjalankan aplikasi', keluhan live)
+        'if exist "%EXE%" explorer "%EXE%"\r\n'
         "exit /b 1\r\n"
         ":tunggu_proses\r\n"
         "del /f /q \"%OLD%\" >nul 2>&1\r\n"
