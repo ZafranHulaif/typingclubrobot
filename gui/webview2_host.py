@@ -498,12 +498,23 @@ def _akun_aktif_set(nama):
         pass
 
 
+_KUKI_IDENTITAS = ("pw_uuid", "connectId", "tb_lt", "_cc_id",
+                   "_lc2_fpi", "_pubcid", "_sharedid")
+
+
 def _kuki_ttd(cookies):
-    """Sidik jari sesi dari cookies (md5 urut nama=nilai) - untuk
-    mengenali dua entri yang menyimpan sesi edclub yang SAMA."""
+    """Sidik jari IDENTITAS akun: HANYA cookie stabil (pw_uuid,
+    connectId, tb_lt, ...). Dulu hash SEMUA cookie: token berputar
+    tiap login ('rt', '_cfuvid') membuat dua simpanan akun yang SAMA
+    tak pernah terkenali = 'Akun 1' tetap ada (kasus nyata 12 Nov:
+    rt & _cfuvid beda, 18 cookie lain identik)."""
     import hashlib
-    pasang = sorted(f"{c.get('name','')}={c.get('value','')}"
-                    for c in (cookies or []) if c.get("name"))
+    pilih = {c.get("name"): c.get("value", "")
+             for c in (cookies or []) if c.get("name") in _KUKI_IDENTITAS}
+    if not pilih:
+        pilih = {c.get("name", ""): c.get("value", "")
+                 for c in (cookies or [])}
+    pasang = sorted(f"{k}={v}" for k, v in pilih.items() if k)
     return hashlib.md5(";".join(pasang).encode(
         "utf-8", "ignore")).hexdigest()
 
@@ -536,6 +547,29 @@ def akun_bersih_dupe():
     Dipanggil sekali saat app start; aman thd file rusak."""
     import re
     meta_all = _akun_semua_meta()
+
+    # -- perapian nama spasi-ganda ('Zafran  H' -> 'Zafran H', hasil
+    #    tangkapan pill edclub): ubah meta + nama file + aktif.json
+    for nama, meta, pth in meta_all:
+        bersih = re.sub(r"\s+", " ", (nama or "")).strip()
+        if not nama or bersih == nama:
+            continue
+        pth_baru = os.path.join(os.path.dirname(pth),
+                                "akun-" + "".join(
+                                    ch for ch in bersih
+                                    if ch.isalnum() or ch in " -_").strip()
+                                + ".json")
+        try:
+            meta["nama"] = bersih
+            with open(pth, "w", encoding="utf-8") as f:
+                json.dump(meta, f)
+            os.replace(pth, pth_baru)
+            if akun_aktif_nama() == nama:
+                _akun_aktif_set(bersih)
+        except Exception:
+            continue
+    meta_all = _akun_semua_meta()
+
     for nama, meta, pth in meta_all:
         if not re.fullmatch(r"Akun \d+", nama or ""):
             continue
