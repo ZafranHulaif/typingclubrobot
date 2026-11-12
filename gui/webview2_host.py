@@ -1036,10 +1036,15 @@ class Wv2Host(tk.Frame):
                     # halaman login di tengah proses OAuth (relay/
                     # auth_callback) = TRANSIEN - user melihat kedipan
                     # signin setelah login (keluhan user Nov 2026).
-                    # Cover sampai /student/ benar2 mendarat.
+                    # Cover sampai /student/ benar2 mendarat. TAPI: user
+                    # sedang aktif meng-klik halaman = jangan tutup
+                    # (permintaan user: halaman salah tak boleh terlihat,
+                    # tapi input user lebih penting).
                     if perlu_raw and ("oauth" in u or "relay" in u
                                       or "auth_callback" in u):
-                        self.tahan_halaman("/student/", 15.0)
+                        ua = self._user_aktif_pg(pg)
+                        if ua is None or ua >= 5.0:
+                            self.tahan_halaman("/student/", 15.0)
                     self._perlu_raw_lama = perlu_raw
                     self._perlu_login = perlu_raw and \
                         self._login_streak >= 3
@@ -1129,6 +1134,13 @@ class Wv2Host(tk.Frame):
                         except Exception:
                             peta = False
                         if not peta:
+                            # RESTRIKSI USER (Nov 2026): user sedang
+                            # memakai halaman (klik/klik dropdown < 8 dtk)
+                            # = JANGAN memantulkan halaman - dulu halaman
+                            # loncat saat dia memilih tanggal lahir dsb.
+                            ua = self._user_aktif_pg(pg)
+                            if ua is not None and ua < 8.0:
+                                continue
                             self._bounce_lama = time.time()
                             # cover: kedipan UI lama -> UI baru jangan
                             # terlihat (permintaan user)
@@ -1398,6 +1410,29 @@ class Wv2Host(tk.Frame):
     def _core_ready(self, sender, _args):
         """TIDAK DIPAKAI: callback .NET -> Python dari thread asing
         memicu crash GIL. Penanganan init dilakukan lewat polling _jaga."""
+
+    def _user_aktif_pg(self, pg):
+        """Detik sejak input user terakhir di halaman (min lintas frame).
+        None = tak diketahui - PERLAKUKAN sbg user aktif (jangan ganggu:
+        bug live teman user Nov 2026: dropdown tanggal lahir tertutup
+        sendiri + layar kehitaman - pengawas memantul/menutup halaman
+        TEPAT saat user sedang memakainya)."""
+        try:
+            from engine.jstemplates import USER_WATCH_JS
+        except Exception:
+            return None
+        best = None
+        try:
+            for fr in pg.frames:
+                try:
+                    v = fr.evaluate("() => {" + USER_WATCH_JS + "}")
+                except Exception:
+                    continue
+                if isinstance(v, (int, float)) and (best is None or v < best):
+                    best = v
+        except Exception:
+            return None
+        return best
 
     def tahan_halaman(self, potongan, maks=8.0):
         """Cover 'tahan halaman': sembunyikan kedipan navigasi OTOMATIS

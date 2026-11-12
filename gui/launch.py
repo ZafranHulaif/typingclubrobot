@@ -437,118 +437,203 @@ class LaunchMixin:
                       "disetujui server")
             return
         self._update_info = info
+        if not hasattr(self, "_update_fase"):
+            self._update_fase = "awal"
         self._ui_queue.put(lambda: self._show_update_button(info))
 
     def _show_update_button(self, info):
         try:
             ver = info.get("version", "?")
-            teks = ("\u21bb v{ver} siap"
-                    if getattr(self, "_update_ready", False)
-                    else "\u2b07 v{ver}").format(ver=ver)
+            fase = getattr(self, "_update_fase", "siap")
+            if fase == "unduh":
+                teks = f"\u2b07 {int(getattr(self, '_update_pct', 0))}%"
+            elif getattr(self, "_update_ready", False):
+                teks = f"\u2713 v{ver} siap"
+            else:
+                teks = f"\u2b1d v{ver}"
             if self._update_btn is None:
                 self._update_btn = self._btn(self.kanan, teks,
                                              GREEN, self.on_update, kecil=True)
             else:
                 self._update_btn.configure(text=teks)
-            self._log(f"[net] pembaruan tersedia: v{ver} "
-                      f"({info.get('notes') or '-'})")
+            if fase != "unduh":
+                self._log(f"[net] pembaruan tersedia: v{ver} "
+                          f"({info.get('notes') or '-'})")
         except Exception:
             pass
 
     def on_update(self):
+        """POPOVER pembaruan (Nov 2026, permintaan user): TANPA overlay
+        gelap - halaman tetap hidup, unduhan jalan di latar, progres
+        tampil di tombol header, klik di luar = tutup, dan mulai ulang
+        hanya dilakukan SETELAH unduhan siap."""
+        if getattr(self, "_update_pop", None) is not None:
+            if time.time() - getattr(self, "_update_pop_laju", 0) < 0.6:
+                return          # anti-dobloklik (pola popover akun)
+            try:
+                self._update_pop.destroy()
+            except Exception:
+                pass
+            self._update_pop = None
+            return
+        info = getattr(self, "_update_info", None)
+        if not info:
+            return
+        self._update_pop_laju = time.time()
+        ver = info.get("version", "?")
+        jangkar = self._update_btn or self.btn_akun
+        pop = tk.Toplevel(self.root)
+        pop.overrideredirect(True)
+        pop.configure(bg=PANEL, highlightthickness=1,
+                      highlightbackground=EDGE)
+        pop.transient(self.root)
+        try:
+            bx, bw = jangkar.winfo_rootx(), jangkar.winfo_width()
+            by, bh = jangkar.winfo_rooty(), jangkar.winfo_height()
+            pop.geometry(f"+{max(8, bx + bw - 336)}+{by + bh + 4}")
+        except Exception:
+            pop.geometry("+400+80")
+        self._update_pop = pop
+
+        tk.Label(pop, text=f"PEMBARUAN v{ver}", font=("Segoe UI", 10,
+                 "bold"), fg=FG, bg=PANEL).pack(anchor="w", padx=12,
+                                                pady=(12, 2))
+        teks_notes = (info.get("notes") or "-").strip()
+        tk.Label(pop, text=teks_notes[:400], font=("Segoe UI", 8),
+                 fg=DIM, bg=PANEL, wraplength=300,
+                 justify="left").pack(anchor="w", padx=12, pady=(0, 8))
+        bar = ttk.Progressbar(pop, maximum=100, value=0, length=300)
+        pct_lbl = tk.Label(pop, text="", font=("Segoe UI", 8),
+                           fg=DIM, bg=PANEL)
+        aksi = tk.Frame(pop, bg=PANEL)
+        aksi.pack(fill="x", padx=12, pady=(4, 12))
+
+        def pasang_sekarang():
+            tutup()
+            self._update_apply_now(info)
+
+        def unduh_sekarang():
+            for w in aksi.winfo_children():
+                w.destroy()
+            tk.Label(aksi, text="Mengunduh di latar - app tetap bisa "
+                     "dipakai.", font=("Segoe UI", 8), fg=DIM,
+                     bg=PANEL).pack(anchor="w")
+            self._update_mulai()
+
+        fase = getattr(self, "_update_fase", "awal")
+        if getattr(self, "_update_ready", False):
+            tk.Button(aksi, text="\u27f3 Mulai ulang & pasang",
+                      font=("Segoe UI", 10, "bold"), bg=GREEN,
+                      fg="#0d130d", relief="flat", cursor="hand2",
+                      command=pasang_sekarang).pack(fill="x", ipady=6)
+        elif fase == "unduh":
+            tk.Label(aksi, text="Mengunduh di latar - app tetap bisa "
+                     "dipakai.", font=("Segoe UI", 8), fg=DIM,
+                     bg=PANEL).pack(anchor="w")
+        else:
+            tk.Button(aksi, text="\u2b07 Unduh pembaruan",
+                      font=("Segoe UI", 10, "bold"), bg=GREEN,
+                      fg="#0d130d", relief="flat", cursor="hand2",
+                      command=unduh_sekarang).pack(fill="x", ipady=6)
+
+        def napas():
+            if getattr(self, "_update_pop", None) is not pop:
+                return
+            fase = getattr(self, "_update_fase", "awal")
+            pct = int(getattr(self, "_update_pct", 0))
+            bar["value"] = pct
+            pct_lbl["text"] = f"{pct}%" if fase == "unduh" else \
+                ("Siap dipasang - klik Mulai ulang." if fase == "siap" else "")
+            if fase in ("unduh", "siap"):
+                try:
+                    bar.pack(fill="x", padx=12)
+                    pct_lbl.pack(anchor="w", padx=12)
+                except Exception:
+                    pass
+            if fase == "siap" and not getattr(self, "_update_ready", False):
+                pass
+            pop.after(400, napas)
+        pop.after(400, napas)
+
+        def tutup(_e=None):
+            if getattr(self, "_update_pop", None) is None:
+                return
+            self._update_pop = None
+            try:
+                pop.grab_release()
+            except Exception:
+                pass
+            try:
+                pop.destroy()
+            except Exception:
+                pass
+
+        pop.bind("<Escape>", tutup)
+
+        def klik_luar(e):
+            rx, ry = pop.winfo_rootx(), pop.winfo_rooty()
+            w, h = pop.winfo_width(), pop.winfo_height()
+            if not (rx <= e.x_root <= rx + w and ry <= e.y_root <= ry + h):
+                tutup()
+        pop.bind("<Button-1>", klik_luar, add="+")
+        pop.update_idletasks()
+        pop.lift()
+        try:
+            pop.attributes("-topmost", True)
+        except Exception:
+            pass
+        try:
+            pop.grab_set()
+        except Exception:
+            pass
+
+    def _update_mulai(self):
+        """Unduh di LATAR (permintaan user Nov 2026: app tetap bisa
+        dipakai saat mengunduh; progres di tombol header; mulai ulang
+        hanya setelah siap)."""
         if getattr(self, "_updating", False):
             return
         info = getattr(self, "_update_info", None)
-        tok = getattr(self, "_tok_cache", None)
-        if not info or not tok:
-            return
-        from .dialogs import dialog_update
-        ver = getattr(self, "_ver_override", None) or APP_VERSION
-
-        def siap(d):
-            d.on_start = lambda: self._update_mulai(d, info, tok)
-
-        tahap = "siap" if getattr(self, "_update_ready", False) else "awal"
-
-        # JANGAN jadikan jendela OS: kalau webview belum siap / masih
-        # ditempati dialog lain, TUNGUU sebentar (webview boot beberapa
-        # detik setelah Start) - user klik tombol saat boot dan dialah
-        # yang melihat popup terpisah "kuno" (keluhan live 11 Nov 2026:
-        # 'update pop up is a separate window, it's outdated').
-        if not getattr(self, "_embed_aktif", False):
-            hasil = dialog_update(self.root, info, ver, tahap=tahap,
-                                  on_ready=siap)
-        else:
-            self._update_dialog_tunda = (info, ver, tahap, siap)
-            self._tunggu_overlay_lalu_buka(0)
-            return
-        if hasil == "restart":
-            self._update_apply_now(info)
-        elif hasil == "later":
-            self._update_nanti(info)
-
-    def _tunggu_overlay_lalu_buka(self, coba):
-        """Buka dialog pembaruan begitu area webview benar2 kosong untuk
-        overlay (webview hidup + tak ditempati dialog lain). Maks ~15 dtk
-        tunggu, lalu fallback jendela OS (mode tanpa embed saja yang
-        datang ke sini - lihat on_update)."""
-        from .dialogs import dialog_update
-        from .widgets import _DIALOG_LAYER
-        tunda = getattr(self, "_update_dialog_tunda", None)
-        if tunda is None:
-            return
-        siap = (_DIALOG_LAYER is not None
-                and _DIALOG_LAYER.webview_hidup()
-                and not getattr(_DIALOG_LAYER, "_dialog_aktif", False))
-        if siap or coba >= 30:
-            self._update_dialog_tunda = None
-            if not siap:
-                self._log("[net] webview belum siap - popup pembaruan "
-                          "dijadikan jendela")
-            info, ver, tahap, siap_cb = tunda
-            hasil = dialog_update(self.root, info, ver, tahap=tahap,
-                                  on_ready=siap_cb)
-            if hasil == "restart":
-                self._update_apply_now(info)
-            elif hasil == "later":
-                self._update_nanti(info)
-            return
-        self.root.after(500, lambda: self._tunggu_overlay_lalu_buka(coba + 1))
-
-    def _update_mulai(self, d, info, tok):
-        """Dipanggil dialog saat user menyetujui unduh (thread utama)."""
-        if getattr(self, "_updating", False):
+        if not info:
             return
         self._updating = True
-        self._set_state("\u2b07 Mengunduh pembaruan...", ACCENT)
+        self._update_fase = "unduh"
+        self._update_pct = 0
+        self._show_update_button(info)
 
         def prog(got, total):
-            self._ui_queue.put(
-                lambda g=got, t=total: d.set_progress(g, t))
-            return not getattr(d, "batal", False)
+            pct = int(got * 100 / total) if total else 0
+            self._ui_queue.put(lambda p=pct: self._update_progres(p))
+            return True
 
         def kerja():
             from net import updater as netupd
+            tok = getattr(self, "_tok_cache", None)
             try:
                 netupd.download(info, tok,
                                 PROGRAM_PATH + netupd.NEW_SUFFIX, prog)
-                # user boleh menolak mulai ulang: tandai siap, saat
+                # user boleh menunda mulai ulang: tandai siap, saat
                 # aplikasi dibuka lagi exe ditukar sebelum GUI muncul
                 netupd.stage_pending(PROGRAM_PATH, info)
                 self._update_ready = True
-                self._ui_queue.put(
-                    lambda: (self._show_update_button(info),
-                             d.stage_ready()))
+                self._update_fase = "siap"
+                self._ui_queue.put(lambda: self._show_update_button(info))
+                self._log(f"[net] v{info.get('version')} terunduh - "
+                          "klik tombol pembaruan lalu 'Mulai ulang'.")
             except netupd.UpdateCancelled:
                 self._log("[net] unduhan dibatalkan pengguna.")
-                self._ui_queue.put(lambda: d.done("cancelled"))
+                self._update_fase = "awal"
             except Exception as ex:
                 self._log(f"[net] pembaruan gagal: {ex}")
-                self._ui_queue.put(lambda: d.stage_error(str(ex)))
+                self._update_fase = "awal"
             finally:
                 self._updating = False
 
         threading.Thread(target=kerja, daemon=True).start()
+
+    def _update_progres(self, pct):
+        self._update_pct = pct
+        self._show_update_button(getattr(self, "_update_info", {}) or {})
 
     # ---------------------------------------------------- akun edclub
     def on_akun(self):

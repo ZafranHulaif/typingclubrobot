@@ -394,7 +394,12 @@ def main_loop():
             if browser._di_lesson(url) and video.handle_video_level():
                 continue
 
-            if jsutil.close_overlays_all_frames():
+            # penutup pop-up: dilewati saat USER sedang memakai halaman
+            # (klik/touch < 3 dtk) - dulu ESC/klik penutup menutup modal
+            # MILIK USER (dropdown tanggal lahir, keluhan live teman user
+            # Nov 2026). Klik bot sendiri sudah difilter via __tb_ignore.
+            if not typing_core._user_active(3.0) \
+                    and jsutil.close_overlays_all_frames():
                 state.stats["popup"] += 1
                 time.sleep(0.6)
                 continue
