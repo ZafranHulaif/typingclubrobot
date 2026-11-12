@@ -176,13 +176,14 @@ def apply_update_and_restart(program_path):
     # CREATE_NO_WINDOW: cmd jalan tersembunyi (dulu DETACHED_PROCESS
     # malah membuat cmd membuka konsol sendiri -> layar terminal
     # berkedip saat pembaruan)
-    flags = 0x08000000
-    try:
-        flags |= 0x00000200
-    except Exception:
-        pass
-    subprocess.Popen(["cmd", "/c", CMD_NAME], cwd=folder,
-                     creationflags=flags, close_fds=True)
+    # PANGGIL DGN JALUR ABSOLUT - jangan nama telanjang: env var security
+    # NoDefaultCurrentDirectoryInExePath (diwarisi app kalau diluncurkan
+    # dari shell tertentu - terbukti live 12 Nov 2026) membuat cmd
+    # MENOLAK menjalankan batch dari cwd-nya sendiri: 'is not recognized'
+    # - skrip update TAK PERNAH jalan, app keluar tanpa lanjutan
+    # (keluhan user: 'mulai ulang tidak menjalankan aplikasi').
+    subprocess.Popen(["cmd", "/c", cmd], cwd=folder,
+                     creationflags=0x08000000, close_fds=True)
     return True
 
 
