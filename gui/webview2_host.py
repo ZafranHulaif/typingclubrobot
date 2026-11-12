@@ -1197,12 +1197,18 @@ class Wv2Host(tk.Frame):
                         catat(f"halaman: {u[:100]}")
                     if getattr(self, "_boot_cover", None):
                         # tutup boot aktif: buka begitu daftar level
-                        # tampil SUDAH LOGIN (pill profil ada), atau
-                        # tunggu maksimal 45 dtk (sesi mati -> login
-                        # manual seperti biasa)
+                        # tampil SUDAH LOGIN (pill profil ada), ATAU
+                        # begitu halaman login tampil (user HARUS bisa
+                        # melihat & mengisi form login - dulu cover
+                        # nahan 45 dtk di atas halaman signin = layar
+                        # abu, keluhan user 12 Nov: klik 'Masuk akun
+                        # lain' dari popover -> abu 45 dtk), atau
+                        # tunggu maksimal 45 dtk
                         selesai = False
                         try:
-                            if "/student/" in u:
+                            if "/signin" in u or "auth_callback" in u:
+                                selesai = True
+                            elif "/student/" in u:
                                 ada = pg.evaluate("""() => {
                                   const el = document.querySelector(
                                     'button [class*="truncate"]');
