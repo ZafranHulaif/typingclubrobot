@@ -1221,14 +1221,18 @@ class Wv2Host(tk.Frame):
                     nav = getattr(self, "_nav_pending", None)
                     if nav:
                         self._nav_pending = None
-                        if "edclub" in u:
-                            try:
-                                pg.evaluate(
-                                    "() => location.href = %r" % nav)
-                                catat(f"arahkan: {nav[:80]}")
-                            except Exception:
-                                pass
-                            continue
+                        # arahkan APAPUN halaman sekarang (dulu hanya
+                        # kalau URL berisi 'edclub' - user duduk di
+                        # accounts.google.com setelah login Google =
+                        # nav '/signin' DIBUANG diam-diam, tombol '+
+                        # Akun' kelihatan mati total, keluhan 12 Nov)
+                        try:
+                            pg.evaluate(
+                                "() => location.href = %r" % nav)
+                            catat(f"arahkan: {nav[:80]}")
+                        except Exception as ex:
+                            catat(f"arahkan gagal: {str(ex)[:80]}")
+                        continue
                     if u != url_terakhir:
                         url_terakhir = u
                         catat(f"halaman: {u[:100]}")

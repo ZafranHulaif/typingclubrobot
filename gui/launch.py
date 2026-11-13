@@ -1004,15 +1004,24 @@ class LaunchMixin:
             self._log(f"[AKUN] gagal memuat {nama}: {pesan}")
 
     def _akun_keluar_hasil(self, ok, pesan):
+        # tetap arahkan ke signin APA PUN hasilnya; status jelas
+        # (dulu gagal CDP cuma di-log = 'nothing happens', dan sukses
+        # tak ada umpan balik - state 'Menyiapkan' cuma kilat, keluhan
+        # user 12 Nov)
+        try:
+            self.host.ke_url("https://www.edclub.com/signin")
+        except Exception:
+            pass
         if ok:
-            try:
-                self.host.ke_url("https://www.edclub.com/signin")
-            except Exception:
-                pass
+            self._set_state("\U0001f464 Silakan login akun baru di "
+                            "halaman...", ACCENT)
             self._log("[AKUN] login akun baru di halaman, lalu buka "
-                      "👤 Akun → Simpan akun aktif.")
+                      "\U0001f464 Akun \u2192 Simpan akun aktif.")
         else:
-            self._log(f"[AKUN] gagal membersihkan sesi: {pesan}")
+            self._set_state("\u2717 Gagal bersihkan sesi - coba + Akun "
+                            "sekali lagi", "#e5534b")
+            self._log(f"[AKUN] gagal membersihkan sesi: {pesan} - "
+                      "tetap menuju halaman login")
 
     def _update_apply_now(self, info):
         from net import updater as netupd
