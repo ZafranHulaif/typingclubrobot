@@ -783,16 +783,14 @@ class LaunchMixin:
                 tutup(alasan="klik luar")
         pop.bind("<Button-1>", klik_luar, add="+")
 
-        # ---- kepala: caption + tutup
+        # ---- kepala: caption (TANPA tombol x: klik di luar / Esc /
+        # auto-dismiss 8 dtk sudah menutup - dulu x nempel dgn teks
+        # 'A K U N E D C L U B' = jelek, keluhan user 12 Nov)
         kepala = tk.Frame(pop, bg=PANEL)
         kepala.pack(fill="x", padx=16, pady=(12, 6))
         tk.Label(kepala, text="A K U N   E D C L U B",
                  font=("Segoe UI", 9, "bold"), fg=FAINT,
-                 bg=PANEL).pack(side="left")
-        tut = tk.Label(kepala, text="×", font=("Segoe UI", 13, "bold"),
-                       fg=DIM, bg=PANEL, cursor="hand2")
-        tut.pack(side="right")
-        tut.bind("<Button-1>", tutup)
+                 bg=PANEL).pack(anchor="w")
 
         badan = tk.Frame(pop, bg=PANEL)
         badan.pack(fill="x", padx=10)
@@ -874,7 +872,7 @@ class LaunchMixin:
             b = tk.Label(parent, text=teks, font=("Segoe UI", 10, "bold"),
                          fg=FG, bg=CARD, pady=8, cursor="hand2",
                          highlightthickness=1, highlightbackground=EDGE)
-            b.pack(fill="x", pady=3, padx=4)
+            b.pack(fill="x", pady=3, padx=4, ipady=2)
             b.bind("<Button-1>", lambda _e: cmd())
             return b
 
@@ -901,7 +899,10 @@ class LaunchMixin:
             for a in daftar:
                 baris_akun(badan, a["nama"], a["nama"] == aktif)
             tk.Frame(badan, bg=EDGE, height=1).pack(fill="x", pady=(8, 6))
-            tombol_penuh(badan, "＋  Masuk akun lain", tambah_baru)
+            tombol_penuh(badan, "＋  Akun", tambah_baru)
+            # jarak bawah: dulu border popover nempel tombol (keluhan
+            # user 12 Nov: 'border bawahnya nempel sama tombolnya')
+            tk.Frame(badan, bg=PANEL, height=8).pack()
         refresh._snap = None
 
         # daftar hidup: auto-simpan akun terjadi di latar (pengawas) -

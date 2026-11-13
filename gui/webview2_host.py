@@ -1566,6 +1566,11 @@ class Wv2Host(tk.Frame):
         permintaan user: kedipan halaman salah tak boleh terlihat.
         Thread-aman (cuma set attr); _jaga (thread UI) membuka tutupnya
         dan membuka webview balik saat potongan muncul / waktu habis."""
+        import traceback as _tb
+        f = _tb.extract_stack()[-2]
+        _cover_log(f"tahan_halaman({potongan!r}, {maks}s) "
+                   f"dari {os.path.basename(f.filename)}:{f.lineno}")
+        self._tahan_log = f"{potongan!r}@{int(time.time())}"
         self._tahan = (potongan, time.time() + maks)
 
     def _mulai_detak_kondisi(self):
@@ -1619,7 +1624,8 @@ class Wv2Host(tk.Frame):
                 self._tahan = None
         GW_OWNER = 4
         if getattr(self, "_boot_selesai", False):
-            _cover_log("buka (pengawas selesai/timeout)")
+            _cover_log(f"buka (selesai/timeout; tahan terakhir="
+                       f"{getattr(self, '_tahan_log', None)})")
             # buka tutup boot DI THREAD UI: tampilkan webview TANPA
             # mencuri fokus (SW_SHOWNA, sama seperti setelah dialog)
             self._boot_selesai = False
