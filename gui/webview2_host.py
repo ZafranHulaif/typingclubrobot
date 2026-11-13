@@ -1156,12 +1156,24 @@ class Wv2Host(tk.Frame):
                     # sedang aktif meng-klik halaman = jangan tutup
                     # (permintaan user: halaman salah tak boleh terlihat,
                     # tapi input user lebih penting).
-                    if perlu_raw and ("oauth" in u or "relay" in u
-                                      or "auth_callback" in u):
+                    # 12 Nov 2026: 'oauth' cocok di PARAMETER url Google
+                    # (accounts.google.com/v3/signin/...?...oauth2...) ->
+                    # cover 15s nyalak-matikan tiap 2 dtk di atas FORM
+                    # LOGIN GOOGLE yg sedang diisi user = kedip abu/
+                    # normal tanpa henti. Kini HANYA halaman relay
+                    # edclub (auth_callback/relay) yg ditutup - halaman
+                    # Google = meja kerja user, JANGAN disentuh; dan
+                    # sekali per URL (dulu nyalak tiap siklus poll).
+                    if perlu_raw and ("auth_callback" in u
+                                      or "relay" in u):
                         ua = self._user_aktif_pg(pg)
-                        if ua is None or ua >= 5.0:
+                        if (ua is None or ua >= 5.0) and \
+                                getattr(self, "_oauth_cover_url", None) != u:
+                            self._oauth_cover_url = u
                             _cover_log(f"oauth tahan 15s (u={u[:60]})")
                             self.tahan_halaman("/student/", 15.0)
+                    elif not perlu_raw or "signin" not in u.lower():
+                        self._oauth_cover_url = None
                     self._perlu_raw_lama = perlu_raw
                     self._perlu_login = perlu_raw and \
                         self._login_streak >= 3
