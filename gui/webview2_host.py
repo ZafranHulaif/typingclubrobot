@@ -1023,6 +1023,14 @@ class Wv2Host(tk.Frame):
             tersimpan = _sesi_muat()
             if cdp is None and tersimpan:
                 catat("pulihkan sesi DILEWATI - koneksi CDP tak siap")
+            # sesi zombie (sisa 2 cookie pelacak, tanpa cookie
+            # identitas login) = jangan dipulihkan & jangan boot-redirect:
+            # hasilnya cuma pantulin course->signin = kedip (12 Nov)
+            if tersimpan and not any(
+                    c.get("name") in _KUKI_IDENTITAS for c in tersimpan):
+                catat(f"sesi simpanan tanpa identitas "
+                      f"({len(tersimpan)} cookie) - lewati pulihkan")
+                tersimpan = None
             if cdp is not None and tersimpan:
                 try:
                     kini = time.time()
@@ -1156,23 +1164,16 @@ class Wv2Host(tk.Frame):
                     # sedang aktif meng-klik halaman = jangan tutup
                     # (permintaan user: halaman salah tak boleh terlihat,
                     # tapi input user lebih penting).
-                    # 12 Nov 2026: 'oauth' cocok di PARAMETER url Google
-                    # (accounts.google.com/v3/signin/...?...oauth2...) ->
-                    # cover 15s nyalak-matikan tiap 2 dtk di atas FORM
-                    # LOGIN GOOGLE yg sedang diisi user = kedip abu/
-                    # normal tanpa henti. Kini HANYA halaman relay
-                    # edclub (auth_callback/relay) yg ditutup - halaman
-                    # Google = meja kerja user, JANGAN disentuh; dan
-                    # sekali per URL (dulu nyalak tiap siklus poll).
-                    if perlu_raw and ("auth_callback" in u
-                                      or "relay" in u):
-                        ua = self._user_aktif_pg(pg)
-                        if (ua is None or ua >= 5.0) and \
-                                getattr(self, "_oauth_cover_url", None) != u:
-                            self._oauth_cover_url = u
-                            _cover_log(f"oauth tahan 15s (u={u[:60]})")
-                            self.tahan_halaman("/student/", 15.0)
-                    elif not perlu_raw or "signin" not in u.lower():
+                    # DIHAPUS TOTAL (12 Nov 2026): cover "transien oauth"
+                    # tak bisa dibedakan dr halaman login Google - Google
+                    # MENEMPEL url callback edclub di dalam parameter
+                    # continue-nya (encoded), jadi substring 'relay'/'
+                    # auth_callback' tetap cocok di halaman identifier
+                    # Google = kedip abu selagi user login. Kosmetik
+                    # kedip sesudah login TAK LAYAK melawan form login
+                    # yg harus terlihat. (Kedip pasca-login ditutup
+                    # aturan transisi di bawah - itu cukup.)
+                    if ("auth_callback" in u or "relay" in u):
                         self._oauth_cover_url = None
                     self._perlu_raw_lama = perlu_raw
                     self._perlu_login = perlu_raw and \
@@ -1496,8 +1497,16 @@ class Wv2Host(tk.Frame):
             # pill profil (login sukses) - lalu app terbuka LANGSUNG di
             # daftar level sudah login. Timeout 45 dtk: sesi memang mati,
             # tampilkan seperti biasa (user login manual).
-            if os.path.exists(_sesi_path()):
-                _cover_log("boot naik (ada file sesi)")
+            ada_identitas = False
+            try:
+                with open(_sesi_path(), encoding="utf-8") as f:
+                    _c = (json.load(f) or {}).get("cookies") or []
+                ada_identitas = any(c.get("name") in _KUKI_IDENTITAS
+                                    for c in _c)
+            except Exception:
+                ada_identitas = os.path.exists(_sesi_path())
+            if os.path.exists(_sesi_path()) and ada_identitas:
+                _cover_log("boot naik (sesi ada cookie identitas)")
                 self._boot_cover = time.time()
                 self._boot_selesai = False
                 try:
