@@ -879,11 +879,13 @@ class LaunchMixin:
                                     # menandai ✓ aktif setelah tukar
 
             def masuk(_e):
-                if not aktif:
-                    baris.configure(bg=CARD_HOVER)
+                # HOVER di SELURUH baris - frame + semua labelnya:
+                # dulu cuma frame yg di-bind, hover di atas nama tak
+                # berefek apa pun = terasa tidak responsif (keluhan
+                # user 12 Nov). Baris aktif pun diberi naungan halus.
+                baris.configure(bg=CARD_HOVER if not aktif else "#1d2c49")
             def keluar(_e):
-                if not aktif:
-                    baris.configure(bg=CARD)
+                baris.configure(bg=CARD if not aktif else "#16233a")
             baris.bind("<Enter>", masuk)
             baris.bind("<Leave>", keluar)
             baris.bind("<Button-1>", klik)
@@ -916,6 +918,13 @@ class LaunchMixin:
                     if c is x:
                         continue
                     c.bind("<Button-1>", klik, add="+")
+                    # hover + kursor tangan juga di anak-anaknya
+                    c.bind("<Enter>", masuk, add="+")
+                    c.bind("<Leave>", keluar, add="+")
+                    try:
+                        c.configure(cursor="hand2")
+                    except Exception:
+                        pass
                     ikat_anak(c)
             ikat_anak(baris)
 
@@ -925,6 +934,9 @@ class LaunchMixin:
                          highlightthickness=1, highlightbackground=EDGE)
             b.pack(fill="x", pady=3, padx=4, ipady=2)
             b.bind("<Button-1>", lambda _e: cmd())
+            # hover naik terang (dulu statis = terasa mati)
+            b.bind("<Enter>", lambda _e: b.configure(bg=CARD_HOVER))
+            b.bind("<Leave>", lambda _e: b.configure(bg=CARD))
             return b
 
         def refresh():
