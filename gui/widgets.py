@@ -863,6 +863,57 @@ class SpeedDial(tk.Toplevel):
         except Exception:
             pass
         self._gambar()
+        # klik-luar INSTAN: tekan->lepas di luar dial & chip = tutup
+        # (dulu grace 0.6 dtk utk bit tepi GetAsyncKeyState -> klik
+        # pertama terasa mati, keluhan user 12 Nov). Chip = pemanggil
+        # (dikecualikan: klik pembuka). Transisi tekan->lepas, bukan
+        # bit tepi, jadi bebas dari sisa klik pembuka.
+        self._klik_luar_poll()
+
+    def _klik_luar_poll(self):
+        import ctypes
+        import ctypes.wintypes as _wt
+        try:
+            u32 = ctypes.windll.user32
+        except Exception:
+            return
+        negara = {"turun": False, "luar": False}
+
+        def poll():
+            try:
+                if not self.winfo_exists():
+                    return
+                turun = bool(u32.GetAsyncKeyState(0x01) & 0x8000)
+                pt = _wt.POINT()
+                u32.GetCursorPos(ctypes.byref(pt))
+                px, py = pt.x, pt.y
+                dx, dy = self.winfo_rootx(), self.winfo_rooty()
+                dw, dh = self.winfo_width(), self.winfo_height()
+                dalam_dial = (dx - 6 <= px <= dx + dw + 6
+                              and dy - 6 <= py <= dy + dh + 6)
+                dalam_chip = True
+                try:
+                    cx, cy = (self.master.winfo_rootx(),
+                              self.master.winfo_rooty())
+                    cw, ch = (self.master.winfo_width(),
+                              self.master.winfo_height())
+                    dalam_chip = (cx - 6 <= px <= cx + cw + 6
+                                  and cy - 6 <= py <= cy + ch + 6)
+                except Exception:
+                    pass
+                luar = not (dalam_dial or dalam_chip)
+                if turun:
+                    negara["turun"] = True
+                    negara["luar"] = luar
+                elif negara["turun"]:
+                    negara["turun"] = False
+                    if negara["luar"]:
+                        self.tutup()
+                        return
+            except Exception:
+                pass
+            self.after(120, poll)
+        self.after(120, poll)
 
     # -- api --------------------------------------------------------------
     def tutup(self):
