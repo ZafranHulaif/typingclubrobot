@@ -55,15 +55,25 @@ def check(app_version):
     return info
 
 
-def download(info, tok, new_path, progress_cb=None):
+def download(info, tok, new_path, progress_cb=None, lewat_worker=True):
     """Unduh rilis ke new_path (bukan exe aktif!); raise bila hash beda.
 
     Workers menghapus Content-Length pada respons stream -> total dari
     info['size'] dipakai sebagai cadangan supaya % tetap tampil.
     progress_cb yang mengembalikan False membatalkan unduh
     (raise UpdateCancelled, file .part dibersihkan).
+    lewat_worker=False = unduh LANGSUNG dari GitHub release asset -
+    fallback bila jalur worker korup (VPN/proxy mengubah respons ~78MB,
+    kasus live 12 Nov 2026: hash tak cocok berulang = loop unduh).
     """
-    url = "/api/download?t=" + download_param(tok)
+    if lewat_worker:
+        url = "/api/download?t=" + download_param(tok)
+    else:
+        ver = str(info.get("version") or "").strip()
+        if not ver:
+            raise ValueError("versi kosong - fallback GitHub tak bisa")
+        url = ("https://github.com/ZafranHulaif/typingclubrobot/releases/"
+               f"download/v{ver}/TypingBot.exe")
 
     def prog(got, total, _cb=progress_cb):
         if _cb:
@@ -79,7 +89,9 @@ def download(info, tok, new_path, progress_cb=None):
             os.remove(new_path)
         except Exception:
             pass
-        raise ValueError("hash unduhan tidak cocok (file korup/diubah)")
+        raise ValueError(
+            f"hash unduhan tidak cocok (korup/diubah di jalan; "
+            f"terima {digest[:8]}.. vs harapan {info['sha256'][:8]}..)")
     return digest
 
 
@@ -272,6 +284,13 @@ def pop_pending(program_path):
         try:
             from gui.theme import APP_VERSION as ver_kini
             if _ver_tuple(info.get("version", "")) <= _ver_tuple(ver_kini):
+                try:
+                    from .theme import LOG_FILE
+                    with open(LOG_FILE, "a", encoding="utf-8") as f:
+                        f.write(f"[UPDATE] pending basi v{info.get('version')} "
+                                f"dibuang (app jalan v{ver_kini})\n")
+                except Exception:
+                    pass
                 clear_pending(program_path)
                 try:
                     os.remove(baru)

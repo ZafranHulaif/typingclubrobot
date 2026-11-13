@@ -665,8 +665,29 @@ class LaunchMixin:
             from net import updater as netupd
             tok = getattr(self, "_tok_cache", None)
             try:
-                netupd.download(info, tok,
-                                PROGRAM_PATH + netupd.NEW_SUFFIX, prog)
+                # COBA 2 JALUR (kasus live 12 Nov: VPN/proxy mengubah
+                # respons worker ~78MB -> hash tak cocok BERULANG =
+                # 'unduh' tanpa akhir): jalur worker 2x, lalu LANGSUNG
+                # GitHub. Hash tetap dipeksa di semua jalur.
+                kesalahan = None
+                for jalur in (True, True, False):
+                    try:
+                        netupd.download(info, tok,
+                                        PROGRAM_PATH + netupd.NEW_SUFFIX,
+                                        prog, lewat_worker=jalur)
+                        kesalahan = None
+                        break
+                    except netupd.UpdateCancelled:
+                        raise
+                    except Exception as ex2:
+                        kesalahan = ex2
+                        self._log(f"[net] jalur unduh "
+                                  f"({'worker' if jalur else 'GitHub'} "
+                                  f"gagal: {str(ex2)[:80]}")
+                        self._ui_queue.put(lambda: self._update_progres(0))
+                        time.sleep(2)
+                if kesalahan is not None:
+                    raise kesalahan
                 # user boleh menunda mulai ulang: tandai siap, saat
                 # aplikasi dibuka lagi exe ditukar sebelum GUI muncul
                 netupd.stage_pending(PROGRAM_PATH, info)
@@ -678,9 +699,11 @@ class LaunchMixin:
             except netupd.UpdateCancelled:
                 self._log("[net] unduhan dibatalkan pengguna.")
                 self._update_fase = "awal"
+                self._ui_queue.put(lambda: self._update_progres(0))
             except Exception as ex:
                 self._log(f"[net] pembaruan gagal: {ex}")
                 self._update_fase = "awal"
+                self._ui_queue.put(lambda: self._update_progres(0))
             finally:
                 self._updating = False
 
