@@ -505,6 +505,54 @@ class LaunchMixin:
             pop.after(1000, jaga)
         pop.after(1000, jaga)
 
+    def _pop_klik_global(self, pop, attr, tutup, jangkar):
+        """Tutup popover saat KLIK SELESAI di luar popover & tombol
+        jangkar - polling global (GetAsyncKeyState+GetCursorPos), jadi
+        bekerja JUGA saat klik halaman webview (HWND native tak kena
+        grab Tk - dulu popover akun tak mau tutup saat klik halaman,
+        keluhan user 12 Nov). Aktif SEGERA saat popover terbuka - dulu
+        dial kecepatan nunggu 'app pegang fokus' dulu = klik pertama
+        di luar terasa mati (tidak responsif, keluhan yang sama)."""
+        import ctypes
+        import ctypes.wintypes as _wt
+        user32 = ctypes.windll.user32
+        negara = {"turun": False, "luar": False}
+
+        def poll():
+            if getattr(self, attr, None) is not pop:
+                return
+            try:
+                turun = bool(user32.GetAsyncKeyState(0x01) & 0x8000)
+                pt = _wt.POINT()
+                user32.GetCursorPos(ctypes.byref(pt))
+                px, py = pt.x, pt.y
+                rx, ry = pop.winfo_rootx(), pop.winfo_rooty()
+                w, h = pop.winfo_width(), pop.winfo_height()
+                dalam_pop = (rx - 6 <= px <= rx + w + 6
+                             and ry - 6 <= py <= ry + h + 6)
+                dalam_jangkar = True
+                try:
+                    ax, ay = jangkar.winfo_rootx(), jangkar.winfo_rooty()
+                    aw, ah = jangkar.winfo_width(), jangkar.winfo_height()
+                    dalam_jangkar = (ax - 6 <= px <= ax + aw + 6
+                                     and ay - 6 <= py <= ay + ah + 6)
+                except Exception:
+                    pass
+                luar = not (dalam_pop or dalam_jangkar)
+                if turun:
+                    negara["turun"] = True
+                    negara["luar"] = luar
+                elif negara["turun"]:
+                    # klik selesai (rilis) di luar = tutup
+                    negara["turun"] = False
+                    if negara["luar"]:
+                        tutup()
+                        return
+            except Exception:
+                pass
+            pop.after(120, poll)
+        pop.after(120, poll)
+
     def _pop_angkat(self, pop):
         """URUTAN KRITIS (bug 'no UI + hover mati', Nov 2026): map dulu,
         angkat DI ATAS jendela utama, topmost, BARU grab. Dulu grab
@@ -641,6 +689,7 @@ class LaunchMixin:
         self._pop_tempatkan(pop, jangkar)
         self._pop_angkat(pop)
         self._pop_jaga_diam(pop, "_update_pop", tutup)
+        self._pop_klik_global(pop, "_update_pop", tutup, jangkar)
 
     def _update_mulai(self):
         """Unduh di LATAR (permintaan user Nov 2026: app tetap bisa
@@ -799,7 +848,9 @@ class LaunchMixin:
             self._ui_queue.put(fn)
 
         def pakai_akun(nama):
-            tutup()
+            # popover TETAP TERBUKA: tutup-mandiri saat klik di dalam
+            # membingungkan (keluhan user: 'confusing if the click
+            # worked or not') - daftar menyegarkan sendiri jadi aktif
             self._log(f"[AKUN] memuat sesi {nama}...")
             self.host.akun_ganti(
                 nama,
@@ -823,9 +874,9 @@ class LaunchMixin:
 
             def klik(_e=None):
                 if aktif:
-                    tutup()
-                    return
-                pakai_akun(nama)
+                    return      # klik di DALAM popover tak boleh menutup
+                pakai_akun(nama)    # popover tetap terbuka - refresh
+                                    # menandai ✓ aktif setelah tukar
 
             def masuk(_e):
                 if not aktif:
@@ -915,6 +966,8 @@ class LaunchMixin:
 
         def tambah_baru():
             tutup()
+            self._set_state("👤 Menyiapkan login akun baru...",
+                            ACCENT)
             self._log("[AKUN] membersihkan sesi - login akun baru...")
             self.host.akun_keluar(
                 lambda ok, pesan: marshal(
@@ -924,6 +977,7 @@ class LaunchMixin:
         self._pop_tempatkan(pop, self.btn_akun)
         self._pop_angkat(pop)
         self._pop_jaga_diam(pop, "_akun_pop", tutup)
+        self._pop_klik_global(pop, "_akun_pop", tutup, self.btn_akun)
         self._log("[AKUN] popover dibuka")
         pop.after(2000, napas)
 

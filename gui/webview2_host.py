@@ -655,6 +655,8 @@ def akun_auto_simpan(nama, cookies):
         # nama profil tak terbaca: JANGAN bikin entri tanpa nama (sisa
         # 'Akun 1' dulu) - coba lagi di gelombang pengawas berikutnya
         return False
+    import re as _re
+    nama = _re.sub(r"\s+", " ", nama).strip()
     aman = "".join(ch for ch in nama
                    if ch.isalnum() or ch in " -_.").strip() or "akun"
     pth = os.path.join(d, f"akun-{aman}.json")
@@ -1193,6 +1195,11 @@ class Wv2Host(tk.Frame):
                                 }""")
                         except Exception:
                             nm = ""
+                        # rapikan spasi ganda dr tangkapan pill edclub
+                        # ('Zafran  H' -> 'Zafran H'; dulu jadi nama
+                        # simpanan lain = akun tampil 'tidak aktif'
+                        # padahal sesinya sama - keluhan user 12 Nov)
+                        nm = re.sub(r"\s+", " ", (nm or "")).strip()
                         if nm and len(nm) <= 40:
                             if nm != getattr(self, "_nama_profil", None):
                                 self._nama_profil = nm
