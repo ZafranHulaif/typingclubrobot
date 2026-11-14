@@ -411,6 +411,13 @@ def main_loop():
             elif det == "tut":
                 tutorial.handle_tutorial(frame, data)
             elif det == "mini":
+                # balloon valley DULUAN: frame canvas tnpa API core,
+                # teks 'mini' di frame utama = jebakan (ketik ke yang
+                # tak berpihak, keluhan user 14 Nov) - kalau frame
+                # balloon ada, OCR canvas yang menang
+                if ocr.try_ocr_balloon():
+                    time.sleep(0.3)
+                    continue
                 games.handle_minigame(frame, data)
             elif det == "score":
                 if typing_core.advance_score_screen():
@@ -447,6 +454,9 @@ def main_loop():
                     continue
                 if screenkey.click_screen_keyboard():
                     time.sleep(0.4)
+                    continue
+                if ocr.try_ocr_balloon():
+                    time.sleep(0.3)
                     continue
                 if not ocr.try_ocr_minigame(data or {}):
                     stalled = time.time() - state.last_action_time
