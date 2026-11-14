@@ -304,15 +304,16 @@ def _probe_tab_login(timeout_s=15.0):
 def _sesi_punya_identitas():
     """True kalau file sesi_edclub.json berisi cookie identitas (bukan
     cuma cookie tracking) = sesi tersimpan layak dipercaya 'in'.
-    Dipakai gerbang login: halaman game canvas (balloon valley) tak
-    punya penanda login & URL-nya tak selalu /student/ (log live 2995
-    21:08: 'Memeriksa login' 40 dtk lalu DIPAKSA /signin padahal
-    popover akun jelas menampilkan 'Zafran H' aktif - keluhan user
-    14 Nov 2026)."""
+    JANGAN import gui.theme di sini (engine tak punya theme - dulu
+    ImportError diam-diam mematikan seed ini, log live 2995 21:27)."""
     try:
-        from .theme import LOG_FILE
-        pth = os.path.join(os.path.dirname(LOG_FILE),
-                           "sesi_edclub.json")
+        if getattr(sys, "frozen", False):
+            base = os.path.join(
+                os.environ.get("LOCALAPPDATA", ""), "TypingBot")
+        else:
+            base = os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__)))
+        pth = os.path.join(base, "sesi_edclub.json")
         with open(pth, encoding="utf-8") as f:
             kuki = (json.load(f).get("cookies") or [])
         nama = {c.get("name") for c in kuki}
@@ -337,7 +338,7 @@ def _login_patrol(url):
     # Halaman area student HANYA terjangkau saat login (anon langsung
     # di-redirect server ke /signin) = bukti positif tanpa penanda DOM.
     if (profil is None and not di_login
-            and re.search(r"/student/(course|lesson)", low)):
+            and re.search(r"/(student|sportal)/", low)):
         profil = "in"
     # Sesi tersimpan ber-cookie identitas = bukti kuat 'in' ( popover
     # akun menampilkannya aktif): buka gerbang tanpa menunggu 40 dtk
@@ -418,7 +419,7 @@ def _login_patrol(url):
                 else:
                     state._login_sentinel["ok"] = False
                     state._login_sentinel["alasan"] = (
-                        "login tidak terdeteksi >40 dtk")
+                        "login tidak terdeteksi >12 dtk")
                     mati = True
         else:
             state._login_sentinel["unknown_mulai"] = 0.0
