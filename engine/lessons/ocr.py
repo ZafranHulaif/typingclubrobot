@@ -129,7 +129,7 @@ def try_ocr_balloon():
     if fr is None:
         return False
     now = time.time()
-    if now - getattr(state, "last_balloon_ocr", 0.0) < 2.0:
+    if now - getattr(state, "last_balloon_ocr", 0.0) < 0.35:
         return False
     state.last_balloon_ocr = now
     toks = _ocr_tokens(fr)
@@ -162,17 +162,24 @@ def try_ocr_balloon():
                     return True
             except Exception:
                 pass
-    # balon huruf: baris (pita 60px) lalu kiri->kanan = urutan ketik
-    huruf = [(t, cx, cy) for t, cx, cy in toks if len(t) == 1]
-    if not huruf:
+    # balon huruf: SATU huruf per siklus (paling kiri pita teratas =
+    # huruf yang ditunggu game) - dulu 10 huruf di-blast sekaligus
+    # (400wpm) = game melompat ~20 huruf, berhenti, lalu spam sampai
+    # hati habis (keluhan user 14 Nov). OCR sendiri ~0.3-0.6 dtk jadi
+    # kadensi alami ~1 huruf/dtk = aman untuk semua kata.
+    urut = sorted(toks, key=lambda it: (int(it[2] // 60), it[1]))
+    huruf = [t for t, _x, _y in urut if len(t) == 1]
+    if huruf:
+        target = huruf[0]
+    elif urut:
+        target = urut[0][0][0]   # huruf pertama kata paling kiri
+    else:
         return False
-    huruf.sort(key=lambda it: (int(it[2] // 60), it[1]))
-    target = "".join(t for t, _cx, _cy in huruf)[:10]
     typing_core.focus_frame(fr)
-    print(f"[Minigame/Balloon] balon: {[t for t, _x, _y in huruf]} "
-          f"-> ketik {target!r}")
+    print(f"[Minigame/Balloon] balon berikut: {target!r}")
     if not typing_core.type_chars(target):
         return False
+    time.sleep(0.15)
     state.stats["ocr"] += 1
     state.last_action_time = time.time()
     return True

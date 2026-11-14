@@ -1386,6 +1386,8 @@ class LaunchMixin:
 
 
     def _run_bot(self):
+        from engine import state as _estate
+        _estate.BOT_JALAN = True   # mode hemat efek (lihat pengawas)
         try:
             self.bot.connect()
             # Otomatis: ingat browser yang BENAR2 dipakai (menempel ke yang
@@ -1409,6 +1411,7 @@ class LaunchMixin:
         except BaseException as ex:
             self._log(f"[GUI] bot berhenti: {ex}")
         finally:
+            _estate.BOT_JALAN = False
             # Putuskan Playwright supaya Start berikutnya koneksi bersih
             # dari thread baru (objek Playwright tidak boleh lintas thread).
             try:

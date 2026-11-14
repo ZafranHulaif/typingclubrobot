@@ -1218,6 +1218,42 @@ class Wv2Host(tk.Frame):
                                 cookies = []
                             if cookies:
                                 akun_auto_simpan(nm, cookies)
+                    # MODE HEMAT EFEK (bot jalan): matikan animasi,
+                    # transisi & blur di SEMUA frame edclub - layar
+                    # hasil/transisi halaman patah-patah di laptop
+                    # kentang saat bot nyala (keluhan user 14 Nov).
+                    # Bot berhenti = style dibuang, tampilan normal.
+                    try:
+                        from engine import state as _est
+                        _perf = bool(getattr(_est, "BOT_JALAN", False))
+                    except Exception:
+                        _perf = False
+                    try:
+                        for f in pg.frames:
+                            if _perf:
+                                f.evaluate("""() => {
+                                  if (!document.getElementById('tb-perf')) {
+                                    const s = document.createElement('style');
+                                    s.id = 'tb-perf';
+                                    s.textContent = '*,*::before,*::after{' +
+                                      'animation-duration:.001s!important;' +
+                                      'animation-delay:0s!important;' +
+                                      'transition-duration:0s!important;' +
+                                      'transition-delay:0s!important;' +
+                                      'scroll-behavior:auto!important}' +
+                                      '*{backdrop-filter:none!important}';
+                                    (document.documentElement ||
+                                     document.body).appendChild(s);
+                                  }
+                                }""")
+                            else:
+                                f.evaluate("""() => {
+                                  const s =
+                                    document.getElementById('tb-perf');
+                                  if (s) s.remove();
+                                }""")
+                    except Exception:
+                        pass
                     nav = getattr(self, "_nav_pending", None)
                     if nav:
                         self._nav_pending = None
