@@ -313,6 +313,14 @@ def _login_patrol(url):
     profil = _login_profile()
     low = (url or "").lower()
     di_login = any(k in low for k in ("login", "signin", "sign-in", "signup"))
+    # Halaman area student HANYA terjangkau saat login (anon langsung
+    # di-redirect server ke /signin) = bukti positif tanpa penanda DOM.
+    # Dulu: level game canvas (balloon valley) tak punya penanda sama
+    # sekali -> 'Memeriksa login' 40 dtk lalu DIPAKSA /signin padahal
+    # jelas sudah login (log live 2995, keluhan user 14 Nov 2026).
+    if (profil is None and not di_login
+            and re.search(r"/student/(course|lesson)", low)):
+        profil = "in"
     # DOM halaman aktif tidak punya penanda (lesson .play, SPA kosong,
     # navbar belum selesai render, Cloudflare) -> cek lewat tab cadangan
     # ke dashboard (status sesi berlaku akun-wide). Throttle 30 dtk;
