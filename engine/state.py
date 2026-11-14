@@ -298,6 +298,7 @@ _login_sentinel = {"ok": True, "alasan": "", "gagal403": 0.0,
                    "pernah_in": False, "unknown_mulai": 0.0}
 
 _login_ck = {"terakhir": 0.0}
+_login_seed_cek = False   # cek seed sesi tersimpan 1x per start
 
 
 

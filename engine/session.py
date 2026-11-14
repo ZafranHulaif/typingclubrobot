@@ -301,6 +301,27 @@ def _probe_tab_login(timeout_s=15.0):
     return hasil
 
 
+def _sesi_punya_identitas():
+    """True kalau file sesi_edclub.json berisi cookie identitas (bukan
+    cuma cookie tracking) = sesi tersimpan layak dipercaya 'in'.
+    Dipakai gerbang login: halaman game canvas (balloon valley) tak
+    punya penanda login & URL-nya tak selalu /student/ (log live 2995
+    21:08: 'Memeriksa login' 40 dtk lalu DIPAKSA /signin padahal
+    popover akun jelas menampilkan 'Zafran H' aktif - keluhan user
+    14 Nov 2026)."""
+    try:
+        from .theme import LOG_FILE
+        pth = os.path.join(os.path.dirname(LOG_FILE),
+                           "sesi_edclub.json")
+        with open(pth, encoding="utf-8") as f:
+            kuki = (json.load(f).get("cookies") or [])
+        nama = {c.get("name") for c in kuki}
+        return bool(nama & {"pw_uuid", "connectId", "tb_lt", "_cc_id",
+                            "_lc2_fpi", "_pubcid", "_sharedid"})
+    except Exception:
+        return False
+
+
 def _login_patrol(url):
     """Cek berkala dari main loop: set/bersihkan NEEDS_LOGIN. Interval 8 dtk
     biasa, 3 dtk saat sedang menunggu user login (popup harus tertutup
@@ -315,12 +336,23 @@ def _login_patrol(url):
     di_login = any(k in low for k in ("login", "signin", "sign-in", "signup"))
     # Halaman area student HANYA terjangkau saat login (anon langsung
     # di-redirect server ke /signin) = bukti positif tanpa penanda DOM.
-    # Dulu: level game canvas (balloon valley) tak punya penanda sama
-    # sekali -> 'Memeriksa login' 40 dtk lalu DIPAKSA /signin padahal
-    # jelas sudah login (log live 2995, keluhan user 14 Nov 2026).
     if (profil is None and not di_login
             and re.search(r"/student/(course|lesson)", low)):
         profil = "in"
+    # Sesi tersimpan ber-cookie identitas = bukti kuat 'in' ( popover
+    # akun menampilkannya aktif): buka gerbang tanpa menunggu 40 dtk
+    # apapun URL-nya - halaman game canvas kadang tanpa penanda dan
+    # URL-nya berubah-ubah saat SPA mount.
+    if (profil is None and not di_login
+            and ("edclub" in low or "typingclub" in low)
+            and not state._login_sentinel["pernah_in"]
+            and not state._login_seed_cek):
+        state._login_seed_cek = True
+        if _sesi_punya_identitas():
+            state._login_sentinel["pernah_in"] = True
+            profil = "in"
+            print("[LOGIN] sesi tersimpan ber-cookie identitas - "
+                  "gerbang login langsung terbuka.")
     # DOM halaman aktif tidak punya penanda (lesson .play, SPA kosong,
     # navbar belum selesai render, Cloudflare) -> cek lewat tab cadangan
     # ke dashboard (status sesi berlaku akun-wide). Throttle 30 dtk;
@@ -367,9 +399,12 @@ def _login_patrol(url):
         if (("edclub" in low or "typingclub" in low) and not di_login):
             if not state._login_sentinel["unknown_mulai"]:
                 state._login_sentinel["unknown_mulai"] = now
-                print("[LOGIN] Status login belum terbaca (halaman masih "
-                      "memuat/diverifikasi) - menunggu...")
-            elif now - state._login_sentinel["unknown_mulai"] > 40.0:
+                print(f"[LOGIN] Status login belum terbaca "
+                      f"(url={low[:72]}) - menunggu...")
+            elif now - state._login_sentinel["unknown_mulai"] > 12.0:
+                # 40 dtk dulu; 12 dtk cukup: kalau sesi tersimpan ada,
+                # gerbang seed di atas sudah membuka jauh lebih cepat -
+                # sisa kasus = halaman tanpa penanda yang lama mount.
                 if state._login_sentinel["pernah_in"]:
                     # sesi terbukti 'in' di sesi ini (penanda pernah
                     # terbaca) - halaman ini cuma tidak menyediakan
