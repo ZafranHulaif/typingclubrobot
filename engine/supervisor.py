@@ -283,6 +283,7 @@ def main_loop():
                 # level baru: cooldown Phaser dari game sebelumnya tidak
                 # berlaku lagi (dulu bikin minigame berikutnya tunda 20 dtk)
                 state._phaser_cooldown["until"] = 0.0
+                state._mini_sportal_n = 0
                 state._phaser_freeze["url"] = ""
                 state._phaser_freeze["count"] = 0
                 state._phaser_freeze["clicked"] = False
@@ -411,13 +412,23 @@ def main_loop():
             elif det == "tut":
                 tutorial.handle_tutorial(frame, data)
             elif det == "mini":
-                # balloon valley DULUAN: frame canvas tnpa API core,
-                # teks 'mini' di frame utama = jebakan (ketik ke yang
-                # tak berpihak, keluhan user 14 Nov) - kalau frame
-                # balloon ada, OCR canvas yang menang
                 if ocr.try_ocr_balloon():
                     time.sleep(0.3)
                     continue
+                # rute new-look (sportal): teks 'mini' frame utama =
+                # cermin tersembunyi level; game asli di iframe kanvas
+                # yang sering BELUM mount - dulu ketik void berjalan
+                # selama itu = seluruh teks level terketik sebelum game
+                # siap -> hati habis instan (keluhan user 15 Nov). Skip
+                # void; fallback klasik setelah 30 dtk jaga-jaga.
+                low_url = (state.PAGE.url or "").lower()
+                if "sportal" in low_url:
+                    state._mini_sportal_n = (getattr(
+                        state, "_mini_sportal_n", 0) + 1)
+                    if state._mini_sportal_n < 60:
+                        time.sleep(0.5)
+                        continue
+                    state._mini_sportal_n = 0
                 games.handle_minigame(frame, data)
             elif det == "score":
                 if typing_core.advance_score_screen():
