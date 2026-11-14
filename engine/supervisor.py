@@ -283,6 +283,7 @@ def main_loop():
                 # level baru: cooldown Phaser dari game sebelumnya tidak
                 # berlaku lagi (dulu bikin minigame berikutnya tunda 20 dtk)
                 state._phaser_cooldown["until"] = 0.0
+                state._mini_void_tahan = 0
                 state._mini_sportal_n = 0
                 state._phaser_freeze["url"] = ""
                 state._phaser_freeze["count"] = 0
@@ -412,23 +413,34 @@ def main_loop():
             elif det == "tut":
                 tutorial.handle_tutorial(frame, data)
             elif det == "mini":
+                if ocr.try_balloon_core():
+                    time.sleep(0.3)
+                    continue
                 if ocr.try_ocr_balloon():
                     time.sleep(0.3)
                     continue
-                # rute new-look (sportal): teks 'mini' frame utama =
-                # cermin tersembunyi level; game asli di iframe kanvas
-                # yang sering BELUM mount - dulu ketik void berjalan
-                # selama itu = seluruh teks level terketik sebelum game
-                # siap -> hati habis instan (keluhan user 15 Nov). Skip
-                # void; fallback klasik setelah 30 dtk jaga-jaga.
+                # frame balloon ADA tapi OCR tak bertindak (loading/
+                # transisi antar kata) -> JANGAN ketik void
+                if ocr._balloon_frame() is not None:
+                    time.sleep(0.4)
+                    continue
+                # peluruhan: frame balloon baru hilang <15 dtk (restart
+                # setelah gagal / pindah level) -> tahan ketik void
+                baru_hilang = (time.time() - getattr(
+                    state, "_balloon_frame_seen", 0.0) < 15.0)
+                # rute game: sportal (new look) ATAU lesson .play klasik
+                # (2995.play - game kanvas sama, cermin teks sama)
                 low_url = (state.PAGE.url or "").lower()
-                if "sportal" in low_url:
-                    state._mini_sportal_n = (getattr(
-                        state, "_mini_sportal_n", 0) + 1)
-                    if state._mini_sportal_n < 60:
-                        time.sleep(0.5)
+                rute_game = ("sportal" in low_url
+                             or ("/lesson/" in low_url
+                                 and ".play" in low_url))
+                if baru_hilang or rute_game:
+                    state._mini_void_tahan = (getattr(
+                        state, "_mini_void_tahan", 0) + 1)
+                    if state._mini_void_tahan < 60:
+                        time.sleep(0.4)
                         continue
-                    state._mini_sportal_n = 0
+                    state._mini_void_tahan = 0   # fallback 25 dtk
                 games.handle_minigame(frame, data)
             elif det == "score":
                 if typing_core.advance_score_screen():
@@ -467,6 +479,9 @@ def main_loop():
                     time.sleep(0.4)
                     continue
                 if ocr.try_ocr_balloon():
+                    time.sleep(0.3)
+                    continue
+                if ocr.try_balloon_core():
                     time.sleep(0.3)
                     continue
                 if not ocr.try_ocr_minigame(data or {}):
