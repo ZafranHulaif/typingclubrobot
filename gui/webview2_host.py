@@ -669,9 +669,12 @@ def hapus_akun(nama):
 def akun_auto_simpan(nama, cookies):
     """Simpan OTOMATIS saat login (permintaan user: 'when we're logged
     in, it should automatically save it'): nama = nama profil edclub.
-    Akun baru = dibuat; akun yang sudah ada = cookie-nya disegarkan bila
-    file lebih tua 30 menit (sesi simpanan tetap hidup utk ganti akun).
-    Selalu set aktif. Thread pengawas aman (file saja)."""
+    Akun baru = dibuat; akun yang sudah ada = cookie-nya DISEGARKAN
+    bila tiketnya berubah (fingerprint tb_lt/rt) ATAU file lebih tua
+    30 menit - tiket edclub dirotasi server tiap pemakaian, jadi
+    simpanan yang tidak ikut berubah = mati saat ganti akun (keluhan
+    user 15 Nov: swap balik = kena relogin). Selalu set aktif. Thread
+    pengawas aman (file saja)."""
     d = _dir_akun()
     try:
         os.makedirs(d, exist_ok=True)
@@ -686,15 +689,19 @@ def akun_auto_simpan(nama, cookies):
     aman = "".join(ch for ch in nama
                    if ch.isalnum() or ch in " -_.").strip() or "akun"
     pth = os.path.join(d, f"akun-{aman}.json")
+    ttd = _kuki_ttd(cookies)
     try:
         lama = 0.0
+        ttd_lama = ""
         if os.path.exists(pth):
             with open(pth, encoding="utf-8") as f:
-                lama = json.load(f).get("waktu", 0)
-        if time.time() - lama > 1800:
+                meta = json.load(f)
+            lama = meta.get("waktu", 0)
+            ttd_lama = meta.get("ttd", "")
+        if ttd != ttd_lama or time.time() - lama > 1800:
             with open(pth, "w", encoding="utf-8") as f:
                 json.dump({"nama": nama, "waktu": time.time(),
-                           "cookies": cookies}, f)
+                           "ttd": ttd, "cookies": cookies}, f)
             # entri BARU: buang duplikat temporer 'Akun N' yg sesinya sama
             akun_bersih_dupe()
         _akun_aktif_set(nama)
@@ -903,6 +910,14 @@ class Wv2Host(tk.Frame):
                 _akun_aktif_set(nama)
                 self._akun_swap_at = time.time()
                 pesan = "sesi dimuat"
+            # nama lama jangan tertahan di header. Swap = tiket simpanan
+            # BELUM TAHU hidup atau mati (server bisa sudah merotasi rt)
+            # -> pasang 'Login ulang' instan; kalau ternyata sesi hidup,
+            # pill terdeteksi beberapa detik lagi & label balik ke nama
+            # (lebih baik label benar instan utk kasus mati - keluhan
+            # user 15 Nov: 'the delay is quite long')
+            self._nama_profil = None
+            self._perlu_login_paksa = True
             if selesai:
                 selesai(ok, pesan)
         import threading as _th
@@ -971,6 +986,13 @@ class Wv2Host(tk.Frame):
                 except Exception:
                     pass
                 self._akun_swap_at = time.time()
+            # nama lama jangan tertahan di header setelah keluar; label
+            # login menyala instan (keluhan user 15 Nov). Mode LOGIN
+            # (bukan 'Login ulang'): akun yang mau di-login lewat + Akun
+            # PASTI belum pernah di-login di mesin ini - user 15 Nov
+            self._nama_profil = None
+            self._perlu_login_paksa = True
+            self._login_baru = True
             if selesai:
                 selesai(ok, pesan)
         import threading as _th
@@ -1331,25 +1353,32 @@ class Wv2Host(tk.Frame):
                         if nm and len(nm) <= 40:
                             if nm != getattr(self, "_nama_profil", None):
                                 self._nama_profil = nm
+                            # login ASLI terlihat (pill ada) = batal paksa
+                            # 'Login ulang' di header (dipasang saat + Akun
+                            # / ganti akun; keluhan user 15 Nov: nama lama
+                            # tertahan & lambat ganti) + mode login baru
+                            # selesai (label balik ke 'Login ulang')
+                            self._perlu_login_paksa = False
+                            self._login_baru = False
                             # JANGAN simpan di detik pertama setelah tukar
                             # akun: listener sesi belum menulis cookie akun
                             # baru -> cookie LAMA bisa tertulis atas nama
-                            # akun baru (racun buku alamat).
+                            # akun baru (racun buku alamat). TANPA continue:
+                            # dulu continue melompati sisa tick halaman ini
+                            # (= nav_pending/back-button ikut tertahan 20
+                            # dtk saat swap - keluhan 'delay quite long')
                             if time.time() - getattr(
-                                    self, "_akun_swap_at", 0.0) < 20:
-                                continue
-                            try:
-                                cookies = json.load(open(
-                                    _sesi_path(), encoding="utf-8"
-                                    )).get("cookies") or []
-                            except Exception:
-                                cookies = []
-                            # sesi_bernilai: file berisi kuki sampah
-                            # (_cfuvid) TIDAK boleh dianggap sesi hidup -
-                            # dulu menghidupkan kembali '✓ aktif' akun
-                            # lama tepat setelah + Akun bersih-bersih
-                            if cookies and sesi_bernilai(cookies):
-                                akun_auto_simpan(nm, cookies)
+                                    self, "_akun_swap_at", 0.0) >= 20:
+                                try:
+                                    cookies = json.load(open(
+                                        _sesi_path(), encoding="utf-8"
+                                        )).get("cookies") or []
+                                except Exception:
+                                    cookies = []
+                                # sesi_bernilai: file berisi kuki sampah
+                                # (_cfuvid) TIDAK boleh dianggap sesi hidup
+                                if cookies and sesi_bernilai(cookies):
+                                    akun_auto_simpan(nm, cookies)
                     # MODE HEMAT EFEK (bot jalan): matikan animasi,
                     # transisi & blur di SEMUA frame edclub - layar
                     # hasil/transisi halaman patah-patah di laptop
@@ -1407,26 +1436,42 @@ class Wv2Host(tk.Frame):
                             catat(f"[BACK] pasang: {u[:50]}")
                             pg.main_frame.evaluate("""() => {
                               if (document.getElementById('tb-back')) return;
+                              // <style> textContent: Google pakai Trusted
+                              // Types CSP - innerHTML DIBLOKIR di halaman
+                              // itu (injeksi gagal diam-diam, live 15 Nov)
+                              const st = document.createElement('style');
+                              st.id = 'tb-back-style';
+                              st.textContent = [
+                                '#tb-back{position:fixed;top:18px;'
+                                + 'left:18px;z-index:2147483647;width:56px;'
+                                + 'height:56px;border-radius:50%;border:none;'
+                                + 'background:#fff;cursor:pointer;'
+                                + 'display:flex;align-items:center;'
+                                + 'justify-content:center;'
+                                + 'box-shadow:0 2px 10px rgba(0,0,0,.22);'
+                                + 'transition:background .15s,'
+                                + 'box-shadow .15s;padding:0;}',
+                                '#tb-back:hover{background:#f2f3f5;'
+                                + 'box-shadow:0 3px 14px rgba(0,0,0,.3);}',
+                                '#tb-back .tb-ch{font-family:system-ui,'
+                                + 'sans-serif;font-size:30px;line-height:1;'
+                                + 'color:#222;font-weight:700;'
+                                + 'transform:translateY(-2px);'
+                                + 'transition:transform .15s;'
+                                + 'pointer-events:none;}',
+                                '#tb-back:hover .tb-ch{transform:'
+                                + 'translateY(-2px) scale(1.4);}',
+                              ].join('');
+                              (document.head || document.documentElement)
+                                .appendChild(st);
                               const b = document.createElement('button');
                               b.id = 'tb-back';
                               b.title = 'Kembali';
                               b.setAttribute('aria-label', 'Kembali');
-                              // textContent: Google pakai Trusted Types
-                              // CSP - innerHTML DIBLOKIR di halaman itu
-                              // (injeksi gagal diam-diam, live 15 Nov)
-                              b.textContent = '\u2039';
-                              b.style.cssText = 'position:fixed;top:16px;'
-                                + 'left:16px;z-index:2147483647;width:44px;'
-                                + 'height:44px;border-radius:50%;border:none;'
-                                + 'background:#fff;color:#222;font-size:26px;'
-                                + 'line-height:44px;text-align:center;'
-                                + 'font-family:system-ui,sans-serif;'
-                                + 'cursor:pointer;box-shadow:0 1px 6px'
-                                + ' rgba(0,0,0,.25);padding:0;';
-                              b.onmouseenter = () => b.style.background =
-                                '#f1f2f4';
-                              b.onmouseleave = () => b.style.background =
-                                '#fff';
+                              const s2 = document.createElement('span');
+                              s2.className = 'tb-ch';
+                              s2.textContent = '‹';
+                              b.appendChild(s2);
                               b.onclick = () => history.back();
                               (document.body || document.documentElement)
                                 .appendChild(b);
@@ -1437,6 +1482,9 @@ class Wv2Host(tk.Frame):
                             pg.main_frame.evaluate("""() => {
                               const b = document.getElementById('tb-back');
                               if (b) b.remove();
+                              const st =
+                                document.getElementById('tb-back-style');
+                              if (st) st.remove();
                             }""")
                             self._back_on = False
                     except Exception as ex:

@@ -74,11 +74,28 @@ class ActivityMixin:
         if getattr(self, "btn_akun", None) is not None:
             perlu = (bool(getattr(bot, "NEEDS_LOGIN", False))
                      or bool(getattr(getattr(self, "host", None),
-                                     "_perlu_login", False)))
+                                     "_perlu_login", False))
+                     or bool(getattr(getattr(self, "host", None),
+                                     "_perlu_login_paksa", False)))
             nama = getattr(getattr(self, "host", None),
                            "_nama_profil", None)
             if perlu:
-                teks, warna = "👤 Login ulang", YELLOW
+                # 'Login' BUKAN 'Login ulang' bila ini login PERTAMA:
+                # belum ada akun tersimpan sama sekali, ATAU user baru
+                # menekan + Akun (akun baru = belum pernah login di
+                # mesin ini - permintaan user 15 Nov). Instan: flag
+                # dipasang langsung oleh akun_keluar/akun_ganti, tidak
+                # menunggu 3 tick watcher (keluhan: 'delay quite long')
+                try:
+                    from . import webview2_host as _w2v
+                    ada_akun = bool(_w2v.daftar_akun())
+                except Exception:
+                    ada_akun = True
+                if getattr(getattr(self, "host", None),
+                           "_login_baru", False) or not ada_akun:
+                    teks, warna = "👤 Login", YELLOW
+                else:
+                    teks, warna = "👤 Login ulang", YELLOW
             elif nama:
                 teks, warna = f"👤 {nama}", FG
             else:
