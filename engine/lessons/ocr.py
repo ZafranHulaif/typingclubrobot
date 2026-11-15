@@ -114,7 +114,8 @@ if (!c) return null;
 if (c.has_ended) return {ended: true};
 if (c.paused) { try { c.paused = false; } catch (e) {} }
 const cur = c.cur_char ? String(c.cur_char.chr) : '';
-if (!cur) return {wait: true, idx: c.cur_char_index};
+if (!cur) return {wait: true, idx: c.cur_char_index,
+                  mulai: !c.has_started};
 if ('FEED') {
     c.record_keydown_time(cur);
     return {fed: true, idx: c.cur_char_index};
@@ -135,6 +136,21 @@ const c = (typeof window.core !== 'undefined') ? window.core :
 if (!c) return null;
 if (c.has_ended) return {ended: true};
 if (c.paused) { try { c.paused = false; } catch (e) {} }
+if (!c.has_started) {
+    // yeti/monsterattack: butuh SPACE awal (live 15 Nov: idx -1,
+    // has_started false; record(' ') memulai)
+    if (typeof c.record_keydown_time === 'function') {
+        c.record_keydown_time(' ');
+    } else {
+        window.dispatchEvent(new KeyboardEvent('keydown',
+          {key: ' ', code: 'Space', keyCode: 32, which: 32,
+           bubbles: true, cancelable: true}));
+        setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup',
+          {key: ' ', code: 'Space', keyCode: 32, which: 32,
+           bubbles: true})), 30);
+    }
+    if (!c.has_started) return {fed: false, idx: -1, wait: true};
+}
 let fed = '';
 return new Promise((selesai) => {
     const berhenti = () => selesai(
