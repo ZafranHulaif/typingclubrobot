@@ -34,14 +34,20 @@ def _load_level_map():
         with open(_LEVEL_MAP_FILE, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
-            state._level_map.update({str(k): v for k, v in data.items()})
+            # normalisasi: URL .play lama -> rute UI baru saat dimuat
+            # (dulu peta & recovery yg goto URL mentah = TAMPILAN LAMA,
+            # keluhan user 15 Nov: adiknya dapat tampilan lama dari
+            # rentang/recovery dan layar penyelesaian tak pernah muncul)
+            state._level_map.update(
+                {str(k): browser._lesson_route_url(v)
+                 for k, v in data.items()})
     except Exception:
         pass
 
 
 def _record_level_map(nomor, url):
-    """Simpan asosiasi level -> URL (mis. '87' -> '...192.play')."""
-    if not nomor or not url or ".play" not in url:
+    """Simpan asosiasi level -> URL (rute UI baru /lesson/<id>)."""
+    if not nomor or not url or "/lesson/" not in url:
         return
     k = str(nomor)
     if state._level_map.get(k) == url:

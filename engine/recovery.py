@@ -17,6 +17,7 @@ from playwright.sync_api import sync_playwright
 from . import state
 from . import browser
 from . import levels
+from . import jsutil
 from .config import (LIST_URL)
 from .jstemplates import (PLAYABLE_CHECK_JS)
 
@@ -69,7 +70,24 @@ def recover_and_restart_lesson():
     tidak diketahui. (Dulu selalu tab baru: mengganggu user dan pernah
     bertabrakan dengan refresh manual user.)"""
     state._last_recovery = time.time()
-    target = state.last_url if (state.last_url and ".play" in state.last_url) else None
+    # Jangan reload saat video/intro MASIH DIPUTAR (keluhan live 15 Nov:
+    # adik user - level 1 baru signup = video intro, bot menunggu,
+    # stall recovery me-reload -> video mulai lagi -> reload lagi ->
+    # akhirnya jatuh ke URL lama). Media hidup = bukan halaman mati.
+    try:
+        for f in jsutil.all_frames():
+            if jsutil.run_js(
+                    "const v = document.querySelector('video,audio');"
+                    "return !!(v && !v.paused && !v.ended && v.currentTime"
+                    " > 0);", f):
+                print("[RECOVERY] media masih diputar - reload ditunda")
+                state.last_action_time = time.time()
+                return False
+    except Exception:
+        pass
+    target = state.last_url if (state.last_url and (
+        ".play" in state.last_url or "/lesson/" in state.last_url)) \
+        else None
 
     if target:
         n = state._recovery_counts.get(target, 0) + 1

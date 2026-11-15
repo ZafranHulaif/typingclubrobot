@@ -50,6 +50,13 @@ _LOGIN_REDIRECT_JS = """
   try {
     var p = location.pathname || '';
     if (p.indexOf('signin') >= 0) return;
+    // JANGAN sentuh halaman pendaftaran - dulu tombol 'Log in' di
+    // header signup memicu lemparan balik ke /signin DI TENGAH user
+    // mengisi form pendaftaran (keluhan user 15 Nov: adiknya harus
+    // daftar di Chrome terpisah karena webview selalu mundur)
+    if (p.indexOf('signup') >= 0) return;
+    if (p.indexOf('register') >= 0) return;
+    if (p.indexOf('join') >= 0) return;
     if ((location.host || '').indexOf('edclub') < 0) return;
     var t = (document.body && document.body.innerText) || '';
     if (t.indexOf('Something went wrong') >= 0) {
@@ -1252,6 +1259,40 @@ class Wv2Host(tk.Frame):
                                     document.getElementById('tb-perf');
                                   if (s) s.remove();
                                 }""")
+                    except Exception:
+                        pass
+                    # TOMBOL KEMBALI (permintaan user 15 Nov): hanya di
+                    # halaman login/signup + alur Google - adik user
+                    # klik 'Sign in with Google', sadar belum punya
+                    # akun, dan tak ada cara mundur selain Alt+Left.
+                    try:
+                        _u = (pg.url or "").lower()
+                        _perlu = (("edclub" in _u and any(
+                            k in _u for k in ("signin", "signup",
+                                              "register", "join")))
+                                  or "accounts.google." in _u)
+                        if _perlu:
+                            pg.main_frame.evaluate("""() => {
+                              if (document.getElementById('tb-back')) return;
+                              const b = document.createElement('button');
+                              b.id = 'tb-back';
+                              b.textContent = '\u2039 Kembali';
+                              b.style.cssText = 'position:fixed;top:14px;'
+                                + 'left:14px;z-index:2147483647;padding:8px'
+                                + ' 14px;border-radius:10px;border:none;'
+                                + 'background:rgba(24,26,32,.92);color:#fff;'
+                                + 'font:600 14px system-ui,sans-serif;'
+                                + 'cursor:pointer;box-shadow:0 2px 10px'
+                                + ' rgba(0,0,0,.35);';
+                              b.onclick = () => history.back();
+                              (document.body || document.documentElement)
+                                .appendChild(b);
+                            }""")
+                        else:
+                            pg.main_frame.evaluate("""() => {
+                              const b = document.getElementById('tb-back');
+                              if (b) b.remove();
+                            }""")
                     except Exception:
                         pass
                     nav = getattr(self, "_nav_pending", None)

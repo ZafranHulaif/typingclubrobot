@@ -247,7 +247,8 @@ _broken_lessons = set()
 
 _level_label_cache = {}
 
-_level_map = {str(n): f"https://www.edclub.com/sportal/program-3/{i}.play"
+_level_map = {str(n):
+             f"https://www.edclub.com/student/course/3/lesson/{i}"
              for n, i in _level_data.PETA.items()}
 
 
