@@ -463,18 +463,20 @@ class LaunchMixin:
             pass
 
     def _pop_tempatkan(self, pop, jangkar):
-        """Pojok KANAN popover sejajar tepi kanan tombol jangkar - pakai
-        lebar ASLI popover (winfo_reqwidth setelah layout), bukan angka
-        tebasan 336 (dulu hard-code: popover lebih lebar/lebih sempit =
-        tampak bergeser, keluhan user Nov 2026 'now it's offset again')."""
+        """Pojok KANAN popover sejajar tepi kanan tombol jangkar dengan
+        LEBAR TETAP 340: lebar mengikuti isi (label 'hapus?' muncul,
+        nama panjang) dulu membuat popover MELAR ke kanan & offset
+        (keluhan user 15 Nov: 'the popup expands to the right, going
+        through the screen' + 'the pop up becomes offset')."""
         pop.update_idletasks()
         try:
             bx = jangkar.winfo_rootx()
             bw = jangkar.winfo_width()
             by = jangkar.winfo_rooty()
             bh = jangkar.winfo_height()
-            x = max(8, bx + bw - pop.winfo_reqwidth())
-            pop.geometry(f"+{x}+{by + bh + 4}")
+            x = max(8, bx + bw - 340)
+            # tinggi mengikuti isi (refresh daftar), lebar dikunci
+            pop.geometry(f"340x{pop.winfo_reqheight()}+{x}+{by + bh + 4}")
         except Exception:
             pop.geometry("+400+80")
 
@@ -879,13 +881,22 @@ class LaunchMixin:
                                     # menandai ✓ aktif setelah tukar
 
             def masuk(_e):
-                # HOVER di SELURUH baris - frame + semua labelnya:
-                # dulu cuma frame yg di-bind, hover di atas nama tak
-                # berefek apa pun = terasa tidak responsif (keluhan
-                # user 12 Nov). Baris aktif pun diberi naungan halus.
-                baris.configure(bg=CARD_HOVER if not aktif else "#1d2c49")
+                # HOVER SELURUH ISI BARIS (frame + label nama + x):
+                # dulu hanya frame yang berubah warna - label mempertahankan
+                # bg gelap sendiri = kotak gelap di atas hover terang,
+                # 'name and the x is darker than the button background'
+                # (keluhan user 15 Nov)
+                for w in (baris,) + tuple(baris.winfo_children()):
+                    try:
+                        w.configure(bg=CARD_HOVER if not aktif else "#1d2c49")
+                    except Exception:
+                        pass
             def keluar(_e):
-                baris.configure(bg=CARD if not aktif else "#16233a")
+                for w in (baris,) + tuple(baris.winfo_children()):
+                    try:
+                        w.configure(bg=CARD if not aktif else "#16233a")
+                    except Exception:
+                        pass
             baris.bind("<Enter>", masuk)
             baris.bind("<Leave>", keluar)
             baris.bind("<Button-1>", klik)
@@ -974,6 +985,13 @@ class LaunchMixin:
             if getattr(self, "_akun_pop", None) is not pop:
                 return
             refresh()
+            # tinggi popover berubah saat daftar bertambah/berkurang -
+            # posisi ulang (lebar dikunci di _pop_tempatkan, tinggi
+            # mengikuti isi) dulu melayang offset (keluhan user 15 Nov)
+            try:
+                self._pop_tempatkan(pop, self.btn_akun)
+            except Exception:
+                pass
             pop.after(2000, napas)
 
         def tambah_baru():
@@ -991,6 +1009,23 @@ class LaunchMixin:
         self._pop_jaga_diam(pop, "_akun_pop", tutup)
         self._pop_klik_global(pop, "_akun_pop", tutup, self.btn_akun)
         self._log("[AKUN] popover dibuka")
+        # TUTUP saat app kehilangan fokus OS (alt-tab ke app lain -
+        # keluhan user 15 Nov: 'the pop up won't close until we click
+        # away, but changing apps doesn't'). FocusOut juga terpicu saat
+        # fokus pindah ke widget lain DALAM popover -> cek ulang 150ms:
+        # fokus masih di pohon popover = biarkan terbuka.
+        def fokus_hilang(_e=None):
+            pop.after(150, cek_fokus)
+        def cek_fokus():
+            if getattr(self, "_akun_pop", None) is not pop:
+                return
+            try:
+                w = pop.focus_get()
+            except Exception:
+                w = None
+            if w is None:
+                tutup(alasan="fokus")
+        pop.bind("<FocusOut>", fokus_hilang)
         pop.after(2000, napas)
 
     def _akun_hasil(self, nama, ok, pesan):

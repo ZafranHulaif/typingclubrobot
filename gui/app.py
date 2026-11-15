@@ -174,6 +174,13 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # cookie -> nonaktif sampai WebView2 siap (lihat boot).
         self.btn_akun = self._btn(self.kanan, "👤 Akun", ACCENT,
                                   self.on_akun, kecil=True, gaya="hantu")
+        # LEBAR TETAP (keluhan user 15 Nov: 'the length of the button
+        # keeps changing' - label berganti Akun/Login/nama = tombol
+        # melar-mengecil = header & popover ikut geser). Teks dipusat.
+        try:
+            self.btn_akun.configure(width=16, anchor="center")
+        except Exception:
+            pass
         self.btn_akun["state"] = "disabled"
         self._akun_perlu_login = None
         # v3.2: tombol Pulihkan & ❓ DIHAPUS (permintaan user) - Pulihkan

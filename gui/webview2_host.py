@@ -243,6 +243,16 @@ _OAUTH_RELAY_PAGE_JS = """
         coba3 += 1;
         if (!/sign in with|log in|sign up/i.test(
             (document.body.innerText || ''))) return;   // sudah login
+        // GUARD PILL (live 15 Nov): refresh-tokens yang ditembak di
+        // sini BERLOBA dgn rotasi rt milik SPA edclub sendiri - rt
+        // single-use, salah satu panggilan kalah = keluarga token
+        // dicabut server = sesi mati beberapa detik setelah login
+        // (log user: course/3 -> /signin berulang). Pill profil ada =
+        // sedang login = JANGAN sentuh endpoint ini sama sekali.
+        var _pill = document.querySelector('button [class*="truncate"]');
+        if (_pill && (_pill.textContent || '').trim()) {
+          coba3 = 0; return;
+        }
         fetch('https://api.edclub.com/j/auth/refresh-tokens',
           {method: 'POST', credentials: 'include',
            headers: {'Content-Type': 'application/json'},
@@ -1229,8 +1239,10 @@ class Wv2Host(tk.Frame):
                                                       or "")):
                             sesi_sid = sid
                             _sesi_tulis(milik)
-                            catat(f"sesi edclub tersimpan "
-                                  f"({len(milik)} cookie)")
+                            catat("sesi edclub tersimpan (%d kuki: %s)"
+                                  % (len(milik), ",".join(sorted(
+                                      c.get("name", "")
+                                      for c in milik))))
                     except Exception:
                         # sesi halaman bisa mati (target ditutup) - coba
                         # buat koneksi baru di putaran berikutnya
@@ -1436,9 +1448,12 @@ class Wv2Host(tk.Frame):
                             catat(f"[BACK] pasang: {u[:50]}")
                             pg.main_frame.evaluate("""() => {
                               if (document.getElementById('tb-back')) return;
-                              // <style> textContent: Google pakai Trusted
-                              // Types CSP - innerHTML DIBLOKIR di halaman
-                              // itu (injeksi gagal diam-diam, live 15 Nov)
+                              // CHEVRON SVG (bukan karakter font): glyph
+                              // ‹ duduk rendah di dalam kotak hurufnya =
+                              // 'a tiny bit more to the bottom' & hover
+                              // scale melebar ke bawah-kanan (keluhan
+                              // user 15 Nov). SVG = center sejati, scale
+                              // simetris dari tengahnya sendiri.
                               const st = document.createElement('style');
                               st.id = 'tb-back-style';
                               st.textContent = [
@@ -1453,14 +1468,11 @@ class Wv2Host(tk.Frame):
                                 + 'box-shadow .15s;padding:0;}',
                                 '#tb-back:hover{background:#f2f3f5;'
                                 + 'box-shadow:0 3px 14px rgba(0,0,0,.3);}',
-                                '#tb-back .tb-ch{font-family:system-ui,'
-                                + 'sans-serif;font-size:30px;line-height:1;'
-                                + 'color:#222;font-weight:700;'
-                                + 'transform:translateY(-2px);'
-                                + 'transition:transform .15s;'
-                                + 'pointer-events:none;}',
-                                '#tb-back:hover .tb-ch{transform:'
-                                + 'translateY(-2px) scale(1.4);}',
+                                '#tb-back svg{display:block;'
+                                + 'transform:scale(1);'
+                                + 'transition:transform .18s;}',
+                                '#tb-back:hover svg{'
+                                + 'transform:scale(1.3);}',
                               ].join('');
                               (document.head || document.documentElement)
                                 .appendChild(st);
@@ -1468,10 +1480,26 @@ class Wv2Host(tk.Frame):
                               b.id = 'tb-back';
                               b.title = 'Kembali';
                               b.setAttribute('aria-label', 'Kembali');
-                              const s2 = document.createElement('span');
-                              s2.className = 'tb-ch';
-                              s2.textContent = '‹';
-                              b.appendChild(s2);
+                              const NS =
+                                'http://www.w3.org/2000/svg';
+                              const sv = document.createElementNS(NS,
+                                'svg');
+                              sv.setAttribute('width', '26');
+                              sv.setAttribute('height', '26');
+                              sv.setAttribute('viewBox', '0 0 24 24');
+                              const jln = document.createElementNS(NS,
+                                'path');
+                              jln.setAttribute('d',
+                                'M14.5 5 L7.5 12 L14.5 19');
+                              jln.setAttribute('fill', 'none');
+                              jln.setAttribute('stroke', '#1f2126');
+                              jln.setAttribute('stroke-width', '2.7');
+                              jln.setAttribute('stroke-linecap',
+                                'round');
+                              jln.setAttribute('stroke-linejoin',
+                                'round');
+                              sv.appendChild(jln);
+                              b.appendChild(sv);
                               b.onclick = () => history.back();
                               (document.body || document.documentElement)
                                 .appendChild(b);
@@ -1505,8 +1533,25 @@ class Wv2Host(tk.Frame):
                             catat(f"arahkan gagal: {str(ex)[:80]}")
                         continue
                     if u != url_terakhir:
+                        _sebelum = url_terakhir
                         url_terakhir = u
                         catat(f"halaman: {u[:100]}")
+                        # COVER PUTIH post-login (permintaan user 15 Nov:
+                        # 'they just need to see the login, put in their
+                        # account, once they enter - bam, level list'):
+                        # keluar dari /signin (form dikirim) = tutup
+                        # proses auth_callback/relay/redirect dgn cover
+                        # putih sampai daftar level tampil. Hitam terasa
+                        # gagal, putih terasa loading.
+                        if (_sebelum and "/signin" in _sebelum
+                                and "/signin" not in u
+                                and "edclub" in u.lower()
+                                and getattr(self, "_perlu_login", False)
+                                and "accounts.google" not in u.lower()
+                                and "auth_callback" not in u):
+                            self._tahan = ("login-putih",
+                                           time.time() + 30)
+                            catat("cover putih post-login naik")
                     if getattr(self, "_boot_cover", None):
                         # tutup boot aktif: buka begitu daftar level
                         # tampil SUDAH LOGIN (pill profil ada), ATAU
@@ -1694,10 +1739,13 @@ class Wv2Host(tk.Frame):
         after() murni Tk (thread UI) - dibatalkan saat tutup dibuka."""
         try:
             warna = self._overlay.cget("bg")
+            # cover putih (transisi login) = spinner & teks versi gelap
+            putih = warna.lower() in ("#ffffff", "white", "systembuttonface")
             cv = tk.Canvas(self._overlay, width=84, height=84, bg=warna,
                            highlightthickness=0)
             lbl = tk.Label(self._overlay, text="Menyiapkan edclub\u2026",
-                           font=("Segoe UI", 12), fg="#9aa6b8", bg=warna)
+                           font=("Segoe UI", 12),
+                           fg="#5b6570" if putih else "#9aa6b8", bg=warna)
             cv.place(relx=0.5, rely=0.44, anchor="center")
             lbl.place(relx=0.5, rely=0.56, anchor="center")
             N, C = 8, 42
@@ -1719,10 +1767,12 @@ class Wv2Host(tk.Frame):
                     if langkah == 0:
                         wrn = "#3b82f6"      # titik aktif terang
                     elif langkah == 1:
-                        wrn = "#1d4ed8"      # ekor
+                        wrn = "#1d4ed8" if not putih else "#93c5fd"
                     else:
                         g = 38 + max(0, 20 - 3 * langkah)
-                        wrn = f"#{g:02x}{g:02x}{g:02x}"
+                        wrn = (f"#{g:02x}{g:02x}{g:02x}" if not putih
+                               else f"#{255-g//2:02x}{255-g//2:02x}"
+                                    f"{255-g//2:02x}")
                     cv.itemconfigure(item, fill=wrn)
                 self._boot_anim_job = self.after(90, tik)
 
@@ -1934,6 +1984,12 @@ class Wv2Host(tk.Frame):
                 self._boot_cover = time.time()
                 self._boot_selesai = False
                 try:
+                    # COVER PUTIH utk transisi login -> daftar level
+                    # (user 15 Nov: hitam terasa gagal, putih terasa
+                    # loading). Cover boot biasa tetap gelap.
+                    self._overlay.configure(
+                        bg="#ffffff" if str(pot).startswith("login")
+                        else "#141519")
                     user32.ShowWindow(self._chwnd, 0)   # SW_HIDE
                     st = self._stage_widget
                     if st is not None:

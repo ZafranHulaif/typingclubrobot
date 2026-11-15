@@ -97,7 +97,11 @@ class ActivityMixin:
                 else:
                     teks, warna = "👤 Login ulang", YELLOW
             elif nama:
-                teks, warna = f"👤 {nama}", FG
+                # header: nama DIPANGKAS 14 karakter (popover menampilkan
+                # nama penuh) - teks panjang di lebar tetap = terpangkas
+                # kasar (keluhan user 15 Nov: lebar tombol berubah-ubah)
+                _nm = nama if len(nama) <= 14 else nama[:13] + "\u2026"
+                teks, warna = f"👤 {_nm}", FG
             else:
                 teks, warna = "👤 Akun", FG
             if teks != getattr(self, "_akun_teks", None):
