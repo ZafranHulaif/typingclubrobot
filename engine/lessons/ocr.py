@@ -114,10 +114,25 @@ const c = st.core;
 if (c.has_ended) return {ended: true};
 const cur = c.cur_char ? String(c.cur_char.chr) : '';
 if (!cur) return {wait: true};
+const want = cur.toLowerCase();
 const curX = st.balloonCursor ? st.balloonCursor.x : 300;
+// JARAK BALON HURUF AKT ke cursor - bukan balon apa pun yang
+// numpang di zona (dulu: balon lain di zona = ketik yg tak cocok =
+// ~20 huruf benar lalu salah terus, keluhan user 15 Nov). Huruf
+// balon = child sprite bertext 1 karakter.
 let best = null;
 for (const b of (st.balloons || [])) {
-    if (!b || b.visible === false || b.x === undefined || b.x === null) continue;
+    if (!b || b.visible === false || b.x === undefined || b.x === null)
+        continue;
+    let letter = null;
+    const ch = b.children || [];
+    for (const k of ch) {
+        if (k.text !== undefined && String(k.text).length === 1) {
+            letter = String(k.text).toLowerCase();
+            break;
+        }
+    }
+    if (letter !== want) continue;
     const d = Math.abs(b.x - curX);
     if (best === null || d < best) best = d;
 }
@@ -160,9 +175,13 @@ return null;
     chr_ = res.get("chr")
     idx = res.get("idx")
     dist = res.get("dist")
-    if dist is not None and dist > 90:
-        return False          # balon belum sampai zona pukul
+    if dist is None or dist > 90:
+        # balon huruf akt belum di zona pukul - TUNGU (jangan ketik
+        # huruf lain/balon lain = sumber '20 benar lalu salah semua')
+        return False
     kini = time.time()
+    if kini - getattr(state, "_balloon_core_typed", 0.0) < 0.25:
+        return False          # jeda minimal antar huruf
     terakhir = getattr(state, "_balloon_core_last", None)
     if terakhir and terakhir[0] == chr_ and terakhir[1] == idx \
             and kini - terakhir[2] < 5.0:
@@ -170,6 +189,7 @@ return null;
     typing_core._mark_bot_click()
     state.PAGE.keyboard.type(chr_)
     state._balloon_core_last = (chr_, idx, kini)
+    state._balloon_core_typed = kini
     print(f"[Minigame/Balloon] core: {chr_!r} idx={idx} dist={dist}")
     state.stats["ocr"] += 1
     state.last_action_time = time.time()
