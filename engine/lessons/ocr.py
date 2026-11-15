@@ -137,17 +137,21 @@ if (!c) return null;
 if (c.has_ended) return {ended: true};
 if (c.paused) { try { c.paused = false; } catch (e) {} }
 if (!c.has_started) {
-    // yeti/monsterattack: butuh SPACE awal (live 15 Nov: idx -1,
-    // has_started false; record(' ') memulai)
-    if (typeof c.record_keydown_time === 'function') {
-        c.record_keydown_time(' ');
+    // Dua varian mulai (live 15 Nov): (a) huruf-pertama - cur_char
+    // sudah diisi (balloon valley, yeti 'b'...) = feed huruf itu;
+    // (b) spasi - cur null (yeti 2970) = ketuk spasi. PENTING:
+    // record(' ') TIDAK memulai varian spasi, dan event document
+    //-lah yang didengar listener game (bukan window)
+    const c0 = c.cur_char ? String(c.cur_char.chr) : '';
+    if (c0) {
+        c.record_keydown_time(c0);
     } else {
-        window.dispatchEvent(new KeyboardEvent('keydown',
+        document.dispatchEvent(new KeyboardEvent('keydown',
           {key: ' ', code: 'Space', keyCode: 32, which: 32,
            bubbles: true, cancelable: true}));
-        setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup',
+        setTimeout(() => document.dispatchEvent(new KeyboardEvent('keyup',
           {key: ' ', code: 'Space', keyCode: 32, which: 32,
-           bubbles: true})), 30);
+           bubbles: true})), 40);
     }
     if (!c.has_started) return {fed: false, idx: -1, wait: true};
 }
@@ -286,9 +290,13 @@ def _balloon_frame():
     for fr in jsutil.all_frames():
         try:
             u = fr.url or ""
-            if "balloon" in u:
+            # 'balloon' klasik ATAU seluruh keluarga game baru
+            # phaser01balloonvalley / phaser02monsterattack / dst -
+            # prarolong game bisa 14 dtk; jangan sampai void
+            if "balloon" in u or re.search(r"phaser\\d+", u):
                 state._balloon_frame_seen = kini
-                _probe_iframe(fr)
+                if "balloon" in u:
+                    _probe_iframe(fr)
                 return fr
         except Exception:
             continue
