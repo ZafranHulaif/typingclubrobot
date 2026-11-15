@@ -1352,20 +1352,30 @@ class Wv2Host(tk.Frame):
                     # alur Google) - BUKAN halaman login utama (itu
                     # sudah 'rumah' alur login, tak ada gunanya back).
                     # Gaya = tombol bulat putih kiri-atas UI baru.
+                    # PAKAI u (location.href hasil tick) BUKAN pg.url:
+                    # metadata url playwright di sesi watcher basi ->
+                    # _perlu selalu salah = tombol tak pernah muncul
+                    # (bug live 15 Nov, log 'halaman: accounts.google'
+                    # terbukti u benar).
                     try:
-                        _u = (pg.url or "").lower()
+                        _u = (u or "").lower()
                         _perlu = (("edclub" in _u and any(
                             k in _u for k in ("signup", "register",
                                               "join")))
                                   or "accounts.google." in _u)
-                        if _perlu:
+                        _sudah = getattr(self, "_back_on", False)
+                        if _perlu and not _sudah:
+                            catat(f"[BACK] pasang: {u[:50]}")
                             pg.main_frame.evaluate("""() => {
                               if (document.getElementById('tb-back')) return;
                               const b = document.createElement('button');
                               b.id = 'tb-back';
                               b.title = 'Kembali';
                               b.setAttribute('aria-label', 'Kembali');
-                              b.innerHTML = '&#8249;';
+                              // textContent: Google pakai Trusted Types
+                              // CSP - innerHTML DIBLOKIR di halaman itu
+                              // (injeksi gagal diam-diam, live 15 Nov)
+                              b.textContent = '\u2039';
                               b.style.cssText = 'position:fixed;top:16px;'
                                 + 'left:16px;z-index:2147483647;width:44px;'
                                 + 'height:44px;border-radius:50%;border:none;'
@@ -1382,13 +1392,16 @@ class Wv2Host(tk.Frame):
                               (document.body || document.documentElement)
                                 .appendChild(b);
                             }""")
-                        else:
+                            self._back_on = True
+                            catat("[BACK] terpasang OK")
+                        elif not _perlu and _sudah:
                             pg.main_frame.evaluate("""() => {
                               const b = document.getElementById('tb-back');
                               if (b) b.remove();
                             }""")
-                    except Exception:
-                        pass
+                            self._back_on = False
+                    except Exception as ex:
+                        catat(f"[BACK] error: {repr(ex)[:70]}")
                     nav = getattr(self, "_nav_pending", None)
                     if nav:
                         self._nav_pending = None
