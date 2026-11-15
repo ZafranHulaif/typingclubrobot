@@ -834,8 +834,47 @@ class Wv2Host(tk.Frame):
                 if selesai:
                     selesai(False, "akun tidak ditemukan")
                 return
-            ok, pesan = self._cdp_cookie(lambda ctx: (
-                ctx.clear_cookies(), ctx.add_cookies(cookies)))
+            # Hapus kuki lama lewat CDP level target (ctx.clear_cookies
+            # TIDAK menyentuh jar WebView2 - lihat akun_keluar) lalu
+            # add_cookies: kuki tiket lama (tb_lt) tak boleh selamat
+            # di samping kuki akun baru = auto-login balik akun lama
+            try:
+                from engine import state as estate
+                port = estate.DEBUG_PORT
+            except Exception:
+                port = 9222
+            ok, pesan = False, "gagal koneksi CDP"
+            try:
+                from playwright.sync_api import sync_playwright
+                with sync_playwright() as p:
+                    br = p.chromium.connect_over_cdp(
+                        f"http://127.0.0.1:{port}", timeout=15000)
+                    for ctx in br.contexts:
+                        try:
+                            ctx.clear_cookies()
+                        except Exception:
+                            pass
+                        for pg in ctx.pages:
+                            try:
+                                cds = ctx.new_cdp_session(pg)
+                                cds.send("Network.clearBrowserCookies")
+                            except Exception:
+                                pass
+                            try:
+                                pg.evaluate("""() => {
+                                  document.cookie = 'tb_lt=; path=/;'
+                                    + ' max-age=0';
+                                  try { localStorage.removeItem('tb_lt'); }
+                                  catch (e) {}
+                                }""")
+                            except Exception:
+                                pass
+                        ctx.add_cookies(cookies)
+                    br.close()
+                    ok = True
+                    pesan = "sesi dimuat"
+            except Exception as e:
+                pesan = str(e)[:80]
             if ok:
                 _sesi_tulis(cookies)
                 _akun_aktif_set(nama)
@@ -847,10 +886,58 @@ class Wv2Host(tk.Frame):
         _th.Thread(target=kerja, daemon=True).start()
 
     def akun_keluar(self, selesai=None):
-        """Keluar bersih utk TAMBAH akun: hapus semua cookie webview +
-        file sesi aktif (biar boot tak restore akun lama). Thread belakang."""
+        """Keluar bersih utk TAMBAH akun: hapus SEMUA cookie webview +
+        tiket auto-login tb_lt (kuki & localStorage) + file sesi aktif
+        (biar boot tak restore akun lama). Thread belakang.
+
+        DULU ctx.clear_cookies() doang - TIDAK menyentuh jar WebView2
+        (terbukti live 15 Nov: kuki identik sebelum/sesudah,
+        ctx.cookies() = 0) -> /signin auto-login balik akun lama via
+        tb_lt = '+ Akun' tak pernah benar-benar ganti akun (keluhan
+        user). Kini: CDP level target (clearBrowserCookies +
+        clearDataForOrigin) + kadaluarsakan tb_lt langsung di halaman."""
         def kerja():
-            ok, pesan = self._cdp_cookie(lambda ctx: ctx.clear_cookies())
+            ok = False
+            pesan = "gagal koneksi CDP"
+            try:
+                from engine import state as estate
+                port = estate.DEBUG_PORT
+            except Exception:
+                port = 9222
+            try:
+                from playwright.sync_api import sync_playwright
+                with sync_playwright() as p:
+                    br = p.chromium.connect_over_cdp(
+                        f"http://127.0.0.1:{port}", timeout=15000)
+                    for ctx in br.contexts:
+                        try:
+                            ctx.clear_cookies()
+                        except Exception:
+                            pass
+                        for pg in ctx.pages:
+                            try:
+                                cds = ctx.new_cdp_session(pg)
+                                cds.send("Network.clearBrowserCookies")
+                                cds.send("Storage.clearDataForOrigin", {
+                                    "origin": "https://www.edclub.com",
+                                    "storageTypes":
+                                        "local_storage,session_storage"})
+                            except Exception:
+                                pass
+                            try:
+                                pg.evaluate("""() => {
+                                  document.cookie = 'tb_lt=; path=/;'
+                                    + ' max-age=0';
+                                  try { localStorage.removeItem('tb_lt'); }
+                                  catch (e) {}
+                                }""")
+                            except Exception:
+                                pass
+                    br.close()
+                    ok = True
+                    pesan = "sesi dibersihkan"
+            except Exception as e:
+                pesan = str(e)[:80]
             if ok:
                 try:
                     os.remove(_sesi_path())
@@ -861,7 +948,6 @@ class Wv2Host(tk.Frame):
                 except Exception:
                     pass
                 self._akun_swap_at = time.time()
-                pesan = "sesi dibersihkan"
             if selesai:
                 selesai(ok, pesan)
         import threading as _th
