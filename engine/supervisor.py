@@ -415,8 +415,20 @@ def main_loop():
                 tutorial.handle_tutorial(frame, data)
             elif det == "mini":
                 if ocr.try_balloon_core():
+                    time.sleep(0.15)
+                    continue
+                if ocr.try_ocr_balloon():
                     time.sleep(0.3)
                     continue
+                # feeder core-API standar di SEMUA frame - iframe game
+                # (URL kosong di playwright) pun kalau punya core
+                # record_keydown_time = langsung jalan di sini
+                try:
+                    if games.handle_phaser_minigame():
+                        time.sleep(0.3)
+                        continue
+                except Exception:
+                    pass
                 fr_bal = ocr._balloon_frame()
                 if fr_bal is not None:
                     # varian iframe (core=False milik wrapper student):

@@ -122,7 +122,39 @@ if ('FEED') {
 return {chr: cur, idx: c.cur_char_index, ended: false};
 """
 BALLOON_STATE_JS = BALLOON_BRIDGE_JS.replace("'FEED'", "0")
-BALLOON_FEED_JS = BALLOON_BRIDGE_JS.replace("'FEED'", "1")
+# FEED BATCH: rantai setTimeout 80ms (rAF & loop game tetap jalan;
+# busy-wait akan MEMBEKUKAN loop game = balon tak sampai, live 15
+# Nov). Sampai 8 huruf per panggilan, BERHENTI di huruf pertama yang
+# tak dikonsumsi game (balon belum sampai = jangan salah). Promise
+# di-resolve playwright otomatis. Dulu 1 huruf/siklus = 20wpm.
+BALLOON_FEED_JS = r"""
+const c = (typeof window.core !== 'undefined') ? window.core :
+  ((window.Phaser && Phaser.GAMES && Phaser.GAMES.length &&
+    Phaser.GAMES[0].state) ?
+   Phaser.GAMES[0].state.states[Phaser.GAMES[0].state.current].core : null);
+if (!c) return null;
+if (c.has_ended) return {ended: true};
+if (c.paused) { try { c.paused = false; } catch (e) {} }
+let fed = '';
+return new Promise((selesai) => {
+    const berhenti = () => selesai(
+        fed ? {fed: true, idx: c.cur_char_index, huruf: fed} :
+              {fed: false, idx: c.cur_char_index});
+    let n = 0;
+    const langkah = () => {
+        if (n >= 8 || c.has_ended) { berhenti(); return; }
+        const cur = c.cur_char ? String(c.cur_char.chr) : '';
+        if (!cur) { berhenti(); return; }
+        const sebelum = c.cur_char_index;
+        c.record_keydown_time(cur);
+        if (c.cur_char_index === sebelum) { berhenti(); return; }
+        fed += cur;
+        n++;
+        setTimeout(langkah, 80);
+    };
+    langkah();
+});
+"""
 
 
 def _core_bridge_frame():
@@ -166,13 +198,18 @@ def try_balloon_core():
     if not res:
         return False
     if res.get("ended"):
-        # layar akhir (live 15 Nov): tombol DOM 'Try again' / '→ Press
-        # Enter' - maju dulu, kalau tak ada tombol maju = ulang (hati
-        # baru, feed tanpa salah = akhirnya selesai)
+        # TUNGU dulu: overlay iframe 'Press Enter' (ulang!) muncul
+        # sebelum layar skor wrapper (Try again + Next); klik terlalu
+        # cepat = mengulang level (live 15 Nov)
+        if not getattr(state, "_balloon_end_t", 0):
+            state._balloon_end_t = time.time()
+        if time.time() - state._balloon_end_t < 2.5:
+            return False
         klik = jsutil.run_js(r"""
-const want = ['press enter', 'move on', '\u2192', 'continue', 'next',
-              'try again'];
-for (const w of want) {
+const maju = ['next', 'move on', 'continue', 'lanjut'];
+const ulang = ['try again', 'press enter', '\u2192'];
+for (const daftar of [maju, ulang]) {
+  for (const w of daftar) {
   for (const el of document.querySelectorAll('button, a, [role=button]')) {
     const t = (el.innerText || '').trim().toLowerCase();
     if (!t.includes(w)) continue;
@@ -181,28 +218,32 @@ for (const w of want) {
     el.click();
     return t;
   }
+  }
 }
 return null;
 """)
         if klik:
             print(f"[Minigame/Balloon] layar akhir - klik {klik!r}")
             state.last_action_time = time.time()
+        state._balloon_end_t = 0
         return False
     chr_ = res.get("chr")
     idx = res.get("idx")
     kini = time.time()
+    state._balloon_end_t = 0     # game hidup lagi = reset penanda akhir
     last = getattr(state, "_balloon_core_last", None)
     if last and last[0] == chr_ and last[1] == idx \
             and kini - last[2] < 3.5:
         return False          # sudah diketik, game belum konsumsi
-    if kini - getattr(state, "_balloon_core_typed", 0.0) < 0.22:
-        return False
+    if kini - getattr(state, "_balloon_core_typed", 0.0) < 0.35:
+        return False          # batch pun butuh jeda antar panggilan
     fed = jsutil.run_js(BALLOON_FEED_JS, fr)
     if fed and fed.get("fed"):
-        state._balloon_core_last = (chr_, idx, kini)
+        huruf = fed.get("huruf", "")
+        state._balloon_core_last = (chr_, fed.get("idx", idx), kini)
         state._balloon_core_typed = kini
-        print(f"[Minigame/Balloon] core: {chr_!r} idx={idx}")
-        state.stats["phaser"] += 1
+        print(f"[Minigame/Balloon] core: {huruf!r} idx->{fed.get('idx')}")
+        state.stats["phaser"] += len(huruf)
         state.last_action_time = time.time()
         return True
     return False
