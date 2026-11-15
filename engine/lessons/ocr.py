@@ -218,18 +218,18 @@ def try_balloon_core():
     if not res:
         return False
     if res.get("ended"):
-        # TUNGU dulu: overlay iframe 'Press Enter' (ulang!) muncul
-        # sebelum layar skor wrapper (Try again + Next); klik terlalu
-        # cepat = mengulang level (live 15 Nov)
+        # Layar akhir - TANPA nunggu tetap: poll tombol MAJU saja tiap
+        # siklus (Next/move on/continue). Tombol ulang iframe ('Try
+        # again'/'Press Enter') tak pernah disentuh polling ini, jadi
+        # aman diklik sedini mungkin - bahkan saat animasi bintang
+        # masih jalan (keluhan user: animasi lambat). Fallback 12 dtk:
+        # kalau tak ada tombol maju sama sekali, ulang level (lebih
+        # baik dari macet selamanya - feed ulang cuma butuh detik).
         if not getattr(state, "_balloon_end_t", 0):
             state._balloon_end_t = time.time()
-        if time.time() - state._balloon_end_t < 2.5:
-            return False
         klik = jsutil.run_js(r"""
 const maju = ['next', 'move on', 'continue', 'lanjut'];
-const ulang = ['try again', 'press enter', '\u2192'];
-for (const daftar of [maju, ulang]) {
-  for (const w of daftar) {
+for (const w of maju) {
   for (const el of document.querySelectorAll('button, a, [role=button]')) {
     const t = (el.innerText || '').trim().toLowerCase();
     if (!t.includes(w)) continue;
@@ -238,14 +238,33 @@ for (const daftar of [maju, ulang]) {
     el.click();
     return t;
   }
-  }
 }
 return null;
 """)
         if klik:
             print(f"[Minigame/Balloon] layar akhir - klik {klik!r}")
             state.last_action_time = time.time()
-        state._balloon_end_t = 0
+            state._balloon_end_t = 0
+            return False
+        if time.time() - state._balloon_end_t > 12:
+            klik2 = jsutil.run_js(r"""
+const ulang = ['try again', 'press enter', '→'];
+for (const w of ulang) {
+  for (const el of document.querySelectorAll('button, a, [role=button]')) {
+    const t = (el.innerText || '').trim().toLowerCase();
+    if (!t.includes(w)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 30) continue;
+    el.click();
+    return t;
+  }
+}
+return null;
+""")
+            if klik2:
+                print(f"[Minigame/Balloon] tanpa tombol maju 12 dtk - ulang "
+                      f"{klik2!r}")
+            state._balloon_end_t = 0
         return False
     chr_ = res.get("chr")
     idx = res.get("idx")
