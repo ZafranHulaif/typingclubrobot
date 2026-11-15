@@ -925,8 +925,12 @@ class Wv2Host(tk.Frame):
             # -> pasang 'Login ulang' instan; kalau ternyata sesi hidup,
             # pill terdeteksi beberapa detik lagi & label balik ke nama
             # (lebih baik label benar instan utk kasus mati - keluhan
-            # user 15 Nov: 'the delay is quite long')
+            # user 15 Nov: 'the delay is quite long'). Mode 'Login'
+            # (login pertama, sisa + Akun) DIBATALKAN: user memilih
+            # akun lama = bukan login pertama lagi (live 15 Nov: + Akun
+            # -> batal -> klik akun lama -> label masih 'Login')
             self._nama_profil = None
+            self._login_baru = False
             self._perlu_login_paksa = True
             if selesai:
                 selesai(ok, pesan)
@@ -1372,6 +1376,47 @@ class Wv2Host(tk.Frame):
                             # selesai (label balik ke 'Login ulang')
                             self._perlu_login_paksa = False
                             self._login_baru = False
+                            # ---- JAGA tb_lt (akar 'harus relogin
+                            # terus', live 15 Nov): SPA edclub MEMBUANG
+                            # kuki tiket tb_lt saat boot (terbukti di
+                            # log user: sesi tersimpan hanya '_cfuvid,
+                            # rt'). rt kadaluarsa dengan diam = sesi
+                            # mati TANPA cadangan = relogin. Simpanan
+                            # akun ini punya tiket = suntikkan balik.
+                            try:
+                                _lt_ada = pg.evaluate(
+                                    """() => !!(document.cookie.match(
+                                        /(?:^|; )tb_lt=/)
+                                      || localStorage.getItem('tb_lt'))""")
+                            except Exception:
+                                _lt_ada = True
+                            if not _lt_ada:
+                                for _n2, _m2, _p2 in _akun_semua_meta():
+                                    if _n2 != nm:
+                                        continue
+                                    _lt = next(
+                                        (c.get("value")
+                                         for c in _m2.get("cookies", [])
+                                         if c.get("name") == "tb_lt"),
+                                        None)
+                                    if _lt:
+                                        try:
+                                            _js = ("(t) => { document.cookie"
+                                                   " = 'tb_lt=' +"
+                                                   " encodeURIComponent(t)"
+                                                   " + '; path=/;"
+                                                   " max-age=31536000;"
+                                                   " SameSite=Lax';"
+                                                   " try { localStorage"
+                                                   ".setItem('tb_lt', t)"
+                                                   " } catch (e) {} }")
+                                            pg.evaluate(_js, _lt)
+                                            catat("tb_lt disuntik "
+                                                  "balik (SPA "
+                                                  "membuangnya)")
+                                        except Exception:
+                                            pass
+                                    break
                             # JANGAN simpan di detik pertama setelah tukar
                             # akun: listener sesi belum menulis cookie akun
                             # baru -> cookie LAMA bisa tertulis atas nama
@@ -1391,6 +1436,57 @@ class Wv2Host(tk.Frame):
                                 # (_cfuvid) TIDAK boleh dianggap sesi hidup
                                 if cookies and sesi_bernilai(cookies):
                                     akun_auto_simpan(nm, cookies)
+                    elif perlu_raw and "/signin" in u and "edclub" in u.lower():
+                        # ---- PENYELAMAT tb_lt DI /SIGNIN (pasangan jaga
+                        # tb_lt di atas, live 15 Nov): pasca-swap / sesi
+                        # mati, dokumen /signin membaca tiket SAAT LOAD
+                        # (sebelum add_cookies restore) = lt0 kosong =
+                        # fallback tiket TAK PERNAH menembak walau tiket
+                        # ada di jar. Suntikkan tiket dari snapshot
+                        # aktif + muat ulang: branch 3a baca ulang dan
+                        # login sendiri tanpa user mengisi form.
+                        if time.time() - getattr(
+                                self, "_lt_selamat", 0.0) > 60:
+                            try:
+                                _lt_kosong = pg.evaluate(
+                                    "() => !(document.cookie.match(/(?:^|; )"
+                                    "tb_lt=/) || localStorage.getItem("
+                                    "'tb_lt'))")
+                            except Exception:
+                                _lt_kosong = False
+                            if _lt_kosong:
+                                _nama2 = akun_aktif_nama()
+                                for _n3, _m3, _p3 in _akun_semua_meta():
+                                    if _n3 != _nama2:
+                                        continue
+                                    _lt3 = next(
+                                        (c.get("value")
+                                         for c in _m3.get("cookies", [])
+                                         if c.get("name") == "tb_lt"),
+                                        None)
+                                    if _lt3:
+                                        self._lt_selamat = time.time()
+                                        try:
+                                            pg.evaluate(
+                                                "(t) => { document.cookie ="
+                                                " 'tb_lt=' +"
+                                                " encodeURIComponent(t) +"
+                                                " '; path=/;"
+                                                " max-age=31536000;"
+                                                " SameSite=Lax';"
+                                                " try { localStorage"
+                                                ".setItem('tb_lt', t)"
+                                                " } catch (e) {} }", _lt3)
+                                        except Exception:
+                                            pass
+                                        try:
+                                            pg.evaluate(
+                                                "() => location.reload()")
+                                            catat("tb_lt diselamatkan di"
+                                                  " /signin - muat ulang")
+                                        except Exception:
+                                            pass
+                                    break
                     # MODE HEMAT EFEK (bot jalan): matikan animasi,
                     # transisi & blur di SEMUA frame edclub - layar
                     # hasil/transisi halaman patah-patah di laptop
