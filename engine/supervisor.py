@@ -407,6 +407,15 @@ def main_loop():
                 time.sleep(0.6)
                 continue
 
+            # JALUR CEPAT GAME BARU (keluhan user 15 Nov: ngeklik game
+            # dari daftar level = bot diem ~15-30 dtk): deteksi lesson
+            # pelan + pra-gulir game bisa 14 dtk. Jembatan window.core
+            # dites DULUAN tiap siklus (probe murah, cache 3 dtk di
+            # _core_bridge_frame); kalau game siap = feed tanpa nunggu
+            # det. Normal lessons tanpa jembatan = ini no-op murah.
+            if ocr.try_balloon_core():
+                time.sleep(0.05)
+                continue
             det, frame, data = jsutil.detect_all_frames()
 
             if det == "std":
@@ -446,6 +455,9 @@ def main_loop():
                     if state._balloon_tahan_n % 30 == 1:
                         print("[Minigame/Balloon] varian iframe - "
                               "menahan ketikan (menunggu dukungan)")
+                    # pra-gulir game = bukan stall: jangan biarkan
+                    # recovery reload halaman (ulang pra-gulir 14 dtk!)
+                    state.last_action_time = time.time()
                     time.sleep(0.4)
                     continue
                 # peluruhan: frame balloon baru hilang <15 dtk (restart
@@ -464,6 +476,7 @@ def main_loop():
                     state._mini_void_tahan = (getattr(
                         state, "_mini_void_tahan", 0) + 1)
                     if state._mini_void_tahan < 60:
+                        state.last_action_time = time.time()
                         time.sleep(0.4)
                         continue
                     state._mini_void_tahan = 0   # fallback 25 dtk
