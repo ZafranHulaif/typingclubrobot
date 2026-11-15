@@ -1262,28 +1262,36 @@ class Wv2Host(tk.Frame):
                     except Exception:
                         pass
                     # TOMBOL KEMBALI (permintaan user 15 Nov): hanya di
-                    # halaman login/signup + alur Google - adik user
-                    # klik 'Sign in with Google', sadar belum punya
-                    # akun, dan tak ada cara mundur selain Alt+Left.
+                    # halaman yang BISA bikin nyasar (signup/register +
+                    # alur Google) - BUKAN halaman login utama (itu
+                    # sudah 'rumah' alur login, tak ada gunanya back).
+                    # Gaya = tombol bulat putih kiri-atas UI baru.
                     try:
                         _u = (pg.url or "").lower()
                         _perlu = (("edclub" in _u and any(
-                            k in _u for k in ("signin", "signup",
-                                              "register", "join")))
+                            k in _u for k in ("signup", "register",
+                                              "join")))
                                   or "accounts.google." in _u)
                         if _perlu:
                             pg.main_frame.evaluate("""() => {
                               if (document.getElementById('tb-back')) return;
                               const b = document.createElement('button');
                               b.id = 'tb-back';
-                              b.textContent = '\u2039 Kembali';
-                              b.style.cssText = 'position:fixed;top:14px;'
-                                + 'left:14px;z-index:2147483647;padding:8px'
-                                + ' 14px;border-radius:10px;border:none;'
-                                + 'background:rgba(24,26,32,.92);color:#fff;'
-                                + 'font:600 14px system-ui,sans-serif;'
-                                + 'cursor:pointer;box-shadow:0 2px 10px'
-                                + ' rgba(0,0,0,.35);';
+                              b.title = 'Kembali';
+                              b.setAttribute('aria-label', 'Kembali');
+                              b.innerHTML = '&#8249;';
+                              b.style.cssText = 'position:fixed;top:16px;'
+                                + 'left:16px;z-index:2147483647;width:44px;'
+                                + 'height:44px;border-radius:50%;border:none;'
+                                + 'background:#fff;color:#222;font-size:26px;'
+                                + 'line-height:44px;text-align:center;'
+                                + 'font-family:system-ui,sans-serif;'
+                                + 'cursor:pointer;box-shadow:0 1px 6px'
+                                + ' rgba(0,0,0,.25);padding:0;';
+                              b.onmouseenter = () => b.style.background =
+                                '#f1f2f4';
+                              b.onmouseleave = () => b.style.background =
+                                '#fff';
                               b.onclick = () => history.back();
                               (document.body || document.documentElement)
                                 .appendChild(b);

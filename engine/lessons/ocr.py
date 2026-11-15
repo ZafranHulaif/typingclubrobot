@@ -178,10 +178,14 @@ return new Promise((selesai) => {
 
 
 def _core_bridge_frame():
-    """Frame yg punya jembatan core: window.core (iframe balloonvalley
-    - live 15 Nov: cur_char/record_keydown_time ada, URL frame kosong
-    di playwright!) atau Phaser state core (main frame sportal
-    .play). Cache 3 dtk, re-validate kalau frame mati."""
+    """Frame yg punya jembatan core GAME BARU: window.core (iframe
+    balloonvalley/monsterattack - live 15 Nov: cur_char/
+    record_keydown_time ada, URL frame kosong di playwright!) atau
+    Phaser core (main frame sportal .play). HANYA keluarga phaserNN/
+    balloon: frame coreclassictyping pelajaran NORMAL juga punya
+    window.core - dulu probe semua frame = pelajaran normal ikut
+    ter-feed pace balon ~185wpm tetap ngebatch, keluhan user 15 Nov.
+    Cache 3 dtk, re-validate kalau frame mati."""
     kini = time.time()
     cached = getattr(state, "_balloon_bridge", None)
     if cached and kini - cached[1] < 3.0:
@@ -192,15 +196,29 @@ def _core_bridge_frame():
             pass
     for fr in jsutil.all_frames():
         try:
+            if fr is state.PAGE.main_frame:
+                # game Phaser lama di frame utama sportal .play saja
+                u = (fr.url or "").lower()
+                if "sportal" in u and ".play" in u:
+                    ada = jsutil.run_js(
+                        "return !!(window.core || (window.Phaser && "
+                        "Phaser.GAMES && Phaser.GAMES.length));", fr)
+                    if ada:
+                        state._balloon_bridge = (fr, kini)
+                        return fr
+                continue
+            # iframe game: href DI DALAM frame satu-satunya kebenaran
+            # (URL metadata playwright sering kosong saat mount awal)
             ada = jsutil.run_js(
-                "return !!(typeof window.core !== 'undefined' || "
-                "(window.Phaser && Phaser.GAMES && "
-                "Phaser.GAMES.length));", fr)
+                "const h = String(location.href);"
+                "if (!/phaser\\\\d+|balloon/i.test(h)) return false;"
+                "return !!(window.core || (window.Phaser && Phaser.GAMES"
+                " && Phaser.GAMES.length));", fr)
+            if ada:
+                state._balloon_bridge = (fr, kini)
+                return fr
         except Exception:
             continue
-        if ada:
-            state._balloon_bridge = (fr, kini)
-            return fr
     state._balloon_bridge = None
     return None
 
