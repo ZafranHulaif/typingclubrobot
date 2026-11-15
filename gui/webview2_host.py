@@ -23,6 +23,7 @@ import json
 import math
 import os
 import re
+import threading
 import time
 import tkinter as tk
 
@@ -508,6 +509,21 @@ def _akun_aktif_set(nama):
 _KUKI_IDENTITAS = ("pw_uuid", "connectId", "tb_lt", "_cc_id",
                    "_lc2_fpi", "_pubcid", "_sharedid")
 
+# Tiket sesi EDCLUB yang BENAR-BENAR berarti login. Dulu cukup 'ada
+# kuki apa saja': _cfuvid (Cloudflare, SET-COOKIE di SEMUA respons)
+# lolos filter __cf* (prefix beda: _cfuvid vs __cf) -> sesi 'sampah'
+# tersimpan -> auto-simpan menghidupkan 'aktif' akun lama padahal
+# sesinya sudah bersih (+ Akun: pill 'Zafran H ✓ aktif' bangkit
+# kembali, live 15 Nov).
+_KUKI_AUTENTIK = ("tb_lt", "rt")
+
+
+def sesi_bernilai(cookies):
+    """True bila daftar kuki memuat tiket login edclub (tb_lt/rt).
+    Kuki analitik/CDN saja = BUKAN sesi - jangan disimpan."""
+    nama = {c.get("name", "") for c in (cookies or [])}
+    return bool(nama & set(_KUKI_AUTENTIK))
+
 
 def _kuki_ttd(cookies):
     """Sidik jari IDENTITAS akun: HANYA cookie stabil (pw_uuid,
@@ -601,9 +617,12 @@ def akun_bersih_dupe():
 def simpan_akun(nama=None, cookies=None):
     """Daftarkan sesi sebagai akun tersimpan. TANPA nama = menolak
     (dulu bikin 'Akun 1'/'Akun 2' tak berarti - keluhan user Nov 2026).
-    Return nama terpakai, None kalau tak ada sesi/nama."""
+    Sesi tanpa tiket login (tb_lt/rt) juga ditolak - kuki sampah CDN
+    bukan sesi. Return nama terpakai, None kalau tak ada sesi/nama."""
     c = cookies or _sesi_muat()
     if not c or not (nama or "").strip():
+        return None
+    if not sesi_bernilai(c):
         return None
     d = _dir_akun()
     try:
@@ -760,6 +779,10 @@ class Wv2Host(tk.Frame):
         self._stage_widget = None    # kartu status (set_overlay)
         self._boot_anim_job = None   # job after spinner tutup boot
         self._nav_pending = None     # navigasi diminta thread lain
+        # identitas thread UI utk guard .NET langsung (ke_url): Navigate
+        # HANYA dicoba dari thread yang sama dgn init Tk/CLR (STA) -
+        # thread lain = cukup set flag, watcher urun
+        self._ui_thr = threading.get_ident()
         self._bounce_lama = 0.0      # cooldown bounce rute lama
         self._dialog_aktif = False   # dialog dalam-app sedang menempati area
         self.bind("<Configure>", self._on_resize)
@@ -986,6 +1009,15 @@ class Wv2Host(tk.Frame):
         ditinggal (daemon), koneksi baru dibuat di thread segar; state
         relay (kode dsb.) dipertahankan."""
         import threading
+        # LOG MASUK: dulu supervisor bisa mati BISU (thread mati sebelum
+        # catat pertama = sesi '+ Akun tak jalan' tak terdiagnosis,
+        # live 15 Nov: log tanpa satu baris pengawas pun)
+        try:
+            from .theme import LOG_FILE
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write("[WEBVIEW2] supervisor pengawas mulai\n")
+        except Exception:
+            pass
         stop = self._pw_stop
         while not stop.is_set():
             jantung = [time.time()]
@@ -1167,9 +1199,12 @@ class Wv2Host(tk.Frame):
                                      for c in milik)
                         # rotasi anon terjadi DI /signin (bounce) -
                         # jangan menimpa sesi tersimpan dgn kuki sampah
-                        if sid and sid != sesi_sid \
+                        # NILAI guard: kuki tanpa tiket (tb_lt/rt) =
+                        # bukan sesi (_cfuvid dsb. muncul terus dari
+                        # CDN) - dulu menimpa sesi bagus dgn sampah
+                        if (sid and sid != sesi_sid and sesi_bernilai(milik)
                                 and "/signin" not in (url_terakhir
-                                                      or ""):
+                                                      or "")):
                             sesi_sid = sid
                             _sesi_tulis(milik)
                             catat(f"sesi edclub tersimpan "
@@ -1309,7 +1344,11 @@ class Wv2Host(tk.Frame):
                                     )).get("cookies") or []
                             except Exception:
                                 cookies = []
-                            if cookies:
+                            # sesi_bernilai: file berisi kuki sampah
+                            # (_cfuvid) TIDAK boleh dianggap sesi hidup -
+                            # dulu menghidupkan kembali '✓ aktif' akun
+                            # lama tepat setelah + Akun bersih-bersih
+                            if cookies and sesi_bernilai(cookies):
                                 akun_auto_simpan(nm, cookies)
                     # MODE HEMAT EFEK (bot jalan): matikan animasi,
                     # transisi & blur di SEMUA frame edclub - layar
@@ -1644,10 +1683,28 @@ class Wv2Host(tk.Frame):
             pass
 
     def ke_url(self, url):
-        """Minta watcher mengarahkan halaman utama embed ke url. Aman
-        antar-thread: cuma set flag, watcher yang mengeksekusi (callback
-        .NET -> Python dilarang keras - GIL crash)."""
+        """Arahkan halaman utama embed ke url. DUA jalur supaya '+ Akun'
+        TIDAK MATI saat thread pengawas playwright bermasalah (live
+        15 Nov: watcher tak pernah tersambung -> _nav_pending tak
+        pernah dikonsumsi -> bersih-bersih cookie sukses tapi halaman
+        tidak pindah = 'did nothing').
+        1. LANGSUNG via .NET CoreWebView2.Navigate (panggilan
+           Python->.NET dari thread UI = aman; BUKAN ExecuteScriptAsync
+           yg terbukti sung). Bisa gagal saat webview belum siap.
+        2. FLAG _nav_pending utk pengawas (cadangan; navigasi ganda ke
+           URL sama = tak berbahaya)."""
         self._nav_pending = url
+        if threading.current_thread().ident != getattr(self, "_ui_thr", None):
+            return      # bukan thread UI - hanya flag, watcher urun
+        try:
+            core = self._ec.webview.CoreWebView2
+            if core is not None:
+                core.Navigate(url)
+                self._nav_pending = None      # tidak perlu dijual ke watcher
+                _cover_log(f"nav langsung: {url[:60]}")
+        except Exception as ex:
+            _cover_log(f"nav langsung gagal ({repr(ex)[:40]}) - watcher "
+                       "urun")
 
     def set_on_ready(self, cb):
         self._on_ready = cb
