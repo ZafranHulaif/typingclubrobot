@@ -105,48 +105,64 @@ def _ocr_tokens(frame):
         return []
 
 
-BALLOON_CORE_JS = r"""
-const g = window.Phaser ? (Phaser.GAMES || [])[0] : null;
-if (!g || !g.state) return null;
-const st = g.state.states[g.state.current];
-if (!st || !st.core) return null;
-const c = st.core;
+BALLOON_BRIDGE_JS = r"""
+const c = (typeof window.core !== 'undefined') ? window.core :
+  ((window.Phaser && Phaser.GAMES && Phaser.GAMES.length &&
+    Phaser.GAMES[0].state) ?
+   Phaser.GAMES[0].state.states[Phaser.GAMES[0].state.current].core : null);
+if (!c) return null;
 if (c.has_ended) return {ended: true};
+if (c.paused) { try { c.paused = false; } catch (e) {} }
 const cur = c.cur_char ? String(c.cur_char.chr) : '';
-if (!cur) return {wait: true};
-const want = cur.toLowerCase();
-const curX = st.balloonCursor ? st.balloonCursor.x : 300;
-// JARAK BALON HURUF AKT ke cursor - bukan balon apa pun yang
-// numpang di zona (dulu: balon lain di zona = ketik yg tak cocok =
-// ~20 huruf benar lalu salah terus, keluhan user 15 Nov). Huruf
-// balon = child sprite bertext 1 karakter.
-let best = null;
-for (const b of (st.balloons || [])) {
-    if (!b || b.visible === false || b.x === undefined || b.x === null)
-        continue;
-    let letter = null;
-    const ch = b.children || [];
-    for (const k of ch) {
-        if (k.text !== undefined && String(k.text).length === 1) {
-            letter = String(k.text).toLowerCase();
-            break;
-        }
-    }
-    if (letter !== want) continue;
-    const d = Math.abs(b.x - curX);
-    if (best === null || d < best) best = d;
+if (!cur) return {wait: true, idx: c.cur_char_index};
+if ('FEED') {
+    c.record_keydown_time(cur);
+    return {fed: true, idx: c.cur_char_index};
 }
-return {chr: cur, idx: c.cur_char_index, dist: best, wait: false};
+return {chr: cur, idx: c.cur_char_index, ended: false};
 """
+BALLOON_STATE_JS = BALLOON_BRIDGE_JS.replace("'FEED'", "0")
+BALLOON_FEED_JS = BALLOON_BRIDGE_JS.replace("'FEED'", "1")
+
+
+def _core_bridge_frame():
+    """Frame yg punya jembatan core: window.core (iframe balloonvalley
+    - live 15 Nov: cur_char/record_keydown_time ada, URL frame kosong
+    di playwright!) atau Phaser state core (main frame sportal
+    .play). Cache 3 dtk, re-validate kalau frame mati."""
+    kini = time.time()
+    cached = getattr(state, "_balloon_bridge", None)
+    if cached and kini - cached[1] < 3.0:
+        try:
+            if cached[0].evaluate("() => 1") == 1:
+                return cached[0]
+        except Exception:
+            pass
+    for fr in jsutil.all_frames():
+        try:
+            ada = jsutil.run_js(
+                "return !!(typeof window.core !== 'undefined' || "
+                "(window.Phaser && Phaser.GAMES && "
+                "Phaser.GAMES.length));", fr)
+        except Exception:
+            continue
+        if ada:
+            state._balloon_bridge = (fr, kini)
+            return fr
+    state._balloon_bridge = None
+    return None
 
 
 def try_balloon_core():
-    """Balloon valley new-look: game HIDUP DI FRAME UTAMA (sportal
-    .play) dgn API core standar + balloonCursor (zona pukul x=300,
-    balon spacing 200 - bukti live 15 Nov). Baca cur_char, ketik HANYA
-    saat balon sudah dekat cursor (dist<=90); anti-spam: (chr,idx) yg
-    sama tak diketik ulang kecuali >5 dtk. Return True kalau ketik."""
-    res = jsutil.run_js(BALLOON_CORE_JS)
+    """Balloon valley new-look: feed via jembatan core (window.core
+    iframe ATAU Phaser core main frame). Pace: ketik cur_char sekali,
+    tunggu game mengonsumsi (idx maju) sebelum huruf berikut - dulu
+    burst 14 huruf instan diterima tapi balon kabur = hati hilang
+    (keluhan user 15 Nov). Return True kalau ada aksi."""
+    fr = _core_bridge_frame()
+    if fr is None:
+        return False
+    res = jsutil.run_js(BALLOON_STATE_JS, fr)
     if not res:
         return False
     if res.get("ended"):
@@ -174,26 +190,22 @@ return null;
         return False
     chr_ = res.get("chr")
     idx = res.get("idx")
-    dist = res.get("dist")
-    if dist is None or dist > 90:
-        # balon huruf akt belum di zona pukul - TUNGU (jangan ketik
-        # huruf lain/balon lain = sumber '20 benar lalu salah semua')
-        return False
     kini = time.time()
-    if kini - getattr(state, "_balloon_core_typed", 0.0) < 0.25:
-        return False          # jeda minimal antar huruf
-    terakhir = getattr(state, "_balloon_core_last", None)
-    if terakhir and terakhir[0] == chr_ and terakhir[1] == idx \
-            and kini - terakhir[2] < 5.0:
-        return False          # sudah diketik, tunggu game maju
-    typing_core._mark_bot_click()
-    state.PAGE.keyboard.type(chr_)
-    state._balloon_core_last = (chr_, idx, kini)
-    state._balloon_core_typed = kini
-    print(f"[Minigame/Balloon] core: {chr_!r} idx={idx} dist={dist}")
-    state.stats["ocr"] += 1
-    state.last_action_time = time.time()
-    return True
+    last = getattr(state, "_balloon_core_last", None)
+    if last and last[0] == chr_ and last[1] == idx \
+            and kini - last[2] < 3.5:
+        return False          # sudah diketik, game belum konsumsi
+    if kini - getattr(state, "_balloon_core_typed", 0.0) < 0.22:
+        return False
+    fed = jsutil.run_js(BALLOON_FEED_JS, fr)
+    if fed and fed.get("fed"):
+        state._balloon_core_last = (chr_, idx, kini)
+        state._balloon_core_typed = kini
+        print(f"[Minigame/Balloon] core: {chr_!r} idx={idx}")
+        state.stats["phaser"] += 1
+        state.last_action_time = time.time()
+        return True
+    return False
 
 
 def _recognize(img):
@@ -208,15 +220,17 @@ def _recognize(img):
 
 
 def _balloon_frame():
-    """Frame game balloon valley: (a) iframe klasik dgn 'balloon' di
-    URL, (b) NEW LOOK: game HIDUP DI FRAME UTAMA halaman sportal
-    .play dgn API core standar (bukti live 15 Nov: 55/55 huruf via
-    core feed). Selalu catat waktu terakhir dilihat utk peluruhan
-    jangan-ketik-void di supervisor."""
+    """Frame game balloon valley: (a) iframe dgn 'balloon' di URL,
+    (b) NEW LOOK: game DI FRAME UTAMA halaman sportal .play, (c) iframe
+    baru-mount yang URL-nya KOSONG di playwright (live 15 Nov: 3 frame
+    '' - deteksi lama tak pernah cocok = probe & feeder tak jalan).
+    Selalu catat waktu terakhir dilihat utk peluruhan supervisor."""
+    kini = time.time()
     for fr in jsutil.all_frames():
         try:
-            if "balloon" in (fr.url or ""):
-                state._balloon_frame_seen = time.time()
+            u = fr.url or ""
+            if "balloon" in u:
+                state._balloon_frame_seen = kini
                 _probe_iframe(fr)
                 return fr
         except Exception:
@@ -225,10 +239,31 @@ def _balloon_frame():
         main = state.PAGE.main_frame
         u = (main.url or "").lower()
         if "sportal" in u and ".play" in u:
-            state._balloon_frame_seen = time.time()
+            state._balloon_frame_seen = kini
             return main
     except Exception:
         pass
+    # frame ber-URL kosong: cek ada Phaser di dalamnya (cache 3 dtk
+    # biar tak evaluate tiap siklus)
+    if kini - getattr(state, "_balloon_empty_ck", 0.0) < 3.0:
+        return state._balloon_empty_frame
+    state._balloon_empty_ck = kini
+    for fr in jsutil.all_frames():
+        try:
+            u = (fr.url or "").strip()
+            if u and u != "about:blank":
+                continue
+            ada = jsutil.run_js(
+                "return !!(window.Phaser && Phaser.GAMES "
+                "&& Phaser.GAMES.length);", fr)
+            if ada:
+                state._balloon_frame_seen = kini
+                state._balloon_empty_frame = fr
+                _probe_iframe(fr)
+                return fr
+        except Exception:
+            continue
+    state._balloon_empty_frame = None
     return None
 
 
