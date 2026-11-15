@@ -415,7 +415,7 @@ def main_loop():
                 tutorial.handle_tutorial(frame, data)
             elif det == "mini":
                 if ocr.try_balloon_core():
-                    time.sleep(0.15)
+                    time.sleep(0.05)
                     continue
                 if ocr.try_ocr_balloon():
                     time.sleep(0.3)

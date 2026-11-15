@@ -123,11 +123,12 @@ if ('FEED') {
 return {chr: cur, idx: c.cur_char_index, ended: false};
 """
 BALLOON_STATE_JS = BALLOON_BRIDGE_JS.replace("'FEED'", "0")
-# FEED BATCH: rantai setTimeout 80ms (rAF & loop game tetap jalan;
-# busy-wait akan MEMBEKUKAN loop game = balon tak sampai, live 15
-# Nov). Sampai 8 huruf per panggilan, BERHENTI di huruf pertama yang
-# tak dikonsumsi game (balon belum sampai = jangan salah). Promise
-# di-resolve playwright otomatis. Dulu 1 huruf/siklus = 20wpm.
+# FEED BATCH kontinu (live 15 Nov, permintaan user): rantai
+# setTimeout 60ms berjalan terus sampai (a) level selesai, (b) 3.5
+# dtk per eval (biar supervisor responsif), (c) huruf pertama yang
+# TAK dikonsumsi game (balon belum siap = berhenti, tanpa spam).
+# Python segera panggil ulang (jeda 0.12s) = terasa ngegemes
+# kontinu. Dulu 8 huruf @80ms + jeda 0.5s = 'nendaskendat'.
 BALLOON_FEED_JS = r"""
 const c = (typeof window.core !== 'undefined') ? window.core :
   ((window.Phaser && Phaser.GAMES && Phaser.GAMES.length &&
@@ -156,21 +157,20 @@ if (!c.has_started) {
     if (!c.has_started) return {fed: false, idx: -1, wait: true};
 }
 let fed = '';
+const t0 = Date.now();
 return new Promise((selesai) => {
     const berhenti = () => selesai(
         fed ? {fed: true, idx: c.cur_char_index, huruf: fed} :
               {fed: false, idx: c.cur_char_index});
-    let n = 0;
     const langkah = () => {
-        if (n >= 8 || c.has_ended) { berhenti(); return; }
+        if (c.has_ended || Date.now() - t0 > 3500) { berhenti(); return; }
         const cur = c.cur_char ? String(c.cur_char.chr) : '';
         if (!cur) { berhenti(); return; }
         const sebelum = c.cur_char_index;
         c.record_keydown_time(cur);
         if (c.cur_char_index === sebelum) { berhenti(); return; }
         fed += cur;
-        n++;
-        setTimeout(langkah, 80);
+        setTimeout(langkah, 60);
     };
     langkah();
 });
@@ -255,8 +255,8 @@ return null;
     if last and last[0] == chr_ and last[1] == idx \
             and kini - last[2] < 3.5:
         return False          # sudah diketik, game belum konsumsi
-    if kini - getattr(state, "_balloon_core_typed", 0.0) < 0.35:
-        return False          # batch pun butuh jeda antar panggilan
+    if kini - getattr(state, "_balloon_core_typed", 0.0) < 0.12:
+        return False          # panggil ulang cepat = terasa kontinu
     fed = jsutil.run_js(BALLOON_FEED_JS, fr)
     if fed and fed.get("fed"):
         huruf = fed.get("huruf", "")
