@@ -117,7 +117,11 @@ const cur = c.cur_char ? String(c.cur_char.chr) : '';
 if (!cur) return {wait: true, idx: c.cur_char_index,
                   mulai: !c.has_started};
 if ('FEED') {
-    c.record_keydown_time(cur);
+    // ARGUMEN WAKTU WAJIB (live 15 Nov malam, game yeti varian
+    // baru): panggilan 1-argumen TIDAK mengkonsumsi huruf - game
+    // mentok 'Type SPACE to begin' selamanya. performance.now()
+    // terbukti diterima (huruf terkonsumsi, live).
+    c.record_keydown_time(cur, performance.now());
     return {fed: true, idx: c.cur_char_index};
 }
 return {chr: cur, idx: c.cur_char_index, ended: false};
@@ -143,18 +147,20 @@ if (!c.has_started) {
     // (b) spasi - cur null (yeti 2970) = ketuk spasi. PENTING:
     // record(' ') TIDAK memulai varian spasi, dan event document
     //-lah yang didengar listener game (bukan window)
+    // VARIAN BARU EDCLUB (live 15 Nov malam): setelah spasi
+    // has_started TETAP false (huruf pertama langsung siap) -
+    // dulu bila di sini = rantai mati 'Type SPACE' selamanya.
+    // Kini: cuma tunggu bila cur_char memang belum ada.
     const c0 = c.cur_char ? String(c.cur_char.chr) : '';
-    if (c0) {
-        c.record_keydown_time(c0);
-    } else {
+    if (!c0) {
         document.dispatchEvent(new KeyboardEvent('keydown',
           {key: ' ', code: 'Space', keyCode: 32, which: 32,
            bubbles: true, cancelable: true}));
         setTimeout(() => document.dispatchEvent(new KeyboardEvent('keyup',
           {key: ' ', code: 'Space', keyCode: 32, which: 32,
            bubbles: true})), 40);
+        if (!c.cur_char) return {fed: false, idx: -1, wait: true};
     }
-    if (!c.has_started) return {fed: false, idx: -1, wait: true};
 }
 let fed = '';
 const t0 = Date.now();
@@ -167,7 +173,8 @@ return new Promise((selesai) => {
         const cur = c.cur_char ? String(c.cur_char.chr) : '';
         if (!cur) { berhenti(); return; }
         const sebelum = c.cur_char_index;
-        c.record_keydown_time(cur);
+        // dua argumen: lihat catatan di atas (varian baru wajib waktu)
+        c.record_keydown_time(cur, performance.now());
         if (c.cur_char_index === sebelum) { berhenti(); return; }
         fed += cur;
         setTimeout(langkah, 60);
