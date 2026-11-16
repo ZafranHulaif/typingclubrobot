@@ -1,0 +1,40 @@
+name: web-edition
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Deps
+        run: |
+          python -m pip install playwright
+          python -m playwright install chromium --with-deps
+      - name: Smoke edisi web
+        run: python bot_web.py --headless --smoke --port 8901
+      - name: Zip paket web
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          zip -r "TypingBot-web-${V}.zip" \
+            bot_web.py paths.py level_map.json \
+            engine/ platforms/README.md \
+            platforms/install.sh platforms/install-termux.sh \
+            -x "engine/__pycache__/*" "engine/lessons/__pycache__/*"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-zip
+          path: TypingBot-web-*.zip
+      - name: Tempel ke release (kalau tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" TypingBot-web-*.zip \
+            --clobber || echo "release belum ada - zip di artifact saja"
