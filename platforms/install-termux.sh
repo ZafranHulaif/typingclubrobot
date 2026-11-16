@@ -12,7 +12,7 @@ echo "Python : $(python3 -V)"
 
 if ! python3 -c "import playwright" >/dev/null 2>&1; then
     echo "Memasang playwright..."
-    python3 -m pip install playwright
+    python3 -m pip install playwright pillow
 fi
 if ! ls ~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome >/dev/null 2>&1; then
     echo "Unduh chromium (sekali, ~150MB)..."

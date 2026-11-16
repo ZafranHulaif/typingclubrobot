@@ -19,8 +19,8 @@ echo "Python : $(python3 -V)"
 # 2. playwright (untuk CDP; browser pakai yang terpasang di sistem)
 if ! python3 -c "import playwright" >/dev/null 2>&1; then
     echo "Memasang playwright..."
-    python3 -m pip install --user playwright 2>/dev/null \
-        || python3 -m pip install --break-system-packages playwright
+    python3 -m pip install --user playwright pillow 2>/dev/null \
+        || python3 -m pip install --break-system-packages playwright pillow
 fi
 
 # 3. browser Chromium
