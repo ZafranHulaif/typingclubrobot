@@ -175,9 +175,21 @@ return new Promise((selesai) => {
         const sebelum = c.cur_char_index;
         // dua argumen: lihat catatan di atas (varian baru wajib waktu)
         c.record_keydown_time(cur, performance.now());
-        if (c.cur_char_index === sebelum) { berhenti(); return; }
-        fed += cur;
-        setTimeout(langkah, 60);
+        // VARIAN BARU mengkonsumsi ASINKRON (tick game sendiri) - dulu
+        // idx dicek seketika = selalu 'belum dikonsumsi' = rantai
+        // berhenti tiap huruf & feeder lama ikut nyerang. Kini tunggu
+        // maks 8x60ms sampai idx maju.
+        let nunggu = 0;
+        const cek = () => {
+            if (c.cur_char_index !== sebelum) {
+                fed += cur;
+                setTimeout(langkah, 60);
+                return;
+            }
+            if (++nunggu > 8 || c.has_ended) { berhenti(); return; }
+            setTimeout(cek, 60);
+        };
+        cek();
     };
     langkah();
 });
@@ -218,7 +230,11 @@ def _core_bridge_frame():
             # (URL metadata playwright sering kosong saat mount awal)
             ada = jsutil.run_js(
                 "const h = String(location.href);"
-                "if (!/phaser\\\\d+|balloon/i.test(h)) return false;"
+                # \d satu backslash di JS: dulu \\\\d = backslash literal
+                # -> phaser02monsterattack TAK PERNAH kena, cuma jalur
+                # 'balloon' lolos = yeti tak di-feed selamanya (live 16
+                # Nov, reproduksi di laptop dev)
+                "if (!/phaser\\d+|balloon/i.test(h)) return false;"
                 "return !!(window.core || (window.Phaser && Phaser.GAMES"
                 " && Phaser.GAMES.length));", fr)
             if ada:
@@ -238,6 +254,35 @@ def try_balloon_core():
     (keluhan user 15 Nov). Return True kalau ada aksi."""
     fr = _core_bridge_frame()
     if fr is None:
+        # GERBANG AUDIO 'Ready to start?' (live 17 Nov, yeti): game
+        # menuntut klik Start sebelum iframe terpasang - tanpa ini bot
+        # berdiri selamanya di depan gerbang. Klik sekali per 5 dtk,
+        # cuma di halaman lesson .play & teks gerbang terlihat.
+        if time.time() - getattr(state, "_gerbang_audio_t", 0) < 5:
+            return False
+        try:
+            main = state.PAGE.main_frame
+            u = (main.url or "").lower()
+            if ".play" not in u or "sportal" not in u:
+                return False
+            klik = jsutil.run_js(r"""
+if (!/ready to start/i.test(document.body.innerText || ''))
+  return false;
+const el = Array.from(document.querySelectorAll('button'))
+  .find(b => /^start\b/i.test((b.innerText || '').trim())
+       && b.getBoundingClientRect().width > 30);
+if (!el) return false;
+el.click();
+return true;
+""", main)
+            if klik:
+                state._gerbang_audio_t = time.time()
+                state.last_action_time = time.time()
+                print("[Minigame/Balloon] gerbang audio 'Ready to "
+                      "start?' - Start diklik")
+                return True
+        except Exception:
+            pass
         return False
     res = jsutil.run_js(BALLOON_STATE_JS, fr)
     if not res:
@@ -337,7 +382,7 @@ def _balloon_frame():
             # 'balloon' klasik ATAU seluruh keluarga game baru
             # phaser01balloonvalley / phaser02monsterattack / dst -
             # prarolong game bisa 14 dtk; jangan sampai void
-            if "balloon" in u or re.search(r"phaser\\d+", u):
+            if "balloon" in u or re.search(r"phaser\d+", u):
                 state._balloon_frame_seen = kini
                 if "balloon" in u:
                     _probe_iframe(fr)

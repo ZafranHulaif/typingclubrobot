@@ -122,6 +122,13 @@ return null;
 
 
 def handle_phaser_minigame():
+    # JEMBATAN BALON HIDUP = game milik jalur balon (window.core,
+    # pace per huruf). Dulu feeder ini ikut mengetik di game yang
+    # SAMA -> dua feeder bertengkar: idx macet, hati habis, retry
+    # terus (live 16 Nov, yeti lesson 3014, reproduksi dev).
+    _bb = getattr(state, "_balloon_bridge", None)
+    if _bb and time.time() - _bb[1] < 4.0:
+        return False
     if time.time() < state._phaser_cooldown["until"]:
         return False
     # Level premium: modal menutupi canvas, game mengabaikan ketikan

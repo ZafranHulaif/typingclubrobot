@@ -397,24 +397,29 @@ def main_loop():
             if browser._di_lesson(url) and video.handle_video_level():
                 continue
 
+            # JALUR CEPAT GAME BARU dulu, sebelum penutup pop-up: dulu
+            # penutup pop-up di depan - eskalasi klik mouse-nya dianggap
+            # aktivitas user -> bot mundur -> game diam -> monster
+            # menyusul = has_ended di TENGAH feed (live 17 Nov, yeti
+            # 3014: bukti err=0 & taps beku 9 dtk = game dimakan saat
+            # siklus sibuk menutup pop-up). Kini game feed dapat
+            # giliran pertama tiap siklus; pop-up ditutup sesudahnya.
+            if ocr.try_balloon_core():
+                time.sleep(0.05)
+                continue
+
             # penutup pop-up: dilewati saat USER sedang memakai halaman
             # (klik/touch < 3 dtk) - dulu ESC/klik penutup menutup modal
             # MILIK USER (dropdown tanggal lahir, keluhan live teman user
             # Nov 2026). Klik bot sendiri sudah difilter via __tb_ignore.
+            # COOLDOWN 1.5 dtk: kalau tutupnya bermasalah (klik tanpa
+            # hasil), siklus tidak boleh monopoli di sini selamanya.
             if not typing_core._user_active(3.0) \
+                    and time.time() - getattr(state, "_popup_t", 0) > 1.5 \
                     and jsutil.close_overlays_all_frames():
+                state._popup_t = time.time()
                 state.stats["popup"] += 1
                 time.sleep(0.6)
-                continue
-
-            # JALUR CEPAT GAME BARU (keluhan user 15 Nov: ngeklik game
-            # dari daftar level = bot diem ~15-30 dtk): deteksi lesson
-            # pelan + pra-gulir game bisa 14 dtk. Jembatan window.core
-            # dites DULUAN tiap siklus (probe murah, cache 3 dtk di
-            # _core_bridge_frame); kalau game siap = feed tanpa nunggu
-            # det. Normal lessons tanpa jembatan = ini no-op murah.
-            if ocr.try_balloon_core():
-                time.sleep(0.05)
                 continue
             det, frame, data = jsutil.detect_all_frames()
 
