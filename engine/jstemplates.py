@@ -357,6 +357,26 @@ return null;
 """
 
 
+PREMIUM_SKIP_JS = r"""
+// Modal premium BARU (live 18 Nov): 'Upgrade to Pro to unlock lesson'
+// (STEP 1 OF 2, kartu harga) - TIDAK punya .edmodal-x. Tombol ampuhnya
+// 'Skip this lesson': satu klik = tutup modal DAN edclub lompat sendiri
+// ke level berikutnya (live: 3013 -> 285 lanjot tanpa logika tambahan).
+if (!/upgrade to pro|unlock this lesson/i.test(
+    document.body.innerText || '')) return false;
+const cari = Array.from(document.querySelectorAll('div'))
+  .filter(d => /upgrade to pro|unlock this lesson/i.test(d.innerText || '')
+       && d.children.length > 0
+       && (d.innerText || '').length < 700);
+const modal = cari[cari.length - 1];
+if (!modal) return false;
+const btn = Array.from(modal.querySelectorAll('button'))
+  .find(b => /skip this lesson/i.test(b.innerText || ''));
+if (!btn) return false;
+btn.click();
+return true;
+"""
+
 PREMIUM_MODAL_JS = r"""
 // Modal premium: return {x,y} = titik tombol X (edmodal-x) untuk klik
 // mouse asli, atau {zombie:true} kalau modal fullscreen Tanpa X (iframe

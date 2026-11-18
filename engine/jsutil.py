@@ -21,6 +21,7 @@ from .config import BIRTH_MONTH, BIRTH_YEAR
 from .jstemplates import (ADHIDE_JS, AUDIO_GATE_JS, BADGE_STREAK_JS, BIRTHDAY_JS,
                           BLOK_POPUP_JS, DIDOMI_JS, DETECT_JS, EDMODAL_CEK_JS,
                           EDMODAL_JS, ESC_FALLBACK_JS, MODAL_HINT_JS, OVERLAY_JS,
+                          PREMIUM_SKIP_JS,
                           SCORE_JS)
 
 
@@ -179,6 +180,17 @@ def close_overlays_all_frames():
             elif titik is None:
                 print("[Pop-up] modal Premium ditutup (.edmodal-x)")
                 total += 1
+    except Exception:
+        pass
+    # Modal premium BARU (live 18 Nov, 'Upgrade to Pro...' STEP 1 OF 2):
+    # selektor .edmodal-x lama tak cocok - modal ini punya tombol
+    # 'Skip this lesson' = satu klik tutup + lompat level (live:
+    # 3013 -> 285 lanjot sendiri).
+    try:
+        if run_js(PREMIUM_SKIP_JS, state.PAGE.main_frame):
+            print("[Pop-up] modal premium baru - 'Skip this lesson' diklik")
+            state.last_action_time = time.time()
+            total += 1
     except Exception:
         pass
     # Badge streak: tidak punya tombol tutup - ESC keyboard asli (CDP,

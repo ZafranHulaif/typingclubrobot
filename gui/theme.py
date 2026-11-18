@@ -108,7 +108,7 @@ LICENSE_FILE = paths.data_path("license.dat")
 
 
 
-APP_VERSION = "3.5.1"
+APP_VERSION = "3.5.2"
 
 
 CREATOR = "ZafranHulaif"

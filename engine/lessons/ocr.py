@@ -246,6 +246,36 @@ def _core_bridge_frame():
     return None
 
 
+_CARI_MAJU_JS = r"""
+const maju = ['next', 'move on', 'continue', 'lanjut'];
+for (const w of maju) {
+  for (const el of document.querySelectorAll('button, a, [role=button]')) {
+    const t = (el.innerText || '').trim().toLowerCase();
+    if (!t.includes(w)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 30) continue;
+    el.click();
+    return t;
+  }
+}
+return null;
+"""
+
+_CARI_ULANG_JS = r"""
+const ulang = ['try again', 'press enter', '→'];
+for (const w of ulang) {
+  for (const el of document.querySelectorAll('button, a, [role=button]')) {
+    const t = (el.innerText || '').trim().toLowerCase();
+    if (!t.includes(w)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 30) continue;
+    el.click();
+    return t;
+  }
+}
+return null;
+"""
+
 def try_balloon_core():
     """Balloon valley new-look: feed via jembatan core (window.core
     iframe ATAU Phaser core main frame). Pace: ketik cur_char sekali,
@@ -288,34 +318,43 @@ return true;
     if not res:
         return False
     if res.get("ended"):
-        # Layar akhir - TANPA nunggu tetap: poll tombol MAJU saja tiap
-        # siklus (Next/move on/continue). Tombol ulang iframe ('Try
-        # again'/'Press Enter') tak pernah disentuh polling ini, jadi
-        # aman diklik sedini mungkin - bahkan saat animasi bintang
-        # masih jalan (keluhan user: animasi lambat). Fallback 12 dtk:
-        # kalau tak ada tombol maju sama sekali, ulang level (lebih
-        # baik dari macet selamanya - feed ulang cuma butuh detik).
+        # Layar akhir - poll tombol MAJU tiap siklus di SEMUA frame
+        # (dulu cuma frame utama; layar hasil varian baru ada DI IFRAME
+        # GAME). Sambil nunggu: klik tengah canvas game tiap 1.2 dtk =
+        # skip animasi bintang (keluhan 17 Nov: layar hasil berat, di
+        # PC lab animasi beku & nyangkut - klik = lompat ke akhir).
+        # Fallback 25 dtk (dulu 12): ulang level hanya kalau benar2
+        # tak ada tombol - di mesin lemah animasi bisa > 12 dtk.
         if not getattr(state, "_balloon_end_t", 0):
             state._balloon_end_t = time.time()
-        klik = jsutil.run_js(r"""
-const maju = ['next', 'move on', 'continue', 'lanjut'];
-for (const w of maju) {
-  for (const el of document.querySelectorAll('button, a, [role=button]')) {
-    const t = (el.innerText || '').trim().toLowerCase();
-    if (!t.includes(w)) continue;
-    const r = el.getBoundingClientRect();
-    if (r.width < 30) continue;
-    el.click();
-    return t;
-  }
-}
-return null;
-""")
+        if time.time() - getattr(state, "_balloon_skip_t", 0) > 1.2:
+            state._balloon_skip_t = time.time()
+            jsutil.run_js(r"""
+const c = document.querySelector('canvas');
+if (c) { const r = c.getBoundingClientRect();
+  const o = {bubbles: true, clientX: r.x + r.width / 2,
+             clientY: r.y + r.height / 2};
+  c.dispatchEvent(new MouseEvent('pointerdown', o));
+  c.dispatchEvent(new MouseEvent('pointerup', o));
+  c.dispatchEvent(new MouseEvent('click', o));
+}""", fr)
+        klik = jsutil.run_js(_CARI_MAJU_JS)
+        if not klik:
+            klik = jsutil.run_js(_CARI_MAJU_JS, fr)
         if klik:
             print(f"[Minigame/Balloon] layar akhir - klik {klik!r}")
             state.last_action_time = time.time()
             state._balloon_end_t = 0
             return False
+        if time.time() - state._balloon_end_t > 25:
+            klik2 = jsutil.run_js(_CARI_ULANG_JS)
+            if not klik2:
+                klik2 = jsutil.run_js(_CARI_ULANG_JS, fr)
+            if klik2:
+                print(f"[Minigame/Balloon] tanpa tombol maju 25 dtk - ulang "
+                      f"{klik2!r}")
+            state._balloon_end_t = 0
+        return True
         if time.time() - state._balloon_end_t > 12:
             klik2 = jsutil.run_js(r"""
 const ulang = ['try again', 'press enter', '→'];
@@ -343,9 +382,9 @@ return null;
     last = getattr(state, "_balloon_core_last", None)
     if last and last[0] == chr_ and last[1] == idx \
             and kini - last[2] < 3.5:
-        return False          # sudah diketik, game belum konsumsi
+        return True     # sudah diketik, game belum konsumsi = klaim siklus (dulu False -> cabang pop-up menyela, bot mundur, monster menyusul - live 17 Nov)
     if kini - getattr(state, "_balloon_core_typed", 0.0) < 0.12:
-        return False          # panggil ulang cepat = terasa kontinu
+        return True      # panggil ulang cepat = klaim siklus
     fed = jsutil.run_js(BALLOON_FEED_JS, fr)
     if fed and fed.get("fed"):
         huruf = fed.get("huruf", "")
