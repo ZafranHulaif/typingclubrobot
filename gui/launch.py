@@ -1004,6 +1004,13 @@ class LaunchMixin:
                     lambda o=ok, p=pesan: self._akun_keluar_hasil(o, p)))
 
         refresh()
+        # + Akun dibuka: tutup selector pilih-level bila terbuka
+        # (dua overlay sekaligus = tumpang tindih, live 18 Nov)
+        try:
+            from . import dialogs as _dlg
+            _dlg.tutup_rentang_aktif()
+        except Exception:
+            pass
         self._pop_tempatkan(pop, self.btn_akun)
         self._pop_angkat(pop)
         self._pop_jaga_diam(pop, "_akun_pop", tutup)

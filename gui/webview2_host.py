@@ -910,6 +910,33 @@ class Wv2Host(tk.Frame):
                             except Exception:
                                 pass
                         ctx.add_cookies(cookies)
+                        # SUNTIK localStorage.tb_lt (live 18 Nov: SPA
+                        # membaca tiket dari localStorage saat boot -
+                        # cookies saja = halaman login, padahal tiket
+                        # masih hidup di server. Pembersih di atas
+                        # menghapus localStorage tb_lt; restore wajib
+                        # mengembalikannya SEBELUM navigasi berikut.)
+                        try:
+                            _tb = next((c.get("value")
+                                        for c in cookies
+                                        if c.get("name") == "tb_lt"),
+                                       None)
+                            if _tb:
+                                _pg = (ctx.pages[0] if ctx.pages
+                                       else ctx.new_page())
+                                try:
+                                    _pg.goto(
+                                        "https://www.edclub.com/signin/",
+                                        timeout=20000,
+                                        wait_until="domcontentloaded")
+                                except Exception:
+                                    pass
+                                _pg.evaluate(
+                                    "(t) => { try { localStorage."
+                                    "setItem('tb_lt', t); } "
+                                    "catch (e) {} }", _tb)
+                        except Exception:
+                            pass
                     br.close()
                     ok = True
                     pesan = "sesi dimuat"

@@ -562,6 +562,25 @@ def dialog_tips(induk, terdeteksi):
 
 
 
+_rentang_aktif = None   # dialog pilih-level yang sedang terbuka
+
+
+def tutup_rentang_aktif():
+    """Tutup dialog pilih-level bila sedang terbuka (batal). Dipanggil
+    saat + Akun dibuka: dua overlay sekaligus = tumpang tindih (keluhan
+    live 18 Nov: + Akun saat selector terbuka, selector nongol terus)."""
+    global _rentang_aktif
+    d = _rentang_aktif
+    if d is None:
+        return False
+    try:
+        d.done(None)   # batal -> pemanggil dapat None
+        return True
+    except Exception:
+        _rentang_aktif = None
+        return False
+
+
 def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
                  posisi=0, baris=None):
     """Pilih titik mulai bot. Return: "lanjut" (dari posisi akun - level
@@ -1046,7 +1065,12 @@ def dialog_done(induk, akhir):
              font=("Segoe UI", 10), fg=FG, bg=PANEL, wraplength=420,
              justify="left").pack(anchor="w")
     d.button("Oke")
-    return d.show()
+    global _rentang_aktif
+    _rentang_aktif = d
+    try:
+        return d.show()
+    finally:
+        _rentang_aktif = None
 
 
 
