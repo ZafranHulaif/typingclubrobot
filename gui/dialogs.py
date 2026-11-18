@@ -1049,7 +1049,15 @@ def dialog_range(induk, mulai, akhir, jumlah_peta, total_level, on_bangun,
     info.pack(anchor="center")
     gbr_rentang()          # setelah khusus ada (butuh winfo_ismapped)
 
-    r = d.show()
+    # jangkar: selector pilih-level aktif (tutup_rentang_aktif menutup
+    # ini saat + Akun dibuka - JANGAN ditaruh di dialog lain; dulu
+    # nyasar ke dialog_done karena pencarian 'return d.show()' pertama
+    global _rentang_aktif
+    _rentang_aktif = d
+    try:
+        r = d.show()
+    finally:
+        _rentang_aktif = None
     if r == "halaman" or r == "lanjut":
         return r
     return r if isinstance(r, dict) else None
@@ -1065,12 +1073,7 @@ def dialog_done(induk, akhir):
              font=("Segoe UI", 10), fg=FG, bg=PANEL, wraplength=420,
              justify="left").pack(anchor="w")
     d.button("Oke")
-    global _rentang_aktif
-    _rentang_aktif = d
-    try:
-        return d.show()
-    finally:
-        _rentang_aktif = None
+    return d.show()
 
 
 
