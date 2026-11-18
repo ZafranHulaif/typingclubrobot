@@ -1008,7 +1008,9 @@ class LaunchMixin:
         # (dua overlay sekaligus = tumpang tindih, live 18 Nov)
         try:
             from . import dialogs as _dlg
-            _dlg.tutup_rentang_aktif()
+            if _dlg.tutup_rentang_aktif():
+                self._rentang_suppress = True   # tick jangan buka ulang
+                self._log("[SELEKTOR] ditutup - + Akun dipakai")
         except Exception:
             pass
         self._pop_tempatkan(pop, self.btn_akun)

@@ -932,9 +932,14 @@ class Wv2Host(tk.Frame):
                                 except Exception:
                                     pass
                                 _pg.evaluate(
-                                    "(t) => { try { localStorage."
-                                    "setItem('tb_lt', t); } "
-                                    "catch (e) {} }", _tb)
+                                    "(t, u) => { try { localStorage."
+                                    "setItem('tb_lt', t); } catch (e) {} "
+                                    "location.href = u; }",
+                                    _tb,
+                                    "https://www.edclub.com/student"
+                                    "/course/3")
+                                print("[AKUN] localStorage tb_lt "
+                                      "disuntik + lompat ke daftar")
                         except Exception:
                             pass
                     br.close()

@@ -730,7 +730,15 @@ class ActivityMixin:
         if self._progres_akun:
             self._pindai_selesai = True
         bot = self.bot
-        if not getattr(self, "_rentang_terbuka", False) \
+        if getattr(self, "_rentang_suppress", False):
+            # + Akun menutup selector dengan sengaja: tick TIDAK BOLEH
+            # membuka ulang (dulu tick membuka lagi 1-2 dtk kemudian =
+            # keluhan 'tidak kunjung tutup', live 18 Nov). Penanda lepas
+            # otomatis saat mode memilih level berakhir (AWAIT_RANGE
+            # turun = user membuka lesson / rentang terjawab).
+            if not getattr(bot, "AWAIT_RANGE", False):
+                self._rentang_suppress = False
+        elif not getattr(self, "_rentang_terbuka", False) \
                 and bot is not None and getattr(bot, "AWAIT_RANGE", False):
             if self._progres_akun:
                 self._log("Progres akun terbaca (level %s)."
