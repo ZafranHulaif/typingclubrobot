@@ -931,15 +931,20 @@ class Wv2Host(tk.Frame):
                                         wait_until="domcontentloaded")
                                 except Exception:
                                     pass
-                                _pg.evaluate(
-                                    "(t, u) => { try { localStorage."
-                                    "setItem('tb_lt', t); } catch (e) {} "
-                                    "location.href = u; }",
-                                    _tb,
-                                    "https://www.edclub.com/student"
-                                    "/course/3")
-                                print("[AKUN] localStorage tb_lt "
-                                      "disuntik + lompat ke daftar")
+                                try:
+                                    _pg.evaluate(
+                                        "(a) => { try { localStorage."
+                                        "setItem('tb_lt', a.tb); }"
+                                        " catch (e) {} "
+                                        "location.href = a.u; }",
+                                        {"tb": _tb,
+                                         "u": "https://www.edclub.com"
+                                             "/student/course/3"})
+                                    print("[AKUN] localStorage tb_lt "
+                                          "disuntik + lompat ke daftar")
+                                except Exception as e:
+                                    print(f"[AKUN] suntik localStorage "
+                                          f"gagal: {str(e)[:70]}")
                         except Exception:
                             pass
                     br.close()
