@@ -94,6 +94,8 @@ def _range_check(url):
     # belum ada), bukan level terdepan akun. (Keluhan live: user diam di
     # daftar pelajaran, recovery malah membuka L106 terdepan dan bot
     # mengetiknya.) Dulu case ini dibiarkan ke recovery.
+    if getattr(state, "_user_lepas", False):
+        return False   # user sedang menjelajah - JANGAN seret balik
     if not state.NEEDS_LOGIN and not typing_core._user_active(25.0) \
             and time.time() - state._range_nav > 10:
         state._range_nav = time.time()

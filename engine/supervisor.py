@@ -275,8 +275,17 @@ def main_loop():
             # level, pengaturan, profil) - jangan ambil alih; tunggu sampai
             # user diam atau masuk lesson sendiri. >2 menit -> GUI bertanya.
             if not browser._di_lesson(url) and typing_core._user_active(25.0):
+                # user MENYERAHIN kendali (menekan back / menjelajah):
+                # catat, supaya validator 'kembali ke level' tidak
+                # menyeret balik ke game saat dia asyik menjelajah
+                # (keluhan live 18 Nov: tekan back -> diseret balik ke
+                # yeti terus). Bot lanjot saat user buka lesson mana
+                # pun - persis janji di footer.
+                state._user_lepas = True
                 typing_core._wait_for_user(url)
                 continue
+            if browser._di_lesson(url):
+                state._user_lepas = False
             typing_core._user_idle_again(url)
 
             if url != state.last_url:
@@ -534,7 +543,7 @@ def main_loop():
                     # alih (klik lanjut, ganti tab, recovery) ditunda -
                     # dulu intervensi user salah dibaca 'level selesai/
                     # mati' dan bot menekan tombol sendiri.
-                    user_sibuk = typing_core._user_active(25.0)
+                    user_sibuk = typing_core._user_active(25.0) or                         getattr(state, "_user_lepas", False)
                     # heartbeat: bot tidak boleh pernah diam tanpa kabar.
                     # (dulu: det unknown = sunyi total, kelihatan mati)
                     if stalled > 10 and time.time() - state.last_debug_dump > 10:

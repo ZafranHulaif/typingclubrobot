@@ -121,7 +121,7 @@ if ('FEED') {
     // baru): panggilan 1-argumen TIDAK mengkonsumsi huruf - game
     // mentok 'Type SPACE to begin' selamanya. performance.now()
     // terbukti diterima (huruf terkonsumsi, live).
-    c.record_keydown_time(cur, performance.now());
+    c.record_keydown_time(cur, 109);  // 109ms/huruf = 110wpm terukur
     return {fed: true, idx: c.cur_char_index};
 }
 return {chr: cur, idx: c.cur_char_index, ended: false};
@@ -142,6 +142,9 @@ if (!c) return null;
 if (c.has_ended) return {ended: true};
 if (c.paused) { try { c.paused = false; } catch (e) {} }
 if (!c.has_started) {
+    // reset stat: duration sisa usia halaman (performance.now)
+    // pernah dikira jeda = membengkak = wpm hancur (18 Nov)
+    try { c.reset_stats(); } catch (e) {}
     // Dua varian mulai (live 15 Nov): (a) huruf-pertama - cur_char
     // sudah diisi (balloon valley, yeti 'b'...) = feed huruf itu;
     // (b) spasi - cur null (yeti 2970) = ketuk spasi. PENTING:
@@ -174,7 +177,7 @@ return new Promise((selesai) => {
         if (!cur) { berhenti(); return; }
         const sebelum = c.cur_char_index;
         // dua argumen: lihat catatan di atas (varian baru wajib waktu)
-        c.record_keydown_time(cur, performance.now());
+        c.record_keydown_time(cur, 109);  // 109ms/huruf = 110wpm terukur
         // VARIAN BARU mengkonsumsi ASINKRON (tick game sendiri) - dulu
         // idx dicek seketika = selalu 'belum dikonsumsi' = rantai
         // berhenti tiap huruf & feeder lama ikut nyerang. Kini tunggu
@@ -246,20 +249,39 @@ def _core_bridge_frame():
     return None
 
 
-_CARI_MAJU_JS = r"""
-const maju = ['next', 'move on', 'continue', 'lanjut'];
-for (const w of maju) {
-  for (const el of document.querySelectorAll('button, a, [role=button]')) {
-    const t = (el.innerText || '').trim().toLowerCase();
-    if (!t.includes(w)) continue;
-    const r = el.getBoundingClientRect();
-    if (r.width < 30) continue;
-    el.click();
-    return t;
-  }
+_MAJU_LABEL = ("['next', 'move on', 'continue', 'lanjut', "
+               "'lanjutkan', 'play next', 'next level', 'keep going', "
+               "'done']")
+
+_MAJU_DASAR = r"""
+const maju = __LABEL__;
+const cocok = (el) => {
+  const t = (el.innerText || '').trim().toLowerCase();
+  if (t && maju.some(w => t.includes(w))) return true;
+  const a = ((el.getAttribute('aria-label') || '') + ' ' +
+             (el.getAttribute('title') || '')).toLowerCase();
+  return !!a && maju.some(w => a.includes(w));
+};
+for (const el of document.querySelectorAll('button, a, [role=button]')) {
+  if (!cocok(el)) continue;
+  const r = el.getBoundingClientRect();
+  if (r.width < 30 || r.height < 12) continue;
+  __AKSI__
 }
 return null;
 """
+
+_CARI_MAJU_JS = _MAJU_DASAR.replace("__LABEL__", _MAJU_LABEL).replace(
+    "__AKSI__",
+    "  const label = (el.innerText || '').trim().slice(0, 20) || "
+    "el.getAttribute('aria-label') || 'tombol'; "
+    "el.click(); "
+    "return label;")
+_CEMAI_MAJU_JS = _MAJU_DASAR.replace("__LABEL__", _MAJU_LABEL).replace(
+    "__AKSI__", "  return true;")
+_TITIK_MAJU_JS = _MAJU_DASAR.replace("__LABEL__", _MAJU_LABEL).replace(
+    "__AKSI__",
+    "  return {x: r.x + r.width / 2, y: r.y + r.height / 2};")
 
 _CARI_ULANG_JS = r"""
 const ulang = ['try again', 'press enter', '→'];
@@ -318,13 +340,16 @@ return true;
     if not res:
         return False
     if res.get("ended"):
-        # Layar akhir - poll tombol MAJU tiap siklus di SEMUA frame
-        # (dulu cuma frame utama; layar hasil varian baru ada DI IFRAME
-        # GAME). Sambil nunggu: klik tengah canvas game tiap 1.2 dtk =
-        # skip animasi bintang (keluhan 17 Nov: layar hasil berat, di
-        # PC lab animasi beku & nyangkut - klik = lompat ke akhir).
-        # Fallback 25 dtk (dulu 12): ulang level hanya kalau benar2
-        # tak ada tombol - di mesin lemah animasi bisa > 12 dtk.
+        # Layar akhir - poll tombol MAJU di SEMUA frame SEGAR tiap
+        # siklus (dulu: frame utama + frame CACHE; iframe hasil kadang
+        # DIGANTI game -> cache mati, klik tak pernah sampai = 'next
+        # sudah muncul tapi bot nunggu lama' - live teman user 3.5.2).
+        # el.click() juga kadang diabaikan game selama animasi tombol
+        # belum selesai -> kalau tombol masih ada setelah klik,
+        # eskalasi klik mouse ASLI via CDP (isTrusted, ala modal
+        # premium lama). Sambil nunggu: klik tengah canvas tiap 1.2
+        # dtk = skip animasi (efek 'animation stopped' yang memang
+        # diinginkan). Fallback 25 dtk: ulang level.
         if not getattr(state, "_balloon_end_t", 0):
             state._balloon_end_t = time.time()
         if time.time() - getattr(state, "_balloon_skip_t", 0) > 1.2:
@@ -338,11 +363,49 @@ if (c) { const r = c.getBoundingClientRect();
   c.dispatchEvent(new MouseEvent('pointerup', o));
   c.dispatchEvent(new MouseEvent('click', o));
 }""", fr)
-        klik = jsutil.run_js(_CARI_MAJU_JS)
-        if not klik:
-            klik = jsutil.run_js(_CARI_MAJU_JS, fr)
+        klik = None
+        fr_lbl = ""
+        fr_obj = None
+        for f2 in jsutil.all_frames():
+            k2 = jsutil.run_js(_CARI_MAJU_JS, f2)
+            if k2:
+                klik = k2
+                fr_obj = f2
+                fr_lbl = jsutil.frame_label(f2)
+                break
         if klik:
-            print(f"[Minigame/Balloon] layar akhir - klik {klik!r}")
+            # level ini TAMAT sesi ini -> dorong jangkar rentang ke
+            # level BERIKUTNYA. Dulu jangkar diam di LEVEL_START:
+            # validator 'kembali ke level' menyeret balik ke level
+            # yang barusan selesai begitu user memutus dengan
+            # browsing (live 18 Nov: 217 tamat -> diseret balik ke
+            # yeti terus = seolah dibajak)
+            try:
+                _angka = re.search(r"\d+", state.STATUS_LABEL or "")
+                if _angka:
+                    state._range_max_seen = max(
+                        getattr(state, "_range_max_seen", 0),
+                        int(_angka.group()) + 1)
+            except Exception:
+                pass
+            masih = jsutil.run_js(_CEMAI_MAJU_JS, fr_obj)
+            if masih:
+                titik = jsutil.run_js(_TITIK_MAJU_JS, fr_obj)
+                if titik and titik.get("x"):
+                    typing_core._mark_bot_click()
+                    try:
+                        state.PAGE.mouse.click(titik["x"], titik["y"])
+                        print(f"[Minigame/Balloon] layar akhir - klik "
+                              f"mouse asli {klik!r} @{fr_lbl}")
+                    except Exception:
+                        print(f"[Minigame/Balloon] layar akhir - klik "
+                              f"{klik!r} @{fr_lbl} (mouse gagal)")
+                else:
+                    print(f"[Minigame/Balloon] layar akhir - klik "
+                          f"{klik!r} @{fr_lbl} (tanpa titik)")
+            else:
+                print(f"[Minigame/Balloon] layar akhir - klik {klik!r} "
+                      f"@{fr_lbl}")
             state.last_action_time = time.time()
             state._balloon_end_t = 0
             return False
@@ -351,30 +414,10 @@ if (c) { const r = c.getBoundingClientRect();
             if not klik2:
                 klik2 = jsutil.run_js(_CARI_ULANG_JS, fr)
             if klik2:
-                print(f"[Minigame/Balloon] tanpa tombol maju 25 dtk - ulang "
-                      f"{klik2!r}")
+                print(f"[Minigame/Balloon] tanpa tombol maju 25 dtk - "
+                      f"ulang {klik2!r}")
             state._balloon_end_t = 0
         return True
-        if time.time() - state._balloon_end_t > 12:
-            klik2 = jsutil.run_js(r"""
-const ulang = ['try again', 'press enter', '→'];
-for (const w of ulang) {
-  for (const el of document.querySelectorAll('button, a, [role=button]')) {
-    const t = (el.innerText || '').trim().toLowerCase();
-    if (!t.includes(w)) continue;
-    const r = el.getBoundingClientRect();
-    if (r.width < 30) continue;
-    el.click();
-    return t;
-  }
-}
-return null;
-""")
-            if klik2:
-                print(f"[Minigame/Balloon] tanpa tombol maju 12 dtk - ulang "
-                      f"{klik2!r}")
-            state._balloon_end_t = 0
-        return False
     chr_ = res.get("chr")
     idx = res.get("idx")
     kini = time.time()
