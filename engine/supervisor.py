@@ -31,7 +31,8 @@ from .lessons import tutorial
 from . import typing_core
 from .lessons import video
 from .config import (LIST_URL, COURSE_URL)
-from .jstemplates import (BUKA_BLOK_JS, MODAL_HINT_JS)
+from .jstemplates import (BUKA_BLOK_JS, MODAL_HINT_JS,
+                          PREMIUM_SKIP_JS)
 
 
 
@@ -270,6 +271,24 @@ def main_loop():
             if not levels._range_validate_step():
                 state.STOP = True
                 return
+
+            # Modal premium BARU: tutup KAPAN PUN (tanpa gerbang
+            # _user_active) - modal ini muncul karena level yang DIKLIK
+            # user terkunci; menutupnya justru keinginan user. Dulu
+            # dilayani gerbang 3 dtk = user yang gerak mouse terus tak
+            # pernah melihat modalnya tertutup (keluhan teman user,
+            # 3.5.2). Throttle 10 dtk biar tak bertengkar kalau user
+            # buka ulang modal dengan sengaja.
+            _prem_bisa = time.time() - getattr(
+                state, "_prem_skip_t", 0) > 10
+            if _prem_bisa and jsutil.run_js(
+                    PREMIUM_SKIP_JS, state.PAGE.main_frame):
+                state._prem_skip_t = time.time()
+                state.last_action_time = time.time()
+                print("[Pop-up] modal premium - 'Skip this lesson' "
+                      "(kapan pun)")
+                time.sleep(0.3)
+                continue
 
             # user asli sedang memakai browser bot di luar lesson (daftar
             # level, pengaturan, profil) - jangan ambil alih; tunggu sampai
