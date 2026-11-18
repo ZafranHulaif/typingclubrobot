@@ -516,6 +516,36 @@ def _akun_aktif_set(nama):
         pass
 
 
+def _akun_aktif_nama():
+    """Nama akun aktif tersimpan (aktif.json), atau None."""
+    try:
+        with open(os.path.join(_dir_akun(), "aktif.json"),
+                  encoding="utf-8") as f:
+            return (json.load(f) or {}).get("nama")
+    except Exception:
+        return None
+
+
+def _folder_profil_akun(nama):
+    """Folder data WebView2 KHUSUS akun (jar terisolasi per akun).
+    edclub menganggap tiap folder = browser berbeda, jadi login akun
+    baru TIDAK mematikan tiket akun lain (penyebab 'harus login
+    ulang' di cookie-swap lama - eksperimen live 18-19 Nov)."""
+    try:
+        from .theme import LOG_FILE
+        base = os.path.dirname(LOG_FILE)
+    except Exception:
+        base = os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))
+    aman = re.sub(r'[<>:"/\\|?*]+', "_", str(nama or "akun")).strip()
+    d = os.path.join(base, "profil-akun", aman or "akun")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
+    return d
+
+
 _KUKI_IDENTITAS = ("pw_uuid", "connectId", "tb_lt", "_cc_id",
                    "_lc2_fpi", "_pubcid", "_sharedid")
 
@@ -782,6 +812,16 @@ class Wv2Host(tk.Frame):
         super().__init__(master, bg=bg, highlightthickness=1,
                          highlightbackground=edge, **kw)
         self._profil = profil_dir
+        # multi-profil akun (19 Nov): kalau ada akun aktif tersimpan,
+        # boot LANGSUNG di folder profil akun itu (jar terisolasi) -
+        # sesi tiap akun menetap lintas restart, tidak mati saat
+        # pindah akun. Login sekali per akun, seterusnya selamanya.
+        try:
+            _akun_boot = _akun_aktif_nama()
+            if _akun_boot:
+                self._profil = _folder_profil_akun(_akun_boot)
+        except Exception:
+            pass
         self._ec = None          # EdgeChrome (pywebview)
         self._chwnd = None       # hwnd kontrol WinForms
         self._on_ready = None
@@ -864,115 +904,110 @@ class Wv2Host(tk.Frame):
             return False, str(ex)[:150]
 
     def akun_ganti(self, nama, selesai=None):
-        """Pasang sesi akun 'nama' ke webview (hapus cookie lama -> add
-        cookie akun -> tulis sesi aktif). Thread belakang; selesai(ok,
-        pesan) dipanggil dari thread itu - pemanggil yang marshal ke UI
-        (pola _ui_queue)."""
+        """v3 MULTI-PROFIL (19 Nov): tiap akun = folder data WebView2
+        sendiri (jar terisolasi) - edclub melihat browser berbeda
+        sehingga tiket akun lama TIDAK dimatikan login baru (penyebab
+        'harus login ulang' di era cookie-swap; eksperimen live 18-19
+        Nov: tiket lama ditolak server setelah login baru di browser
+        yang sama). Callback selesai(ok, pesan, folder) - folder harus
+        dipakai UI thread utk ganti_profil (bongkar webview + buka
+        ulang di folder akun)."""
         def kerja():
-            cookies = _akun_cookies(nama)
-            if not cookies:
-                if selesai:
-                    selesai(False, "akun tidak ditemukan")
-                return
-            # Hapus kuki lama lewat CDP level target (ctx.clear_cookies
-            # TIDAK menyentuh jar WebView2 - lihat akun_keluar) lalu
-            # add_cookies: kuki tiket lama (tb_lt) tak boleh selamat
-            # di samping kuki akun baru = auto-login balik akun lama
-            try:
-                from engine import state as estate
-                port = estate.DEBUG_PORT
-            except Exception:
-                port = 9222
-            ok, pesan = False, "gagal koneksi CDP"
-            try:
-                from playwright.sync_api import sync_playwright
-                with sync_playwright() as p:
-                    br = p.chromium.connect_over_cdp(
-                        f"http://127.0.0.1:{port}", timeout=15000)
-                    for ctx in br.contexts:
-                        try:
-                            ctx.clear_cookies()
-                        except Exception:
-                            pass
-                        for pg in ctx.pages:
-                            try:
-                                cds = ctx.new_cdp_session(pg)
-                                cds.send("Network.clearBrowserCookies")
-                            except Exception:
-                                pass
-                            try:
-                                pg.evaluate("""() => {
-                                  document.cookie = 'tb_lt=; path=/;'
-                                    + ' max-age=0';
-                                  try { localStorage.removeItem('tb_lt'); }
-                                  catch (e) {}
-                                }""")
-                            except Exception:
-                                pass
-                        ctx.add_cookies(cookies)
-                        # SUNTIK localStorage.tb_lt (live 18 Nov: SPA
-                        # membaca tiket dari localStorage saat boot -
-                        # cookies saja = halaman login, padahal tiket
-                        # masih hidup di server. Pembersih di atas
-                        # menghapus localStorage tb_lt; restore wajib
-                        # mengembalikannya SEBELUM navigasi berikut.)
-                        try:
-                            _tb = next((c.get("value")
-                                        for c in cookies
-                                        if c.get("name") == "tb_lt"),
-                                       None)
-                            if _tb:
-                                _pg = (ctx.pages[0] if ctx.pages
-                                       else ctx.new_page())
-                                try:
-                                    _pg.goto(
-                                        "https://www.edclub.com/signin/",
-                                        timeout=20000,
-                                        wait_until="domcontentloaded")
-                                except Exception:
-                                    pass
-                                try:
-                                    _pg.evaluate(
-                                        "(a) => { try { localStorage."
-                                        "setItem('tb_lt', a.tb); }"
-                                        " catch (e) {} "
-                                        "location.href = a.u; }",
-                                        {"tb": _tb,
-                                         "u": "https://www.edclub.com"
-                                             "/student/course/3"})
-                                    print("[AKUN] localStorage tb_lt "
-                                          "disuntik + lompat ke daftar")
-                                except Exception as e:
-                                    print(f"[AKUN] suntik localStorage "
-                                          f"gagal: {str(e)[:70]}")
-                        except Exception:
-                            pass
-                    br.close()
-                    ok = True
-                    pesan = "sesi dimuat"
-            except Exception as e:
-                pesan = str(e)[:80]
-            if ok:
-                _sesi_tulis(cookies)
-                _akun_aktif_set(nama)
-                self._akun_swap_at = time.time()
-                pesan = "sesi dimuat"
-            # nama lama jangan tertahan di header. Swap = tiket simpanan
-            # BELUM TAHU hidup atau mati (server bisa sudah merotasi rt)
-            # -> pasang 'Login ulang' instan; kalau ternyata sesi hidup,
-            # pill terdeteksi beberapa detik lagi & label balik ke nama
-            # (lebih baik label benar instan utk kasus mati - keluhan
-            # user 15 Nov: 'the delay is quite long'). Mode 'Login'
-            # (login pertama, sisa + Akun) DIBATALKAN: user memilih
-            # akun lama = bukan login pertama lagi (live 15 Nov: + Akun
-            # -> batal -> klik akun lama -> label masih 'Login')
+            folder = _folder_profil_akun(nama)
+            cookies = _akun_cookies(nama) or []
+            _akun_aktif_set(nama)
             self._nama_profil = None
             self._login_baru = False
             self._perlu_login_paksa = True
+            self._akun_swap_at = time.time()
+            self._lt_selamat = 0.0
             if selesai:
-                selesai(ok, pesan)
-        import threading as _th
+                selesai(True, "profil akun siap", folder)
+            if cookies:
+                _th.Thread(target=self._impor_kuki_profil,
+                           args=(cookies,), daemon=True).start()
         _th.Thread(target=kerja, daemon=True).start()
+
+    def ganti_profil(self, folder, url):
+        """Bongkar webview + buka ulang dengan folder data akun.
+        WAJIB thread UI (CLR STA) - panggil lewat marshal/_ui_queue.
+        Port debug menunggu browser lama lepas dulu (proses chromium
+        mati telat beberapa detik setelah Dispose)."""
+        try:
+            ec = self._ec
+            if ec is not None:
+                try:
+                    ec.webview.Dispose()
+                except Exception:
+                    pass
+            self._ec = None
+            self._profil = folder
+            os.makedirs(folder, exist_ok=True)
+            try:
+                from engine import state as estate
+                port = int(getattr(estate, "DEBUG_PORT", 9222) or 9222)
+            except Exception:
+                port = 9222
+            # tunggu browser lama lepas dari port debug (maks 8 dtk;
+            # UI dibeku sebentar - operasi ganti akun memang berat)
+            try:
+                import urllib.request as _ur
+                for _ in range(20):
+                    try:
+                        _ur.urlopen(f"http://127.0.0.1:{port}"
+                                    "/json/version", timeout=1).read()
+                        time.sleep(0.4)
+                    except Exception:
+                        break
+            except Exception:
+                pass
+            hasil = self.buka(port, url)
+            print(f"[AKUN] profil '{os.path.basename(folder)}' "
+                  f"{'aktif' if hasil else 'GAGAL dibuat'}")
+            return hasil
+        except Exception as ex:
+            print(f"[AKUN] ganti profil gagal: {str(ex)[:80]}")
+            return False
+
+    def _impor_kuki_profil(self, cookies, percobaan=6):
+        """Best effort: tanam kuki snapshot ke profil yang BARU
+        dibuat (CDP port sibuk boot = ulang beberapa kali). Kalau
+        tiketnya masih hidup = langsung masuk; kalau tidak, login
+        sekali di halaman dan SESI ITU MENETAP di profilnya."""
+        for i in range(percobaan):
+            time.sleep(2.0)
+            try:
+                from engine import state as estate
+                port = int(getattr(estate, "DEBUG_PORT", 9222) or 9222)
+                from playwright.sync_api import sync_playwright
+                with sync_playwright() as p:
+                    br = p.chromium.connect_over_cdp(
+                        f"http://127.0.0.1:{port}", timeout=8000)
+                    ctx = br.contexts[0] if br.contexts else None
+                    if ctx is None:
+                        br.close()
+                        raise RuntimeError("tanpa konteks CDP")
+                    ctx.add_cookies(cookies)
+                    _tb = next((c.get("value") for c in cookies
+                                if c.get("name") == "tb_lt"), None)
+                    if _tb and ctx.pages:
+                        pgx = ctx.pages[0]
+                        try:
+                            pgx.evaluate(
+                                "(t) => { try { localStorage.setItem("
+                                "'tb_lt', t); } catch (e) {} }", _tb)
+                            pgx.reload()
+                        except Exception:
+                            pass
+                    br.close()
+                    print(f"[AKUN] kuki snapshot ditanam ke profil "
+                          f"(percobaan {i + 1})")
+                    return
+            except Exception:
+                continue
+        print("[AKUN] impor kuki ke profil gagal - login sekali di "
+              "halaman, sesi menetap di profil akun.")
+
 
     def akun_keluar(self, selesai=None):
         """Keluar bersih utk TAMBAH akun: hapus SEMUA cookie webview +
