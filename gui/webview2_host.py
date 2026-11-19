@@ -2493,11 +2493,9 @@ class Wv2Host(tk.Frame):
         if not self._chwnd:
             return
         try:
-            # offset-y frame di dalam client root + margin bawah 26px
-            # (dulu MoveWindow(0,0,tinggi-frame) = webview menutupi
-            # strip footer di layar kecil - live 19 Nov)
-            y = self.winfo_rooty() - self.master.winfo_rooty()
-            user32.MoveWindow(self._chwnd, 0, max(0, y),
+            # margin bawah 26px utk strip footer (y-offset ekstra JANGAN:
+            # bikin gap gelap di atas - live 19 Nov)
+            user32.MoveWindow(self._chwnd, 0, 0,
                               max(self.winfo_width(), 50),
                               max(self.winfo_height() - 26, 50), True)
         except Exception:

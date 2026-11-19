@@ -260,8 +260,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # tombol lapor bug (permintaan user 19 Nov: teman tak perlu
         # repot cari log - satu klik = file laporan di Desktop +
         # tersalin ke clipboard, tinggal kirim via chat)
-        self.bug_lbl = tk.Label(root, text="🪲 lapor bug  (file di "
-                                "Desktop + tersalin ke clipboard)",
+        self.bug_lbl = tk.Label(root, text="🪲 lapor bug",
                                 font=("Segoe UI", 9), fg=ACCENT, bg=BG,
                                 cursor="hand2", anchor="e")
         self.bug_lbl.pack(side="bottom", fill="x", padx=18)
@@ -566,15 +565,31 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                 profil = _w2v._folder_profil_akun(akun)[0]
             except Exception:
                 pass
-            NL = chr(10)
             isi = (
-                "TypingBot laporan bug" + NL +
-                f"versi: {APP_VERSION}  build: {_build_stamp()}" + NL +
-                f"akun aktif: {akun}" + NL +
-                f"profil: {profil}" + NL +
-                f"waktu: {time.strftime('%Y-%m-%d %H:%M:%S')}" + NL +
-                NL + "=== LOG (400 baris terakhir) ===" + NL +
-                log_tail + NL)
+                "TypingBot laporan bug\n"
+                f"versi: {APP_VERSION}  build: {_build_stamp()}\n"
+                f"akun aktif: {akun}\nprofil: {profil}\n"
+                f"waktu: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                "\n=== LOG (400 baris terakhir) ===\n" + log_tail + "\n")
+            # kirim otomatis via server (publik, dibatasi 3/10menit/IP)
+            try:
+                from net import api as _api
+                status, data = _api.http_json(
+                    "POST", "/api/lapor",
+                    {"versi": APP_VERSION, "akun": akun, "isi": isi},
+                    timeout=15)
+                if status == 200:
+                    self._log("[LAPOR] laporan bug terkirim otomatis - "
+                              "terima kasih!")
+                    self._set_state(
+                        "🪲 Laporan bug terkirim - terima kasih!",
+                        ACCENT)
+                    return
+                print(f"[LAPOR] server tolak ({status}) - simpan lokal")
+            except Exception as e:
+                print(f"[LAPOR] kirim otomatis gagal: {str(e)[:60]} - "
+                      "simpan lokal")
+            # offline/gagal: file di Desktop + clipboard
             desktop = os.path.join(os.path.expanduser("~"), "Desktop")
             if not os.path.isdir(desktop):
                 desktop = os.path.join(os.path.expanduser("~"),
@@ -590,11 +605,9 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                 os.startfile(desktop)
             except Exception:
                 pass
-            self._log(f"[LAPOR] laporan bug: {tujuan} "
-                      "(isi juga tersalin ke clipboard - tinggal "
-                      "tempel/kirim)")
-            self._set_state("🪲 Laporan bug dibuat di Desktop",
-                            ACCENT)
+            self._log(f"[LAPOR] offline - laporan di Desktop: {tujuan}")
+            self._set_state("🪲 Laporan disimpan di Desktop "
+                            "(offline)", ACCENT)
         except Exception as e:
             self._log(f"[LAPOR] gagal: {str(e)[:90]}")
             self.root.clipboard_append(isi)
