@@ -948,8 +948,11 @@ class Wv2Host(tk.Frame):
             # ini di-lift di atas segalanya & kebal jalur legacy.
             warna = "#141519"
             self._pcv_frame = tk.Frame(self.master, bg=warna)
-            self._pcv_frame.place(relx=0, rely=0, relwidth=1,
-                                  relheight=1)
+            # mulai DI BAWAH header (header tetap terlihat saat memuat)
+            y = self.winfo_rooty() - self.master.winfo_rooty()
+            sisa = max(80, self.master.winfo_height() - y)
+            self._pcv_frame.place(x=0, y=y, width=self.master.winfo_width(),
+                                  height=sisa)
             self._pcv_frame.lift()
             cv = tk.Canvas(self._pcv_frame, width=110, height=110,
                            bg=warna, highlightthickness=0)
