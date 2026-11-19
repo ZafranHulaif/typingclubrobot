@@ -82,10 +82,18 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         except Exception:
             k = 1.0
         k = max(1.0, min(k, 2.0))
-        root.geometry(f"{int(780 * k)}x{int(460 * k)}")
+        # KUNCI ke layar: dulu jendela bisa lebih LEBAR dari layar
+        # (resolusi berubah/di-remote) = tombol akun di kanan atas
+        # JADI DI LUAR LAYAR = 'tidak bisa klik akun mana pun'
+        # (misteri live 19 Nov: layar berubah 1920 -> 1280)
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        lebar = max(400, min(int(780 * k), sw - 16))
+        tinggi = max(300, min(int(460 * k), sh - 60))
+        root.geometry(f"{lebar}x{tinggi}+0+0")
         # tinggi minimum kecil: pengguna boleh mengecilkan jendela sampai
         # kecil - footer hotkey tetap tampak, hanya log yang menyusut
-        root.minsize(int(700 * k), int(330 * k))
+        root.minsize(max(400, min(int(700 * k), sw - 16)),
+                     max(280, min(int(330 * k), sh - 60)))
         root.configure(bg=BG)
         # ikon jendela: iconbitmap = jalur asli Windows (paling andal;
         # iconphoto di beberapa build Tk malah tidak tampil sama sekali)
