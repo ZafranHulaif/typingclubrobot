@@ -257,6 +257,16 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self.hotkey_lbl.pack(side="bottom", fill="x", pady=(0, 8))
         self.hotkey_lbl.bind("<Button-1>", lambda e: self._safe(self._toggle_hotkey))
         self._update_hotkey_label()
+        # tombol lapor bug (permintaan user 19 Nov: teman tak perlu
+        # repot cari log - satu klik = file laporan di Desktop +
+        # tersalin ke clipboard, tinggal kirim via chat)
+        self.bug_lbl = tk.Label(root, text="🪲 lapor bug  (file di "
+                                "Desktop + tersalin ke clipboard)",
+                                font=("Segoe UI", 9), fg=ACCENT, bg=BG,
+                                cursor="hand2", anchor="e")
+        self.bug_lbl.pack(side="bottom", fill="x", padx=18)
+        self.bug_lbl.bind("<Button-1>",
+                          lambda e: self._safe(self._lapor_bug))
         # ticker status: satu baris tipis di atas footer - meneruskan
         # kalimat aktivitas saat browser sudah menempati kartu tengah
         self.ticker_lbl = tk.Label(root, text="", font=("Segoe UI", 9),
@@ -531,6 +541,74 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                     fg=FAINT)
         except Exception:
             pass
+
+    def _lapor_bug(self):
+        """Kumpulkan laporan bug satu klik: versi + akun aktif + profil
+        + 400 baris terakhir bot.log -> file di Desktop + tersalin ke
+        clipboard (permintaan user 19 Nov: teman kena kedip hitam,
+        nggak usah repot cari log manual)."""
+        try:
+            from .theme import LOG_FILE
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            log_tail = ""
+            try:
+                with open(LOG_FILE, encoding="utf-8",
+                          errors="replace") as f:
+                    log_tail = chr(10).join(
+                        f.read().split(chr(10))[-400:])
+            except Exception as e:
+                log_tail = f"(log tak terbaca: {e})"
+            akun = "?"
+            profil = "?"
+            try:
+                from . import webview2_host as _w2v
+                akun = _w2v._akun_aktif_nama() or "?"
+                profil = _w2v._folder_profil_akun(akun)[0]
+            except Exception:
+                pass
+            NL = chr(10)
+            isi = (
+                "TypingBot laporan bug" + NL +
+                f"versi: {APP_VERSION}  build: {_build_stamp()}" + NL +
+                f"akun aktif: {akun}" + NL +
+                f"profil: {profil}" + NL +
+                f"waktu: {time.strftime('%Y-%m-%d %H:%M:%S')}" + NL +
+                NL + "=== LOG (400 baris terakhir) ===" + NL +
+                log_tail + NL)
+            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+            if not os.path.isdir(desktop):
+                desktop = os.path.join(os.path.expanduser("~"),
+                                       "OneDrive", "Desktop")
+            os.makedirs(desktop, exist_ok=True)
+            tujuan = os.path.join(desktop,
+                                  f"TypingBot-laporan-{stamp}.txt")
+            with open(tujuan, "w", encoding="utf-8") as f:
+                f.write(isi)
+            self.root.clipboard_clear()
+            self.root.clipboard_append(isi)
+            try:
+                os.startfile(desktop)
+            except Exception:
+                pass
+            self._log(f"[LAPOR] laporan bug: {tujuan} "
+                      "(isi juga tersalin ke clipboard - tinggal "
+                      "tempel/kirim)")
+            self._set_state("🪲 Laporan bug dibuat di Desktop",
+                            ACCENT)
+        except Exception as e:
+            self._log(f"[LAPOR] gagal: {str(e)[:90]}")
+            self.root.clipboard_append(isi)
+            try:
+                os.startfile(desktop)
+            except Exception:
+                pass
+            self._log(f"[LAPOR] laporan bug: {tujuan} "
+                      "(isi juga tersalin ke clipboard - tinggal "
+                      "tempel/kirim)")
+            self._set_state("🪲 Laporan bug dibuat di Desktop",
+                            ACCENT)
+        except Exception as e:
+            self._log(f"[LAPOR] gagal: {str(e)[:90]}")
 
 
     def _apply_speed(self, wpm, save=False):

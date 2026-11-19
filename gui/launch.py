@@ -1004,6 +1004,11 @@ class LaunchMixin:
                 lambda ok, pesan: marshal(
                     lambda o=ok, p=pesan: self._akun_keluar_hasil(o, p)))
 
+        baris_lapor = tk.Label(pop, text="🪲 lapor bug",
+                               font=("Segoe UI", 9, "bold"), fg=ACCENT,
+                               bg=CARD, cursor="hand2", anchor="center")
+        baris_lapor.pack(fill="x", pady=(6, 4), ipady=5, padx=4)
+        baris_lapor.bind("<Button-1>", lambda e: self._safe(self._lapor_bug))
         refresh()
         # + Akun dibuka: tutup selector pilih-level bila terbuka
         # (dua overlay sekaligus = tumpang tindih, live 18 Nov)
