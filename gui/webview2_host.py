@@ -924,9 +924,10 @@ class Wv2Host(tk.Frame):
             if selesai:
                 selesai(True, "profil akun siap", folder)
             if cookies:
-                _th.Thread(target=self._impor_kuki_profil,
-                           args=(cookies,), daemon=True).start()
-        _th.Thread(target=kerja, daemon=True).start()
+                threading.Thread(
+                    target=self._impor_kuki_profil,
+                    args=(cookies,), daemon=True).start()
+        threading.Thread(target=kerja, daemon=True).start()
 
     def ganti_profil(self, folder, url):
         """Bongkar webview + buka ulang dengan folder data akun.
