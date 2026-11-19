@@ -962,7 +962,27 @@ class Wv2Host(tk.Frame):
                         break
             except Exception:
                 pass
-            hasil = self.buka(port, url)
+            hasil = self.buka(port, url, cover=False)
+            # PASTIKAN navigasi diterapkan: webview baru kadang
+            # kehilangan deferred Source (set Source sebelum init
+            # selesai) = about:blank selamanya (live 19 Nov). Poll
+            # CoreWebView2 lalu Navigate eksplisit bila masih kosong.
+            try:
+                for _ in range(60):
+                    core = None
+                    try:
+                        core = self._ec.webview.CoreWebView2
+                    except Exception:
+                        core = None
+                    if core is not None:
+                        src = str(getattr(core, "Source", "") or "")
+                        if "about:blank" in src or src.strip() in (
+                                "", "about:blank"):
+                            core.Navigate(url)
+                        break
+                    time.sleep(0.25)
+            except Exception:
+                pass
             print(f"[AKUN] profil '{os.path.basename(folder)}' "
                   f"{'aktif' if hasil else 'GAGAL dibuat'}")
             return hasil
@@ -1976,7 +1996,10 @@ class Wv2Host(tk.Frame):
     def set_on_ready(self, cb):
         self._on_ready = cb
 
-    def buka(self, port, url, warna="#141519"):
+    def buka(self, port, url, warna="#141519", cover=True):
+        """cover=False = jangan sembunyikan webview saat boot
+        (dipakai ganti akun: user HARUS melihat halaman login
+        kalau profil akunnya masih kosong)."""
         """Buat WebView2 dengan port debug + navigasi ke url.
         HARUS dipanggil di thread UI (CLR STA) setelah jendela tampil."""
         try:
@@ -2017,14 +2040,15 @@ class Wv2Host(tk.Frame):
             # daftar level sudah login. Timeout 45 dtk: sesi memang mati,
             # tampilkan seperti biasa (user login manual).
             ada_identitas = False
-            try:
-                with open(_sesi_path(), encoding="utf-8") as f:
-                    _c = (json.load(f) or {}).get("cookies") or []
-                ada_identitas = any(c.get("name") in _KUKI_IDENTITAS
-                                    for c in _c)
-            except Exception:
-                ada_identitas = os.path.exists(_sesi_path())
-            if os.path.exists(_sesi_path()) and ada_identitas:
+            if cover:
+                try:
+                    with open(_sesi_path(), encoding="utf-8") as f:
+                        _c = (json.load(f) or {}).get("cookies") or []
+                    ada_identitas = any(c.get("name") in _KUKI_IDENTITAS
+                                        for c in _c)
+                except Exception:
+                    ada_identitas = os.path.exists(_sesi_path())
+            if cover and os.path.exists(_sesi_path()) and ada_identitas:
                 _cover_log("boot naik (sesi ada cookie identitas)")
                 self._boot_cover = time.time()
                 self._boot_selesai = False
