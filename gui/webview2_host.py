@@ -929,66 +929,172 @@ class Wv2Host(tk.Frame):
                     args=(cookies,), daemon=True).start()
         threading.Thread(target=kerja, daemon=True).start()
 
-    def ganti_profil(self, folder, url):
-        """Bongkar webview + buka ulang dengan folder data akun.
-        WAJIB thread UI (CLR STA) - panggil lewat marshal/_ui_queue.
-        Port debug menunggu browser lama lepas dulu (proses chromium
-        mati telat beberapa detik setelah Dispose)."""
+    def _pcv_buka(self, nama):
+        """Cover loading-screen profil (gaya loading game, permintaan
+        user 19 Nov): spinner + nama akun + pesan progres + hint.
+        Webview lama disembunyikan biar cover bersih."""
         try:
-            ec = self._ec
-            if ec is not None:
-                try:
-                    ec.webview.Dispose()
-                except Exception:
-                    pass
-            self._ec = None
-            self._profil = folder
+            self._pcv_tutup_cepat()
+            warna = "#141519"
+            cv = tk.Canvas(self._overlay, width=110, height=110, bg=warna,
+                           highlightthickness=0)
+            lbl = tk.Label(self._overlay, text="Memuat profil akun…",
+                           font=("Segoe UI", 13, "bold"), fg="#e8eaf0",
+                           bg=warna)
+            nm = tk.Label(self._overlay, text=nama, font=("Segoe UI", 11),
+                          fg="#3b82f6", bg=warna)
+            info = tk.Label(self._overlay,
+                            text="menyiapkan folder data…",
+                            font=("Segoe UI", 10), fg="#9aa6b8", bg=warna)
+            hint = tk.Label(self._overlay,
+                            text="jika diminta login, cukup sekali — "
+                                 "sesi akan menetap",
+                            font=("Segoe UI", 9), fg="#5b6570", bg=warna)
+            cv.place(relx=0.5, rely=0.36, anchor="center")
+            lbl.place(relx=0.5, rely=0.48, anchor="center")
+            nm.place(relx=0.5, rely=0.54, anchor="center")
+            info.place(relx=0.5, rely=0.62, anchor="center")
+            hint.place(relx=0.5, rely=0.70, anchor="center")
+            N, C = 8, 42
+            dots = []
+            for i in range(N):
+                a = 2.0 * math.pi * i / N
+                dots.append(cv.create_oval(
+                    C + 30.0 * math.cos(a) - 4,
+                    C + 30.0 * math.sin(a) - 4,
+                    C + 30.0 * math.cos(a) + 4,
+                    C + 30.0 * math.sin(a) + 4,
+                    fill="#26314a", width=0))
+            palet = ["#3b82f6", "#1d4ed8", "#24365c", "#1e2c4d",
+                     "#19253f", "#16203a", "#141b30", "#131a2b"]
+            fase = {"i": 0}
+
+            def tik():
+                if self._pcv_job is None:
+                    return
+                fase["i"] = (fase["i"] + 1) % N
+                for j, item in enumerate(dots):
+                    cv.itemconfigure(item, fill=palet[(j - fase["i"]) % N])
+                self._pcv_job = self.after(90, tik)
+
+            self._pcv_job = self.after(90, tik)
+            self._pcv_widgets = (cv, lbl, nm, info, hint)
+            try:
+                user32.ShowWindow(self._chwnd, 0)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _pcv_info_set(self, teks):
+        w = getattr(self, "_pcv_widgets", ())
+        if len(w) >= 4 and w[3] is not None:
+            try:
+                w[3].configure(text=teks)
+            except Exception:
+                pass
+
+    def _pcv_tutup_cepat(self):
+        if getattr(self, "_pcv_job", None):
+            try:
+                self.after_cancel(self._pcv_job)
+            except Exception:
+                pass
+        self._pcv_job = None
+        for w in getattr(self, "_pcv_widgets", ()):
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        self._pcv_widgets = ()
+
+    def _pcv_tutup(self):
+        self._pcv_tutup_cepat()
+        try:
+            user32.ShowWindow(self._chwnd, 1)   # SW_SHOW
+        except Exception:
+            pass
+
+    def ganti_profil(self, folder, url, nama=""):
+        """Ganti folder data WebView2 (jar per akun). Dijalankan sbg
+        state machine after(): cover spinner + pesan progres TETAP
+        HIDUP sepanjang proses (dulu thread UI dibekukan = terasa
+        hang - permintaan user 19 Nov: loading screen gaya game).
+        WAJIB thread UI (CLR STA) - panggil lewat marshal/_ui_queue."""
+        self._pcv_buka(nama or os.path.basename(folder))
+        self._profil = folder
+        try:
             os.makedirs(folder, exist_ok=True)
+        except Exception:
+            pass
+        self.after(80, lambda: self._gp_dispose(folder, url, nama))
+
+    def _gp_dispose(self, folder, url, nama):
+        self._pcv_info_set("menutup browser lama…")
+        ec = self._ec
+        if ec is not None:
             try:
-                from engine import state as estate
-                port = int(getattr(estate, "DEBUG_PORT", 9222) or 9222)
-            except Exception:
-                port = 9222
-            # tunggu browser lama lepas dari port debug (maks 8 dtk;
-            # UI dibeku sebentar - operasi ganti akun memang berat)
-            try:
-                import urllib.request as _ur
-                for _ in range(20):
-                    try:
-                        _ur.urlopen(f"http://127.0.0.1:{port}"
-                                    "/json/version", timeout=1).read()
-                        time.sleep(0.4)
-                    except Exception:
-                        break
+                ec.webview.Dispose()
             except Exception:
                 pass
-            hasil = self.buka(port, url, cover=False)
-            # PASTIKAN navigasi diterapkan: webview baru kadang
-            # kehilangan deferred Source (set Source sebelum init
-            # selesai) = about:blank selamanya (live 19 Nov). Poll
-            # CoreWebView2 lalu Navigate eksplisit bila masih kosong.
-            try:
-                for _ in range(60):
-                    core = None
-                    try:
-                        core = self._ec.webview.CoreWebView2
-                    except Exception:
-                        core = None
-                    if core is not None:
-                        src = str(getattr(core, "Source", "") or "")
-                        if "about:blank" in src or src.strip() in (
-                                "", "about:blank"):
-                            core.Navigate(url)
-                        break
-                    time.sleep(0.25)
-            except Exception:
-                pass
-            print(f"[AKUN] profil '{os.path.basename(folder)}' "
-                  f"{'aktif' if hasil else 'GAGAL dibuat'}")
-            return hasil
+        self._ec = None
+        try:
+            user32.ShowWindow(self._chwnd, 0)
+        except Exception:
+            pass
+        self.after(200, lambda: self._gp_port(folder, url, nama, 0))
+
+    def _gp_port(self, folder, url, nama, coba):
+        try:
+            from engine import state as estate
+            port = int(getattr(estate, "DEBUG_PORT", 9222) or 9222)
+        except Exception:
+            port = 9222
+        hidup = False
+        try:
+            import urllib.request as _ur
+            _ur.urlopen(f"http://127.0.0.1:{port}/json/version",
+                        timeout=1).read()
+            hidup = True
+        except Exception:
+            hidup = False
+        if hidup and coba < 20:
+            self.after(400, lambda: self._gp_port(folder, url, nama,
+                                                  coba + 1))
+            return
+        self._pcv_info_set("memuat edclub di profil akun…")
+        try:
+            self.buka(port, url, cover=False)
         except Exception as ex:
             print(f"[AKUN] ganti profil gagal: {str(ex)[:80]}")
-            return False
+        self.after(300, lambda: self._gp_nav(folder, url, nama, 0))
+
+    def _gp_nav(self, folder, url, nama, coba):
+        self._pcv_info_set("hampir selesai…")
+        core = None
+        try:
+            core = self._ec.webview.CoreWebView2
+        except Exception:
+            core = None
+        if core is None:
+            if coba < 60:
+                self.after(250, lambda: self._gp_nav(folder, url, nama,
+                                                     coba + 1))
+                return
+            self._pcv_tutup()
+            print("[AKUN] webview tidak siap - coba klik akun lagi.")
+            return
+        src = str(getattr(core, "Source", "") or "")
+        if "about:blank" in src or src.strip() in ("", "about:blank"):
+            try:
+                core.Navigate(url)
+            except Exception:
+                pass
+        self.after(2500, lambda: self._gp_selesai(nama))
+
+    def _gp_selesai(self, nama):
+        self._pcv_tutup()
+        print(f"[AKUN] profil '{nama}' aktif")
 
     def _impor_kuki_profil(self, cookies, percobaan=6):
         """Best effort: tanam kuki snapshot ke profil yang BARU
@@ -2068,7 +2174,8 @@ class Wv2Host(tk.Frame):
                 except Exception:
                     pass
             else:
-                self._overlay.place_forget()
+                if cover:
+                    self._overlay.place_forget()
             # PENTING (stabilitas): lepas SEMUA handler event pywebview.
             # Handler itu callback Python dari thread .NET - kombinasi dgn
             # mainloop Tk memicu crash GIL (PyEval_RestoreThread) saat init
