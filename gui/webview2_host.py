@@ -942,22 +942,26 @@ class Wv2Host(tk.Frame):
         Webview lama disembunyikan biar cover bersih."""
         try:
             self._pcv_tutup_cepat()
-            # overlay sering KALI ter-forget alur boot/dialog - tanpa
-            # ini, cover kutaruh di atas frame yang tak terlihat =
-            # 'layar hitam tanpa cover' (live 19 Nov)
-            self._overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+            # cover pakai FRAME SENDIRI di atas root - BUKAN _overlay:
+            # jalur pulihkan boot menghancurkan anak _overlay + menaruh
+            # kembali kartu Siap = menembus cover (live 19 Nov). Frame
+            # ini di-lift di atas segalanya & kebal jalur legacy.
             warna = "#141519"
-            cv = tk.Canvas(self._overlay, width=110, height=110, bg=warna,
-                           highlightthickness=0)
-            lbl = tk.Label(self._overlay, text="Memuat profil akun…",
+            self._pcv_frame = tk.Frame(self.master, bg=warna)
+            self._pcv_frame.place(relx=0, rely=0, relwidth=1,
+                                  relheight=1)
+            self._pcv_frame.lift()
+            cv = tk.Canvas(self._pcv_frame, width=110, height=110,
+                           bg=warna, highlightthickness=0)
+            lbl = tk.Label(self._pcv_frame, text="Memuat profil akun…",
                            font=("Segoe UI", 13, "bold"), fg="#e8eaf0",
                            bg=warna)
-            nm = tk.Label(self._overlay, text=nama, font=("Segoe UI", 11),
+            nm = tk.Label(self._pcv_frame, text=nama, font=("Segoe UI", 11),
                           fg="#3b82f6", bg=warna)
-            info = tk.Label(self._overlay,
+            info = tk.Label(self._pcv_frame,
                             text="menyiapkan folder data…",
                             font=("Segoe UI", 10), fg="#9aa6b8", bg=warna)
-            hint = tk.Label(self._overlay,
+            hint = tk.Label(self._pcv_frame,
                             text="jika diminta login, cukup sekali — "
                                  "sesi akan menetap",
                             font=("Segoe UI", 9), fg="#5b6570", bg=warna)
@@ -966,6 +970,7 @@ class Wv2Host(tk.Frame):
             nm.place(relx=0.5, rely=0.54, anchor="center")
             info.place(relx=0.5, rely=0.62, anchor="center")
             hint.place(relx=0.5, rely=0.70, anchor="center")
+            self._pcv_aktif = True
             N, C = 8, 42
             dots = []
             for i in range(N):
@@ -1012,12 +1017,14 @@ class Wv2Host(tk.Frame):
             except Exception:
                 pass
         self._pcv_job = None
-        for w in getattr(self, "_pcv_widgets", ()):
+        fr = getattr(self, "_pcv_frame", None)
+        if fr is not None:
             try:
-                w.destroy()
+                fr.destroy()
             except Exception:
                 pass
-        self._pcv_widgets = ()
+        self._pcv_frame = None
+        self._pcv_aktif = False
 
     def _pcv_tutup(self):
         self._pcv_tutup_cepat()
@@ -2325,7 +2332,14 @@ class Wv2Host(tk.Frame):
             else:
                 self._tahan = None
         GW_OWNER = 4
-        if getattr(self, "_boot_selesai", False):
+        if getattr(self, "_boot_selesai", False) and                 getattr(self, "_pcv_aktif", False):
+            # profil switch sedang berjalan (cover pcv aktif): buang
+            # status boot lama & JANGAN sentuh overlay/webview - dulu
+            # jalur ini menghancurkan cover + menyalakan webview di
+            # tengah switch = kedip + kartu Siap nongol (live 19 Nov)
+            self._boot_selesai = False
+            self._boot_cover = None
+        elif getattr(self, "_boot_selesai", False):
             _cover_log(f"buka (selesai/timeout; tahan terakhir="
                        f"{getattr(self, '_tahan_log', None)})")
             # buka tutup boot DI THREAD UI: tampilkan webview TANPA
