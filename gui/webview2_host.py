@@ -539,10 +539,12 @@ def _folder_profil_akun(nama):
             os.path.abspath(__file__)))
     aman = re.sub(r'[<>:"/\\|?*]+', "_", str(nama or "akun")).strip()
     d = os.path.join(base, "profil-akun", aman or "akun")
+    baru = not os.path.isdir(d)
     try:
         os.makedirs(d, exist_ok=True)
     except Exception:
         pass
+    return d, baru
     return d
 
 
@@ -819,7 +821,7 @@ class Wv2Host(tk.Frame):
         try:
             _akun_boot = _akun_aktif_nama()
             if _akun_boot:
-                self._profil = _folder_profil_akun(_akun_boot)
+                self._profil = _folder_profil_akun(_akun_boot)[0]
         except Exception:
             pass
         self._ec = None          # EdgeChrome (pywebview)
@@ -913,7 +915,7 @@ class Wv2Host(tk.Frame):
         dipakai UI thread utk ganti_profil (bongkar webview + buka
         ulang di folder akun)."""
         def kerja():
-            folder = _folder_profil_akun(nama)
+            folder, baru = _folder_profil_akun(nama)
             cookies = _akun_cookies(nama) or []
             _akun_aktif_set(nama)
             self._nama_profil = None
@@ -921,8 +923,13 @@ class Wv2Host(tk.Frame):
             self._perlu_login_paksa = True
             self._akun_swap_at = time.time()
             self._lt_selamat = 0.0
+            # SELALU daratkan di /signin: yang login -> edclub lempar
+            # sendiri ke dashboard; yang belum = tepat di halaman login.
+            # Dulu ke daftar level = nyangkut di Typing Jungle
+            # logged-out lama tanpa arah (keluhan user 19 Nov)
+            url = "https://www.edclub.com/signin"
             if selesai:
-                selesai(True, "profil akun siap", folder)
+                selesai(True, "profil akun siap", folder, url)
             if cookies:
                 threading.Thread(
                     target=self._impor_kuki_profil,
@@ -1117,7 +1124,7 @@ class Wv2Host(tk.Frame):
         tiketnya masih hidup = langsung masuk; kalau tidak, login
         sekali di halaman dan SESI ITU MENETAP di profilnya."""
         for i in range(percobaan):
-            time.sleep(2.0)
+            time.sleep(1.2 if i == 0 else 1.0)
             try:
                 from engine import state as estate
                 port = int(getattr(estate, "DEBUG_PORT", 9222) or 9222)
@@ -2041,8 +2048,11 @@ class Wv2Host(tk.Frame):
             except Exception:
                 pass
     def set_overlay(self, widget):
+        # kartu status tengah (Siap/Berjalan/dll) TIDAK ditaruh lagi:
+        # state cukup lewat header; kartu lama menembus cover profil &
+        # startup (keluhan user 19 Nov: 'remove all old states'). Widget
+        # tetap disimpan demi kompatibilitas pemanggil lama.
         self._stage_widget = widget
-        widget.place(in_=self._overlay, relx=0.5, rely=0.5, anchor="center")
 
     def _boot_anim(self):
         """Spinner + teks 'Menyiapkan edclub...' di overlay tutup boot.

@@ -856,9 +856,9 @@ class LaunchMixin:
             self._log(f"[AKUN] memuat sesi {nama}...")
             self.host.akun_ganti(
                 nama,
-                lambda ok, pesan, folder: marshal(
-                    lambda o=ok, p=pesan, f=folder:
-                    self._akun_hasil(nama, o, p, f)))
+                lambda ok, pesan, folder, url: marshal(
+                    lambda o=ok, p=pesan, f=folder, u=url:
+                    self._akun_hasil(nama, o, p, f, u)))
 
         def baris_akun(parent, nama, aktif):
             bgbar = "#16233a" if aktif else CARD
@@ -1038,19 +1038,18 @@ class LaunchMixin:
         pop.bind("<FocusOut>", fokus_hilang)
         pop.after(2000, napas)
 
-    def _akun_hasil(self, nama, ok, pesan, folder=None):
+    def _akun_hasil(self, nama, ok, pesan, folder=None, url=None):
         if ok:
             # multi-profil (19 Nov): bongkar webview + buka ulang di
             # folder data akun (jar terisolasi = sesi menetap). Ini
             # WAJIB thread UI - panggilan datang lewat _ui_queue.
-            self._log(f"[AKUN] profil {nama} siap - membuka daftar "
-                      f"level di profil akunnya.")
+            url = url or "https://www.edclub.com/student/course/3"
+            tujuan = ('halaman login' if '/signin' in url
+                      else 'daftar level')
+            self._log(f"[AKUN] profil {nama} siap - membuka {tujuan}.")
             try:
                 if folder:
-                    self.host.ganti_profil(
-                        folder,
-                        "https://www.edclub.com/student/course/3",
-                        nama)
+                    self.host.ganti_profil(folder, url, nama)
                 else:
                     self.host.ke_url(
                         "https://www.edclub.com/student/course/3")
