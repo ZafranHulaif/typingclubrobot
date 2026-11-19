@@ -935,6 +935,10 @@ class Wv2Host(tk.Frame):
         Webview lama disembunyikan biar cover bersih."""
         try:
             self._pcv_tutup_cepat()
+            # overlay sering KALI ter-forget alur boot/dialog - tanpa
+            # ini, cover kutaruh di atas frame yang tak terlihat =
+            # 'layar hitam tanpa cover' (live 19 Nov)
+            self._overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
             warna = "#141519"
             cv = tk.Canvas(self._overlay, width=110, height=110, bg=warna,
                            highlightthickness=0)
@@ -1093,6 +1097,17 @@ class Wv2Host(tk.Frame):
         self.after(2500, lambda: self._gp_selesai(nama))
 
     def _gp_selesai(self, nama):
+        # jaring pengaman: kalau halaman masih about:blank (deferred
+        # Source hilang lagi / balapan), Navigate sekali terakhir
+        try:
+            core = self._ec.webview.CoreWebView2
+            src = str(getattr(core, "Source", "") or "")
+            if "about:blank" in src or src.strip() in (
+                    "", "about:blank"):
+                core.Navigate("https://www.edclub.com"
+                              "/student/course/3")
+        except Exception:
+            pass
         self._pcv_tutup()
         print(f"[AKUN] profil '{nama}' aktif")
 

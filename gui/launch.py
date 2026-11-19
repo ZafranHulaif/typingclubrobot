@@ -1049,7 +1049,8 @@ class LaunchMixin:
                 if folder:
                     self.host.ganti_profil(
                         folder,
-                        "https://www.edclub.com/student/course/3")
+                        "https://www.edclub.com/student/course/3",
+                        nama)
                 else:
                     self.host.ke_url(
                         "https://www.edclub.com/student/course/3")
