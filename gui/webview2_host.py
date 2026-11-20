@@ -824,6 +824,16 @@ class Wv2Host(tk.Frame):
                 self._profil = _folder_profil_akun(_akun_boot)[0]
         except Exception:
             pass
+        # profil boot TANPA sesi (belum login / tiket mati) = tandai:
+        # watcher membawa halaman logged-out ke /signin (dulu dibiarkan
+        # menggantung di Typing Jungle logged-out - keluhan user 19 Nov)
+        try:
+            with open(_sesi_path(), encoding="utf-8") as f:
+                _c = (json.load(f) or {}).get("cookies") or []
+            if not any(c.get("name") in _KUKI_IDENTITAS for c in _c):
+                self._perlu_login_paksa = True
+        except Exception:
+            pass
         self._ec = None          # EdgeChrome (pywebview)
         self._chwnd = None       # hwnd kontrol WinForms
         self._on_ready = None
@@ -1664,23 +1674,34 @@ class Wv2Host(tk.Frame):
                                 if cookies and sesi_bernilai(cookies):
                                     akun_auto_simpan(nm, cookies)
                         else:
-                            # TANPA pill di daftar/level pasca-ganti akun
-                            # = halaman logged-out (bukan level page, bukan
-                            # login page - keluhan user 19 Nov: 'no midway
-                            # redirecting') - bawa ke /signin sekali/30dtk
-                            if (getattr(self, "_perlu_login_paksa", False)
-                                    and "/signin" not in u
+                            # TANPA pill di daftar/lesson: kalau MENETAP
+                            # >8 dtk dalam 45 dtk pertama (profil belum
+                            # login / tiket mati) -> /signin SEKALI -
+                            # dulu dibiarkan menggantung logged-out
+                            # ('midway redirecting', keluhan user 19 Nov)
+                            if (not nm and "/signin" not in u
                                     and ("/course/" in u or "/lesson/" in u)
                                     and time.time() - getattr(
-                                        self, "_perlu_nav_t", 0) > 30):
-                                self._perlu_nav_t = time.time()
-                                catat("[AKUN] daftar/level logged-out "
-                                      "- ke /signin")
-                                try:
-                                    self.ke_url(
-                                        "https://www.edclub.com/signin")
-                                except Exception:
-                                    pass
+                                        self, "_boot_t", time.time()) < 45):
+                                if not getattr(self, "_anon_sejak", 0.0):
+                                    self._anon_sejak = time.time()
+                                    catat("[BOOT] halaman tanpa pill "
+                                          "- pantau 8 dtk")
+                                elif (time.time() - self._anon_sejak > 8
+                                      and time.time() - getattr(
+                                          self, "_perlu_nav_t", 0) > 30):
+                                    self._perlu_nav_t = time.time()
+                                    self._anon_sejak = 0.0
+                                    catat("[BOOT] daftar/lesson "
+                                          "logged-out - ke /signin")
+                                    try:
+                                        self.ke_url(
+                                            "https://www.edclub.com"
+                                            "/signin")
+                                    except Exception:
+                                        pass
+                            else:
+                                self._anon_sejak = 0.0
                     elif perlu_raw and "/signin" in u and "edclub" in u.lower():
                         # ---- PENYELAMAT tb_lt DI /SIGNIN (pasangan jaga
                         # tb_lt di atas, live 15 Nov): pasca-swap / sesi
