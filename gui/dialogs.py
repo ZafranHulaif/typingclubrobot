@@ -1477,14 +1477,21 @@ def dialog_lapor_bug(induk, kirim):
     tombol = {}
 
     def gaya(w, dipil):
+        # terpilih = tile PENUH ACCENT + teks putih + tanda ✓ (gaya
+        # radio button - mustahil terlewat; keluhan user 19 Nov:
+        # 'no indicator' pada gaya tint yang terlalu halus)
         try:
             if dipil:
-                w.configure(fg="#e8eaf0", bg="#1d3a5c",
+                w.configure(fg="#ffffff", bg=ACCENT,
+                            activeforeground="#ffffff",
+                            activebackground=ACCENT,
                             highlightbackground=ACCENT,
                             highlightthickness=2,
                             text="✓  " + w._kat)
             else:
                 w.configure(fg=FG, bg=CARD,
+                            activeforeground=ACCENT,
+                            activebackground=CARD_HOVER,
                             highlightbackground=EDGE,
                             highlightthickness=1,
                             text=w._kat)
