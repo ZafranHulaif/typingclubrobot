@@ -93,6 +93,17 @@ class _Store:
         with open(self._path("machines.json"), "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=1)
 
+    def laporan(self):
+        try:
+            with open(self._path("laporan.json"), encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def save_laporan(self, data):
+        with open(self._path("laporan.json"), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+
     def release(self):
         try:
             with open(self._path("release.json"), encoding="utf-8") as f:
@@ -241,6 +252,13 @@ class Handler(BaseHTTPRequestHandler):
             if not rel:
                 return self._json(404, {"error": "no_release_yet"})
             return self._json(200, rel)
+        if u.path == "/api/lapor-list":
+            # tiru worker: butuh kunci admin; kembalikan 10 terakhir
+            if self.headers.get("X-Admin-Key") != _admin_key:
+                return self._json(403, {"error": "bad_admin_key"})
+            lapor = self.store.laporan()
+            return self._json(200, {"daftar": list(lapor)[-10:],
+                                    "detail": list(lapor.values())[-10:]})
         if u.path == "/api/license/status":
             mc = (q.get("mc") or [""])[0]
             m = self.store.machines().get(mc)
@@ -311,6 +329,38 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(200, {"status": "approved",
                                             "token": _make_token(mc)})
             return self._json(200, {"status": m.get("status", "pending")})
+        # lapor bug (publik, dibatasi per IP: 3 / 10 menit)
+        if u.path == "/api/lapor" and self.command == "POST":
+            data = self._body_params()
+            isi = str(data.get("isi") or "")[:20000]
+            if len(isi) < 20:
+                return self._json(400, {"error": "kosong"})
+            ip = self.client_address[0]
+            now = int(time.time())
+            with _lock:
+                lapor = self.store.laporan()
+                rl = lapor.get("__rl:" + ip) or {"n": 0, "t0": 0}
+                if now - int(rl.get("t0") or 0) < 600 and                         int(rl.get("n") or 0) >= 3:
+                    return self._json(429, {"error": "rate_limited"})
+                if now - int(rl.get("t0") or 0) >= 600:
+                    rl = {"n": 1, "t0": now}
+                else:
+                    rl = {"n": int(rl.get("n") or 0) + 1, "t0": rl.get("t0")}
+                lapor["__rl:" + ip] = rl
+                ts = int(time.time() * 1000)
+                entri = {"ts": ts, "ip": ip,
+                         "versi": str(data.get("versi") or "?")[:40],
+                         "akun": str(data.get("akun") or "?")[:60],
+                         "isi": isi}
+                lapor[f"laporan:{ts}"] = entri
+                # simpan 30 terakhir saja
+                kunci_lapor = sorted((k for k in lapor
+                                      if k.startswith("laporan:")),
+                                     reverse=True)
+                for k in kunci_lapor[30:]:
+                    lapor.pop(k, None)
+                self.store.save_laporan(lapor)
+            return self._json(200, {"ok": True, "ts": ts})
         if u.path == "/api/publish":
             if self.headers.get("X-Admin-Key") != _admin_key:
                 return self._json(403, {"error": "bad_admin_key"})

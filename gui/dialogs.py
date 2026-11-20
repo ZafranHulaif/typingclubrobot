@@ -1446,3 +1446,156 @@ def dialog_dev_code(induk):
     ent.bind("<Return>", lambda e: cek())
     ent.focus_set()
     return d.show()
+
+
+# ------------------------------------------------------ lapor bug
+def dialog_lapor_bug(induk, kirim):
+    """Form lapor bug ramping: dropdown kustom kategori (bukan ttk
+    bawaan) + kotak cerita opsional. Log terkirim otomatis TANPA
+    disebut (user awam, permintaan user 19 Nov).
+
+    kirim(kategori, deskripsi, selesai) di THREAD BARU; selesai(ok,
+    pesan) boleh dipanggil dari thread mana pun (dimarshal after).
+    Return: "kirim" / None (batal)."""
+    KATEGORI = ["Kedip hitam / layar berkedip", "Login ulang terus",
+                "Level macet / tidak lanjut", "Game tidak jalan",
+                "Ganti akun bermasalah", "Lambat / loading lama",
+                "Salah ketik / hasil salah", "Tombol tidak merespons",
+                "Lainnya"]
+    d = _Dialog(induk, "Lapor Bug", "", ikon="🪲", warna=ACCENT)
+    bg = str(d.body.cget("bg"))
+
+    # ---- dropdown kustom kategori
+    pilih = {"nama": ""}
+
+    lbl_kat = tk.Label(d.body, text="Masalah", font=("Segoe UI", 9),
+                       fg=FAINT, bg=bg, anchor="w")
+    lbl_kat.pack(fill="x")
+
+    class _Pilah(tk.Toplevel):
+        def __init__(self, induk2, anchor, pilih_cb):
+            super().__init__(induk2)
+            self.overrideredirect(True)
+            self.configure(bg=EDGE, highlightthickness=1,
+                           highlightbackground=EDGE)
+            self.transient(induk2.winfo_toplevel())
+            for nama in KATEGORI:
+                r = tk.Label(self, text=nama, font=("Segoe UI", 10),
+                             fg=FG, bg=CARD, anchor="w", padx=12,
+                             pady=6, cursor="hand2")
+                r.pack(fill="x")
+                r.bind("<Enter>", lambda e, w=r: w.configure(
+                    bg=CARD_HOVER))
+                r.bind("<Leave>", lambda e, w=r: w.configure(bg=CARD))
+                r.bind("<Button-1>", lambda e, n=nama: (
+                    pilih_cb(n), self.tutup()))
+            self.update_idletasks()
+            ax = anchor.winfo_rootx()
+            ay = anchor.winfo_rooty() + anchor.winfo_height() + 4
+            aw = max(anchor.winfo_width(), 260)
+            self.geometry(f"{aw}x{self.winfo_reqheight()}+{ax}+{ay}")
+            self.lift()
+            self.grab_set()
+            self.bind("<Escape>", lambda e: self.tutup())
+            self.bind("<FocusOut>", lambda e: self.after(120,
+                                                         self.tutup))
+
+        def tutup(self):
+            try:
+                self.grab_release()
+            except Exception:
+                pass
+            self.destroy()
+
+    pilah_btn = tk.Label(d.body, text="Pilih masalah  ▾",
+                         font=("Segoe UI", 10), fg=FG, bg=CARD,
+                         anchor="w", padx=10, pady=7, cursor="hand2",
+                         highlightthickness=1, highlightbackground=EDGE)
+    pilah_btn.pack(fill="x", pady=(4, 8))
+
+    def buka_pilah(_e=None):
+        if getattr(buka_pilah, "_pop", None) is not None:
+            try:
+                buka_pilah._pop.tutup()
+            except Exception:
+                pass
+            buka_pilah._pop = None
+            return
+
+        def pilih(nama):
+            pilih["nama"] = nama
+            pilah_btn.configure(
+                text=("✓  " + nama) if nama != "Lainnya"
+                else "Lainnya  ▾",
+                fg=ACCENT, highlightcolor=ACCENT)
+
+        buka_pilah._pop = _Pilah(d.body, pilah_btn, pilih)
+
+    pilah_btn.bind("<Button-1>", buka_pilah)
+    buka_pilah._pop = None
+
+    # ---- kotak cerita (opsional)
+    lbl_ket = tk.Label(d.body, text="Apa yang terjadi? (opsional)",
+                       font=("Segoe UI", 9), fg=FAINT, bg=bg, anchor="w")
+    lbl_ket.pack(fill="x")
+    kotak = tk.Text(d.body, height=4, wrap="word", relief="flat",
+                    bg=CARD, fg=FG, insertbackground=FG,
+                    selectbackground="#2e4059", padx=10, pady=8,
+                    font=("Segoe UI", 10), highlightthickness=1,
+                    highlightbackground=EDGE, highlightcolor=ACCENT)
+    kotak.pack(fill="both", expand=True, pady=(4, 6))
+    kotak.bind("<Return>", lambda e: None)   # Enter = baris baru
+    kotak.bind("<Control-Return>", lambda e: _kirim())
+    d.bind("<Return>", lambda e: None)
+    d.bind("<Control-Return>", lambda e: _kirim())
+    kotak.focus_set()
+
+    # ---- status pengiriman
+    stat = tk.Label(d.body, text="", font=("Segoe UI", 9), fg=DIM,
+                    bg=bg, anchor="w", wraplength=420, justify="left")
+    stat.pack(fill="x")
+
+    btn_kirim = d.button("Kirim", "kirim", warna_btn=GREEN)
+    d.button("Batal", None, primer=False)
+
+    kirim_state = {"jalan": False}
+
+    def _kirim():
+        if kirim_state["jalan"]:
+            return
+        try:
+            deskripsi = kotak.get("1.0", "end").strip()[:2000]
+        except Exception:
+            deskripsi = ""
+        kirim_state["jalan"] = True
+        try:
+            btn_kirim.configure(text="Mengirim…", fg=DIM, bg=CARD,
+                                cursor="arrow")
+            btn_kirim.unbind("<Button-1>")
+        except Exception:
+            pass
+        stat.configure(text="mengirim…", fg=DIM)
+
+        def selesai(ok, pesan):
+            def ui():
+                try:
+                    stat.configure(text=pesan,
+                                   fg=GREEN if ok else YELLOW)
+                    d.after(1500 if ok else 2600,
+                            lambda: d.done("kirim"))
+                except Exception:
+                    pass    # dialog sudah ditutup user - abaikan
+            try:
+                d.after(0, ui)
+            except Exception:
+                pass
+        kirim(pilih["nama"] or "Lainnya", deskripsi, selesai)
+
+    def _kirim_cmd(_e=None):
+        _kirim()
+    btn_kirim.bind("<Button-1>", _kirim_cmd)
+    btn_kirim._klik = _kirim_cmd
+
+    hasil = d.show()
+    return hasil if hasil == "kirim" else None
+

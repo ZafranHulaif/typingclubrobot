@@ -214,6 +214,55 @@ async function handle(request) {
     return rel ? json(JSON.parse(rel)) : json({ error: "no_release_yet" }, 404);
   }
 
+  // Laporan bug dari app (publik, dibatasi): POST /api/lapor
+  // {versi, akun, isi} -> KV "laporan:<ts>" + indeks 30 terakhir.
+  // Baca utk pemilik: GET /api/lapor-list (X-Admin-Key).
+  if (u.pathname === "/api/lapor" && request.method === "POST") {
+    let body;
+    try { body = await request.json(); } catch (e) {
+      return json({ error: "bad_json" }, 400);
+    }
+    const isi = String(body.isi || "").slice(0, 20000);
+    if (isi.length < 20) return json({ error: "kosong" }, 400);
+    const ip = request.headers.get("CF-Connecting-IP") || "?";
+    const rkey = `laporan-rl:${ip}`;
+    let rl = { n: 0, t0: 0 };
+    try { rl = JSON.parse(await env.MACHINES.get(rkey) || '{"n":0,"t0":0}'); }
+    catch (e) {}
+    const now = Math.floor(Date.now() / 1000);
+    if (now - rl.t0 < 600 && rl.n >= 3)
+      return json({ error: "rate_limited" }, 429);
+    rl = (now - rl.t0 >= 600) ? { n: 1, t0: now }
+                              : { n: rl.n + 1, t0: rl.t0 };
+    await env.MACHINES.put(rkey, JSON.stringify(rl));
+    const ts = Date.now();
+    await env.MACHINES.put(`laporan:${ts}`, JSON.stringify({
+      ts, ip,
+      versi: String(body.versi || "?").slice(0, 40),
+      akun: String(body.akun || "?").slice(0, 60),
+      isi }));
+    let idx = [];
+    try { idx = JSON.parse(await env.MACHINES.get("laporan:idx") || "[]"); }
+    catch (e) {}
+    idx.unshift({ ts, versi: String(body.versi || "?").slice(0, 20),
+                  akun: String(body.akun || "?").slice(0, 40) });
+    await env.MACHINES.put("laporan:idx", JSON.stringify(idx.slice(0, 30)));
+    return json({ ok: true, ts });
+  }
+  if (u.pathname === "/api/lapor-list") {
+    if (request.headers.get("X-Admin-Key") !== env.ADMIN_KEY)
+      return json({ error: "bad_admin_key" }, 403);
+    let idx = [];
+    try { idx = JSON.parse(await env.MACHINES.get("laporan:idx") || "[]"); }
+    catch (e) {}
+    const detail = [];
+    for (const it of idx.slice(0, 10)) {
+      const v = await env.MACHINES.get(`laporan:${it.ts}`);
+      if (v) { try { detail.push(JSON.parse(v)); } catch (e) {} }
+    }
+    return json({ daftar: idx, detail });
+  }
+
   if (u.pathname === "/api/license/request" && request.method === "POST") {
     const d = await request.json();
     const mc = String(d.mc || "").slice(0, 32);
