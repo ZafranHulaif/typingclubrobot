@@ -1450,12 +1450,12 @@ def dialog_dev_code(induk):
 
 # ------------------------------------------------------ lapor bug
 def dialog_lapor_bug(induk, kirim):
-    """Form lapor bug ramping: dropdown kustom kategori (bukan ttk
-    bawaan) + kotak cerita opsional. Log terkirim otomatis TANPA
-    disebut (user awam, permintaan user 19 Nov).
+    """Form lapor bug satu dialog (tile kategori + cerita opsional).
+    Tile = wajib (merah *); Kirim terkunci sampai kategori dipilih.
+    Log terlampir otomatis TANPA disebut (user awam - 19 Nov).
 
     kirim(kategori, deskripsi, selesai) di THREAD BARU; selesai(ok,
-    pesan) boleh dipanggil dari thread mana pun (dimarshal after).
+    pesan) boleh dari thread mana pun (dimarshal after).
     Return: "kirim" / None (batal)."""
     KATEGORI = ["Kedip hitam / layar berkedip", "Login ulang terus",
                 "Level macet / tidak lanjut", "Game tidak jalan",
@@ -1465,96 +1465,55 @@ def dialog_lapor_bug(induk, kirim):
     d = _Dialog(induk, "Lapor Bug", "", ikon="🪲", warna=ACCENT)
     bg = str(d.body.cget("bg"))
 
-    # ---- dropdown kustom kategori
+    # ---- label wajib (merah *)
+    lbl = tk.Label(d.body, text="Masalah *", font=("Segoe UI", 9, "bold"),
+                   fg="#ef4444", bg=bg, anchor="w")
+    lbl.pack(fill="x", pady=(2, 4))
+
+    # ---- grid tile kategori (2 kolom; terpilih = border ACCENT)
     pilih = {"nama": ""}
+    tombol = {}
 
-    lbl_kat = tk.Label(d.body, text="Masalah", font=("Segoe UI", 9),
-                       fg=FAINT, bg=bg, anchor="w")
-    lbl_kat.pack(fill="x")
-
-    class _Pilah(tk.Toplevel):
-        def __init__(self, induk2, anchor, pilih_cb):
-            super().__init__(induk2)
-            self.overrideredirect(True)
-            self.configure(bg=EDGE, highlightthickness=1,
-                           highlightbackground=EDGE)
-            self.transient(induk2.winfo_toplevel())
-            for nama in KATEGORI:
-                r = tk.Label(self, text=nama, font=("Segoe UI", 10),
-                             fg=FG, bg=CARD, anchor="w", padx=12,
-                             pady=6, cursor="hand2")
-                r.pack(fill="x")
-                r.bind("<Enter>", lambda e, w=r: w.configure(
-                    bg=CARD_HOVER))
-                r.bind("<Leave>", lambda e, w=r: w.configure(bg=CARD))
-                r.bind("<Button-1>", lambda e, n=nama: (
-                    pilih_cb(n), self.tutup()))
-            self.update_idletasks()
-            ax = anchor.winfo_rootx()
-            ay = anchor.winfo_rooty() + anchor.winfo_height() + 4
-            aw = max(anchor.winfo_width(), 260)
-            self.geometry(f"{aw}x{self.winfo_reqheight()}+{ax}+{ay}")
-            self.lift()
-            self.grab_set()
-            self.bind("<Escape>", lambda e: self.tutup())
-            # klik DI LUAR popup menutup (dulu FocusOut: grab tidak
-            # memberi fokus = FocusOut menyala seketika = popup mati
-            # prematur sebelum kategori terpilih, live 19 Nov)
-            root_ui = induk2.winfo_toplevel()
-            self._luar_ui = root_ui
-
-            def pasang_luar():
-                # DIPASANG TERJADWAL 150ms: dulu dipasang seketika saat
-                # create - event klik pembuka ikut merambat ke binding
-                # ini = popup tutup di detik yang sama (live 19 Nov)
-                self._luar_id = root_ui.bind(
-                    "<Button-1>",
-                    lambda e: str(e.widget) != str(self) and self.tutup(),
-                    add="+")
-            root_ui.after(150, pasang_luar)
-
-        def tutup(self):
+    def pilih(nama_kategori):
+        pilih["nama"] = nama_kategori
+        for n, w in tombol.items():
             try:
-                self._luar_ui.unbind("<Button-1>", self._luar_id)
+                if n == nama_kategori:
+                    w.configure(fg=ACCENT, bg=CARD_HOVER,
+                                highlightbackground=ACCENT,
+                                highlightthickness=2)
+                else:
+                    w.configure(fg=FG, bg=CARD,
+                                highlightbackground=EDGE,
+                                highlightthickness=1)
             except Exception:
                 pass
-            try:
-                self.grab_release()
-            except Exception:
-                pass
-            self.destroy()
+        try:
+            hint_pilih.configure(text="")
+        except Exception:
+            pass
 
-    pilah_btn = tk.Label(d.body, text="Pilih masalah  ▾",
-                         font=("Segoe UI", 10), fg=FG, bg=CARD,
-                         anchor="w", padx=10, pady=7, cursor="hand2",
-                         highlightthickness=1, highlightbackground=EDGE)
-    pilah_btn.pack(fill="x", pady=(4, 8))
-
-    def buka_pilah(_e=None):
-        if getattr(buka_pilah, "_pop", None) is not None:
-            try:
-                buka_pilah._pop.tutup()
-            except Exception:
-                pass
-            buka_pilah._pop = None
-            return
-
-        def pilih(nama):
-            pilih["nama"] = nama
-            pilah_btn.configure(
-                text=("✓  " + nama) if nama != "Lainnya"
-                else "Lainnya  ▾",
-                fg=ACCENT, highlightcolor=ACCENT)
-
-        buka_pilah._pop = _Pilah(d.body, pilah_btn, pilih)
-
-    pilah_btn.bind("<Button-1>", buka_pilah)
-    buka_pilah._pop = None
+    baris = None
+    kolom = [0]
+    for i, nama in enumerate(KATEGORI):
+        if i % 2 == 0:
+            baris = tk.Frame(d.body, bg=bg)
+            baris.pack(fill="x")
+        b = tk.Label(baris, text=nama, font=("Segoe UI", 9), fg=FG,
+                     bg=CARD, padx=8, pady=6, cursor="hand2",
+                     highlightthickness=1, highlightbackground=EDGE)
+        b.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        tombol[nama] = b
+        b.bind("<Button-1>", lambda e, n=nama: pilih(n))
+        b.bind("<Enter>", lambda e, w=b: w.configure(bg=CARD_HOVER)
+               if pilih["nama"] != w.cget("text") else None)
+        b.bind("<Leave>", lambda e, w=b: w.configure(bg=CARD)
+               if pilih["nama"] != w.cget("text") else None)
 
     # ---- kotak cerita (opsional)
-    lbl_ket = tk.Label(d.body, text="Apa yang terjadi? (opsional)",
-                       font=("Segoe UI", 9), fg=FAINT, bg=bg, anchor="w")
-    lbl_ket.pack(fill="x")
+    lbl2 = tk.Label(d.body, text="Apa yang terjadi? (opsional)",
+                    font=("Segoe UI", 9), fg=FAINT, bg=bg, anchor="w")
+    lbl2.pack(fill="x", pady=(8, 0))
     kotak = tk.Text(d.body, height=4, wrap="word", relief="flat",
                     bg=CARD, fg=FG, insertbackground=FG,
                     selectbackground="#2e4059", padx=10, pady=8,
@@ -1567,24 +1526,33 @@ def dialog_lapor_bug(induk, kirim):
     d.bind("<Control-Return>", lambda e: _kirim())
     kotak.focus_set()
 
-    # ---- status pengiriman
-    stat = tk.Label(d.body, text="", font=("Segoe UI", 9), fg=DIM,
-                    bg=bg, anchor="w", wraplength=420, justify="left")
+    # ---- status + validasi
+    stat = tk.Label(d.body, text="", font=("Segoe UI", 9),
+                    fg="#ef4444", bg=bg, anchor="w", wraplength=420,
+                    justify="left")
     stat.pack(fill="x")
 
     btn_kirim = d.button("Kirim", "kirim", warna_btn=GREEN)
     d.button("Batal", None, primer=False)
-
     kirim_state = {"jalan": False}
 
     def _kirim():
         if kirim_state["jalan"]:
             return
+        if not pilih["nama"]:
+            # wajib: tanpa kategori = tolak dengan pesan merah
+            stat.configure(text="pilih masalah dulu (wajib)", fg="#ef4444")
+            return
+        if kirim_state.get("cooldown"):
+            stat.configure(text="baru saja mengirim - tunggu sebentar",
+                           fg=YELLOW)
+            return
+        kirim_state["jalan"] = True
+        kirim_state["cooldown"] = True
         try:
             deskripsi = kotak.get("1.0", "end").strip()[:2000]
         except Exception:
             deskripsi = ""
-        kirim_state["jalan"] = True
         try:
             btn_kirim.configure(text="Mengirim…", fg=DIM, bg=CARD,
                                 cursor="arrow")
@@ -1606,7 +1574,7 @@ def dialog_lapor_bug(induk, kirim):
                 d.after(0, ui)
             except Exception:
                 pass
-        kirim(pilih["nama"] or "Lainnya", deskripsi, selesai)
+        kirim(pilih["nama"], deskripsi, selesai)
 
     def _kirim_cmd(_e=None):
         _kirim()

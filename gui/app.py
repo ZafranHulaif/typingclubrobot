@@ -551,10 +551,17 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         except Exception:
             pass
     def _lapor_bug(self):
-        """Buka form lapor bug (dialog + deskripsi user, permintaan user
-        19 Nov). Pengiriman: versi + akun + 400 baris log otomatis via
-        server; offline/gagal = Desktop + clipboard."""
+        """Buka form lapor bug (tile kategori wajib + cerita opsional).
+        Pengiriman: versi + akun + 400 baris log otomatis via server;
+        offline/gagal = Desktop + clipboard. Anti-spam: 60 dtk per
+        sesi app + server 3/10menit per IP."""
         import threading as _th
+        if time.time() - getattr(self, "_lapor_terakhir", 0.0) < 60:
+            self._log("[LAPOR] baru saja mengirim - tunggu ~1 menit "
+                      "(anti-spam).")
+            self._set_state("🪲 baru saja kirim - tunggu sebentar",
+                            ACCENT)
+            return
 
         def kirim(kategori, deskripsi, selesai):
             def kerja():
@@ -574,23 +581,20 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                         akun = _w2v._akun_aktif_nama() or "?"
                     except Exception:
                         pass
-                    kepala = (
-                        f"kategori: {kategori}" + chr(10))                         if kategori and kategori != "Lainnya" else ""
-                    bagian_user = (
-                        kepala + "=== CERITA USER ===" + chr(10) +
-                        (deskripsi or "(tidak ditulis)") + chr(10) + chr(10)
-                        if deskripsi else "")
                     isi = (
                         "TypingBot laporan bug" + chr(10) +
                         f"versi: {APP_VERSION}  build: {_build_stamp()}"
                         + chr(10) +
                         f"akun aktif: {akun}" + chr(10) +
+                        f"kategori: {kategori}" + chr(10) +
                         f"waktu: "
                         f"{time.strftime('%Y-%m-%d %H:%M:%S')}" + chr(10)
-                        + chr(10) + bagian_user +
+                        + chr(10) +
+                        ("=== CERITA USER ===" + chr(10) + deskripsi
+                         + chr(10) + chr(10) if deskripsi else "") +
                         "=== LOG (400 baris terakhir) ===" + chr(10)
                         + log_tail + chr(10))
-                    # 1) kirim otomatis via server (3/10menit/IP)
+                    # 1) kirim otomatis via server
                     try:
                         from net import api as _api
                         status, _data = _api.http_json(
@@ -601,8 +605,8 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                             self._lapor_terakhir = time.time()
                             self._log("[LAPOR] terkirim otomatis.")
                             self._set_state(
-                                "🪲 Laporan terkirim - "
-                                "terima kasih!", ACCENT)
+                                "🪲 Laporan terkirim - terima kasih!",
+                                ACCENT)
                             selesai(True, "Laporan terkirim — "
                                     "terima kasih!")
                             return
@@ -617,9 +621,9 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                         desktop = os.path.join(os.path.expanduser("~"),
                                                "OneDrive", "Desktop")
                     os.makedirs(desktop, exist_ok=True)
-                    tujuan = os.path.join(
-                        desktop, "TypingBot-laporan-"
-                        + time.strftime("%Y%m%d-%H%M%S") + ".txt")
+                    tujuan = os.path.join(desktop, "TypingBot-laporan-"
+                                          + time.strftime("%Y%m%d-%H%M%S")
+                                          + ".txt")
                     with open(tujuan, "w", encoding="utf-8") as f:
                         f.write(isi)
                     self.root.clipboard_clear()
@@ -628,7 +632,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                         os.startfile(desktop)
                     except Exception:
                         pass
-                    self._log(f"[LAPOR] offline - laporan di Desktop.")
+                    self._log("[LAPOR] offline - laporan di Desktop.")
                     selesai(True, "Tersimpan di Desktop + tersalin "
                             "(offline) — kirim filenya ya!")
                 except Exception as e:
@@ -638,19 +642,13 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                         pass
             _th.Thread(target=kerja, daemon=True).start()
 
-        # anti-spam: satu laporan per menit (server juga membatasi
-        # 3/10menit per IP - dua lapis, permintaan user 19 Nov)
-        if time.time() - getattr(self, "_lapor_terakhir", 0.0) < 60:
-            self._log("[LAPOR] baru saja mengirim - tunggu ~1 menit "
-                      "(anti-spam).")
-            self._set_state("🪲 baru saja kirim - tunggu sebentar",
-                            ACCENT)
-            return
         try:
             from .dialogs import dialog_lapor_bug
             dialog_lapor_bug(self.root, kirim)
         except Exception as e:
             self._log(f"[LAPOR] dialog gagal: {str(e)[:90]}")
+
+
 
 
 
