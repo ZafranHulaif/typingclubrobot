@@ -26,6 +26,7 @@ import re
 import threading
 import time
 import tkinter as tk
+from tkinter import ttk
 
 user32 = ctypes.windll.user32
 GWL_STYLE = -16
@@ -947,47 +948,63 @@ class Wv2Host(tk.Frame):
         threading.Thread(target=kerja, daemon=True).start()
 
     def _pcv_buka(self, nama):
-        """Cover loading-screen profil (gaya loading game, permintaan
-        user 19 Nov): spinner + nama akun + pesan progres + hint.
-        Webview lama disembunyikan biar cover bersih."""
+        """Cover loading-screen profil: frame dedikasi di bawah header +
+        spinner + LOADING BAR bertahap (permintaan user 19 Nov: 'actual
+        loading bar, so they feel the progress'). Webview lama
+        disembunyikan biar cover bersih. Cover ditutup oleh
+        _pcv_selesai (halaman tujuan siap) - target via _pcv_target."""
         try:
             self._pcv_tutup_cepat()
-            # cover pakai FRAME SENDIRI di atas root - BUKAN _overlay:
-            # jalur pulihkan boot menghancurkan anak _overlay + menaruh
-            # kembali kartu Siap = menembus cover (live 19 Nov). Frame
-            # ini di-lift di atas segalanya & kebal jalur legacy.
             warna = "#141519"
             self._pcv_frame = tk.Frame(self.master, bg=warna)
             # mulai DI BAWAH header (header tetap terlihat saat memuat)
             y = self.winfo_rooty() - self.master.winfo_rooty()
             sisa = max(80, self.master.winfo_height() - y)
-            self._pcv_frame.place(x=0, y=y, width=self.master.winfo_width(),
+            self._pcv_frame.place(x=0, y=y,
+                                  width=self.master.winfo_width(),
                                   height=sisa)
             self._pcv_frame.lift()
-            cv = tk.Canvas(self._pcv_frame, width=110, height=110,
+            cv = tk.Canvas(self._pcv_frame, width=96, height=96,
                            bg=warna, highlightthickness=0)
+            cv.place(relx=0.5, rely=0.30, anchor="center")
             lbl = tk.Label(self._pcv_frame, text="Memuat profil akun…",
                            font=("Segoe UI", 13, "bold"), fg="#e8eaf0",
                            bg=warna)
+            lbl.place(relx=0.5, rely=0.44, anchor="center")
             nm = tk.Label(self._pcv_frame, text=nama, font=("Segoe UI", 11),
                           fg="#3b82f6", bg=warna)
+            nm.place(relx=0.5, rely=0.50, anchor="center")
             info = tk.Label(self._pcv_frame,
                             text="menyiapkan folder data…",
                             font=("Segoe UI", 10), fg="#9aa6b8", bg=warna)
-            lbl.place(relx=0.5, rely=0.48, anchor="center")
-            nm.place(relx=0.5, rely=0.54, anchor="center")
-            info.place(relx=0.5, rely=0.66, anchor="center")
-            hint.place(relx=0.5, rely=0.70, anchor="center")
+            info.place(relx=0.5, rely=0.58, anchor="center")
+            stl = ttk.Style(self._pcv_frame)
+            try:
+                stl.theme_use("clam")
+            except Exception:
+                pass
+            stl.configure("pcv.Horizontal.TProgressbar",
+                          troughcolor="#202636", background=ACCENT,
+                          bordercolor=warna, lightcolor=ACCENT,
+                          darkcolor=ACCENT)
+            bar = ttk.Progressbar(self._pcv_frame, maximum=100, value=6,
+                                  style="pcv.Horizontal.TProgressbar",
+                                  length=320)
+            bar.place(relx=0.5, rely=0.66, anchor="center")
             self._pcv_aktif = True
-            N, C = 8, 42
+            self._pcv_widgets = (cv, lbl, nm, info, bar)
+            self._pcv_val = 6.0
+            self._pcv_target = 30.0
+            self._pcv_selesai = False
+            N, C = 8, 40
             dots = []
             for i in range(N):
                 a = 2.0 * math.pi * i / N
                 dots.append(cv.create_oval(
-                    C + 30.0 * math.cos(a) - 4,
-                    C + 30.0 * math.sin(a) - 4,
-                    C + 30.0 * math.cos(a) + 4,
-                    C + 30.0 * math.sin(a) + 4,
+                    C + 28.0 * math.cos(a) - 4,
+                    C + 28.0 * math.sin(a) - 4,
+                    C + 28.0 * math.cos(a) + 4,
+                    C + 28.0 * math.sin(a) + 4,
                     fill="#26314a", width=0))
             palet = ["#3b82f6", "#1d4ed8", "#24365c", "#1e2c4d",
                      "#19253f", "#16203a", "#141b30", "#131a2b"]
@@ -999,10 +1016,24 @@ class Wv2Host(tk.Frame):
                 fase["i"] = (fase["i"] + 1) % N
                 for j, item in enumerate(dots):
                     cv.itemconfigure(item, fill=palet[(j - fase["i"]) % N])
-                self._pcv_job = self.after(90, tik)
+                # loading bar: merayap halus ke target tahap berikut
+                if self._pcv_val < self._pcv_target:
+                    self._pcv_val = min(self._pcv_target,
+                                        self._pcv_val + 0.9)
+                    try:
+                        bar.configure(value=self._pcv_val)
+                    except Exception:
+                        pass
+                # halaman tujuan siap (di-set watcher) = rayap ke 100
+                if self._pcv_selesai:
+                    self._pcv_target = 100.0
+                    if self._pcv_val >= 99.4:
+                        self._pcv_tutup()
+                        return
+                self._pcv_job = self.after(70, tik)
 
             self._pcv_job = self.after(90, tik)
-            self._pcv_widgets = (cv, lbl, nm, info, hint)
+            self._pcv_info_set("menyiapkan folder data…")
             try:
                 user32.ShowWindow(self._chwnd, 0)
             except Exception:
@@ -1018,6 +1049,9 @@ class Wv2Host(tk.Frame):
             except Exception:
                 pass
 
+    def _pcv_target_set(self, nilai):
+        self._pcv_target = float(nilai)
+
     def _pcv_tutup_cepat(self):
         if getattr(self, "_pcv_job", None):
             try:
@@ -1025,6 +1059,9 @@ class Wv2Host(tk.Frame):
             except Exception:
                 pass
         self._pcv_job = None
+        self._pcv_selesai = False
+        self._pcv_val = 0.0
+        self._pcv_target = 0.0
         fr = getattr(self, "_pcv_frame", None)
         if fr is not None:
             try:
@@ -1043,10 +1080,9 @@ class Wv2Host(tk.Frame):
 
     def ganti_profil(self, folder, url, nama=""):
         """Ganti folder data WebView2 (jar per akun). Dijalankan sbg
-        state machine after(): cover spinner + pesan progres TETAP
-        HIDUP sepanjang proses (dulu thread UI dibekukan = terasa
-        hang - permintaan user 19 Nov: loading screen gaya game).
-        WAJIB thread UI (CLR STA) - panggil lewat marshal/_ui_queue."""
+        state machine after(): cover spinner + LOADING BAR bertahap
+        tetap hidup & menutup halaman-perantara sampai tujuan siap
+        (permintaan user 19 Nov). WAJIB thread UI (CLR STA)."""
         self._pcv_buka(nama or os.path.basename(folder))
         self._profil = folder
         try:
@@ -1057,6 +1093,7 @@ class Wv2Host(tk.Frame):
 
     def _gp_dispose(self, folder, url, nama):
         self._pcv_info_set("menutup browser lama…")
+        self._pcv_target_set(35)
         ec = self._ec
         if ec is not None:
             try:
@@ -1089,6 +1126,7 @@ class Wv2Host(tk.Frame):
                                                   coba + 1))
             return
         self._pcv_info_set("memuat edclub di profil akun…")
+        self._pcv_target_set(60)
         try:
             self.buka(port, url, cover=False)
         except Exception as ex:
@@ -1097,6 +1135,7 @@ class Wv2Host(tk.Frame):
 
     def _gp_nav(self, folder, url, nama, coba):
         self._pcv_info_set("hampir selesai…")
+        self._pcv_target_set(85)
         core = None
         try:
             core = self._ec.webview.CoreWebView2
@@ -1119,19 +1158,23 @@ class Wv2Host(tk.Frame):
         self.after(2500, lambda: self._gp_selesai(nama))
 
     def _gp_selesai(self, nama):
-        # jaring pengaman: kalau halaman masih about:blank (deferred
-        # Source hilang lagi / balapan), Navigate sekali terakhir
+        # cover ditutup oleh _pcv_selesai (pill/login page terdeteksi
+        # watcher) - di sini cukup jaring pengaman navigasi
         try:
             core = self._ec.webview.CoreWebView2
             src = str(getattr(core, "Source", "") or "")
-            if "about:blank" in src or src.strip() in (
-                    "", "about:blank"):
-                core.Navigate("https://www.edclub.com"
-                              "/student/course/3")
+            if "about:blank" in src or src.strip() in ("", "about:blank"):
+                core.Navigate("https://www.edclub.com/student/course/3")
         except Exception:
             pass
-        self._pcv_tutup()
+        def paksa_tutup():
+            # jaring: kalau watcher tak menandai selesai dalam 20 dtk
+            # (edge case), rayap ke 100 lalu tutup tetap terjadi
+            if getattr(self, "_pcv_aktif", False):
+                self._pcv_selesai = True
+        self.after(20000, paksa_tutup)
         print(f"[AKUN] profil '{nama}' aktif")
+
 
     def _impor_kuki_profil(self, cookies, percobaan=6):
         """Best effort: tanam kuki snapshot ke profil yang BARU
@@ -1602,6 +1645,22 @@ class Wv2Host(tk.Frame):
                         # simpanan lain = akun tampil 'tidak aktif'
                         # padahal sesinya sama - keluhan user 12 Nov)
                         nm = re.sub(r"\s+", " ", (nm or "")).strip()
+                        if getattr(self, "_pcv_aktif", False):
+                            # cover profil: tandai halaman tujuan siap
+                            # (pill profil = sudah login; /signin dgn
+                            # form terender = halaman login siap)
+                            if nm:
+                                self._pcv_selesai = True
+                            elif "/signin" in u:
+                                try:
+                                    _lpg = pg.evaluate(
+                                        "() => (document.body.innerText"
+                                        "||'').includes("
+                                        "'Login Individual Edition')")
+                                except Exception:
+                                    _lpg = False
+                                if _lpg:
+                                    self._pcv_selesai = True
                         if nm and len(nm) <= 40:
                             if nm != getattr(self, "_nama_profil", None):
                                 self._nama_profil = nm
