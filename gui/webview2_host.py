@@ -964,14 +964,9 @@ class Wv2Host(tk.Frame):
             info = tk.Label(self._pcv_frame,
                             text="menyiapkan folder data…",
                             font=("Segoe UI", 10), fg="#9aa6b8", bg=warna)
-            hint = tk.Label(self._pcv_frame,
-                            text="jika diminta login, cukup sekali — "
-                                 "sesi akan menetap",
-                            font=("Segoe UI", 9), fg="#5b6570", bg=warna)
-            cv.place(relx=0.5, rely=0.36, anchor="center")
             lbl.place(relx=0.5, rely=0.48, anchor="center")
             nm.place(relx=0.5, rely=0.54, anchor="center")
-            info.place(relx=0.5, rely=0.62, anchor="center")
+            info.place(relx=0.5, rely=0.66, anchor="center")
             hint.place(relx=0.5, rely=0.70, anchor="center")
             self._pcv_aktif = True
             N, C = 8, 42
@@ -1601,6 +1596,7 @@ class Wv2Host(tk.Frame):
                             if nm != getattr(self, "_nama_profil", None):
                                 self._nama_profil = nm
                             # login ASLI terlihat (pill ada) = batal paksa
+                            # login ASLI terlihat (pill ada) = batal paksa
                             # 'Login ulang' di header (dipasang saat + Akun
                             # / ganti akun; keluhan user 15 Nov: nama lama
                             # tertahan & lambat ganti) + mode login baru
@@ -1667,6 +1663,24 @@ class Wv2Host(tk.Frame):
                                 # (_cfuvid) TIDAK boleh dianggap sesi hidup
                                 if cookies and sesi_bernilai(cookies):
                                     akun_auto_simpan(nm, cookies)
+                        else:
+                            # TANPA pill di daftar/level pasca-ganti akun
+                            # = halaman logged-out (bukan level page, bukan
+                            # login page - keluhan user 19 Nov: 'no midway
+                            # redirecting') - bawa ke /signin sekali/30dtk
+                            if (getattr(self, "_perlu_login_paksa", False)
+                                    and "/signin" not in u
+                                    and ("/course/" in u or "/lesson/" in u)
+                                    and time.time() - getattr(
+                                        self, "_perlu_nav_t", 0) > 30):
+                                self._perlu_nav_t = time.time()
+                                catat("[AKUN] daftar/level logged-out "
+                                      "- ke /signin")
+                                try:
+                                    self.ke_url(
+                                        "https://www.edclub.com/signin")
+                                except Exception:
+                                    pass
                     elif perlu_raw and "/signin" in u and "edclub" in u.lower():
                         # ---- PENYELAMAT tb_lt DI /SIGNIN (pasangan jaga
                         # tb_lt di atas, live 15 Nov): pasca-swap / sesi
