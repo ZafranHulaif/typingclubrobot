@@ -196,7 +196,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self._style_btn(self.btn_stop)
         self.btn_stop.pack(fill="both", expand=True, padx=0, pady=0)
 
-        self.kanan = tk.Frame(ctrl, bg=BG, width=560,
+        self.kanan = tk.Frame(ctrl, bg=BG, width=340,
                               height=self._header_h)
         self.kanan.pack_propagate(False)
         self.kanan.pack(side="right")
@@ -206,8 +206,10 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                                 font=("Segoe UI", 11), padx=10, pady=10,
                                 cursor="hand2", highlightthickness=1,
                                 highlightbackground=EDGE)
-        self.btn_bug.pack(side="left", fill="both",
-                           expand=True, padx=(0, 8))
+        # fill="y" SAJA (dulu fill both + expand = chip melar memenuhi
+        # seluruh kanan - 'why is it so wide lol', user 21 Nov) - lebar
+        # alami: 🪲 ~45px, akun tetap 16 karakter (lebar tak berubah)
+        self.btn_bug.pack(side="left", fill="y", padx=(0, 8))
         self.btn_bug.bind("<Enter>", lambda e: self.btn_bug.configure(
             fg="#e8eaf0", bg=CARD_HOVER))
         self.btn_bug.bind("<Leave>", lambda e: self.btn_bug.configure(
@@ -226,7 +228,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             self.btn_akun.configure(width=16, anchor="center")
         except Exception:
             pass
-        self.btn_akun.pack_configure(fill="both", expand=True)
+        self.btn_akun.pack_configure(fill="y")
         self.btn_akun["state"] = "disabled"
         self._akun_perlu_login = None
         # v3.2: tombol Pulihkan & ❓ DIHAPUS (permintaan user) - Pulihkan
