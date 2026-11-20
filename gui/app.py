@@ -519,11 +519,91 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                     fg=FAINT)
         except Exception:
             pass
+    def _lapor_kiriman(self, kategori, deskripsi, selesai):
+        """Kumpulkan + kirim laporan bug (versi + akun + 400 baris log
+        otomatis via server; offline/gagal = Desktop + clipboard).
+        selesai(ok, pesan) boleh dari thread mana pun (after-marshal
+        di sisi pemanggil)."""
+        import threading as _th
+
+        def kerja():
+            try:
+                from .theme import LOG_FILE
+                log_tail = ""
+                try:
+                    with open(LOG_FILE, encoding="utf-8",
+                              errors="replace") as f:
+                        log_tail = chr(10).join(
+                            f.read().split(chr(10))[-400:])
+                except Exception as e:
+                    log_tail = f"(log tak terbaca: {e})"
+                akun = "?"
+                try:
+                    from . import webview2_host as _w2v
+                    akun = _w2v._akun_aktif_nama() or "?"
+                except Exception:
+                    pass
+                isi = (
+                    "TypingBot laporan bug" + chr(10) +
+                    f"versi: {APP_VERSION}  build: {_build_stamp()}"
+                    + chr(10) +
+                    f"akun aktif: {akun}" + chr(10) +
+                    f"kategori: {kategori}" + chr(10) +
+                    f"waktu: {time.strftime('%Y-%m-%d %H:%M:%S')}" + chr(10)
+                    + chr(10) +
+                    ("=== CERITA USER ===" + chr(10) + deskripsi
+                     + chr(10) + chr(10) if deskripsi else "") +
+                    "=== LOG (400 baris terakhir) ===" + chr(10)
+                    + log_tail + chr(10))
+                # 1) kirim otomatis via server (worker: /api/lapor)
+                try:
+                    from net import api as _api
+                    status, _data = _api.http_json(
+                        "POST", "/api/lapor",
+                        {"versi": APP_VERSION, "akun": akun,
+                         "isi": isi}, timeout=15)
+                    if status == 200:
+                        self._lapor_terakhir = time.time()
+                        self._log("[LAPOR] terkirim otomatis.")
+                        self._set_state(
+                            "🪲 Laporan terkirim - terima kasih!",
+                            ACCENT)
+                        selesai(True, "Laporan terkirim — terima kasih!")
+                        return
+                    print(f"[LAPOR] server tolak ({status}).")
+                except Exception as e:
+                    print(f"[LAPOR] kirim otomatis gagal: "
+                          f"{str(e)[:60]}")
+                # 2) fallback: Desktop + clipboard
+                desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+                if not os.path.isdir(desktop):
+                    desktop = os.path.join(os.path.expanduser("~"),
+                                           "OneDrive", "Desktop")
+                os.makedirs(desktop, exist_ok=True)
+                tujuan = os.path.join(desktop, "TypingBot-laporan-"
+                                      + time.strftime("%Y%m%d-%H%M%S")
+                                      + ".txt")
+                with open(tujuan, "w", encoding="utf-8") as f:
+                    f.write(isi)
+                self.root.clipboard_clear()
+                self.root.clipboard_append(isi)
+                try:
+                    os.startfile(desktop)
+                except Exception:
+                    pass
+                self._log("[LAPOR] offline - laporan di Desktop.")
+                selesai(True, "Tersimpan di Desktop + tersalin "
+                        "(offline) — kirim filenya ya!")
+            except Exception as e:
+                try:
+                    selesai(False, f"gagal: {str(e)[:70]}")
+                except Exception:
+                    pass
+        _th.Thread(target=kerja, daemon=True).start()
+
     def _lapor_bug(self):
-        """Buka form lapor bug (tile kategori wajib + cerita opsional).
-        Pengiriman: versi + akun + 400 baris log otomatis via server;
-        offline/gagal = Desktop + clipboard. Anti-spam: 60 dtk per
-        sesi app + server 3/10menit per IP."""
+        """Buka form lapor bug (dialog tile kategori wajib + cerita
+        opsional). Kirim = _lapor_kiriman (otomatis via server)."""
         import threading as _th
         if time.time() - getattr(self, "_lapor_terakhir", 0.0) < 60:
             self._log("[LAPOR] baru saja mengirim - tunggu ~1 menit "
@@ -533,89 +613,15 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             return
 
         def kirim(kategori, deskripsi, selesai):
-            def kerja():
-                try:
-                    from .theme import LOG_FILE
-                    log_tail = ""
-                    try:
-                        with open(LOG_FILE, encoding="utf-8",
-                                  errors="replace") as f:
-                            log_tail = chr(10).join(
-                                f.read().split(chr(10))[-400:])
-                    except Exception as e:
-                        log_tail = f"(log tak terbaca: {e})"
-                    akun = "?"
-                    try:
-                        from . import webview2_host as _w2v
-                        akun = _w2v._akun_aktif_nama() or "?"
-                    except Exception:
-                        pass
-                    isi = (
-                        "TypingBot laporan bug" + chr(10) +
-                        f"versi: {APP_VERSION}  build: {_build_stamp()}"
-                        + chr(10) +
-                        f"akun aktif: {akun}" + chr(10) +
-                        f"kategori: {kategori}" + chr(10) +
-                        f"waktu: "
-                        f"{time.strftime('%Y-%m-%d %H:%M:%S')}" + chr(10)
-                        + chr(10) +
-                        ("=== CERITA USER ===" + chr(10) + deskripsi
-                         + chr(10) + chr(10) if deskripsi else "") +
-                        "=== LOG (400 baris terakhir) ===" + chr(10)
-                        + log_tail + chr(10))
-                    # 1) kirim otomatis via server
-                    try:
-                        from net import api as _api
-                        status, _data = _api.http_json(
-                            "POST", "/api/lapor",
-                            {"versi": APP_VERSION, "akun": akun,
-                             "isi": isi}, timeout=15)
-                        if status == 200:
-                            self._lapor_terakhir = time.time()
-                            self._log("[LAPOR] terkirim otomatis.")
-                            self._set_state(
-                                "🪲 Laporan terkirim - terima kasih!",
-                                ACCENT)
-                            selesai(True, "Laporan terkirim — "
-                                    "terima kasih!")
-                            return
-                        print(f"[LAPOR] server tolak ({status}).")
-                    except Exception as e:
-                        print(f"[LAPOR] kirim otomatis gagal: "
-                              f"{str(e)[:60]}")
-                    # 2) fallback: Desktop + clipboard
-                    desktop = os.path.join(os.path.expanduser("~"),
-                                           "Desktop")
-                    if not os.path.isdir(desktop):
-                        desktop = os.path.join(os.path.expanduser("~"),
-                                               "OneDrive", "Desktop")
-                    os.makedirs(desktop, exist_ok=True)
-                    tujuan = os.path.join(desktop, "TypingBot-laporan-"
-                                          + time.strftime("%Y%m%d-%H%M%S")
-                                          + ".txt")
-                    with open(tujuan, "w", encoding="utf-8") as f:
-                        f.write(isi)
-                    self.root.clipboard_clear()
-                    self.root.clipboard_append(isi)
-                    try:
-                        os.startfile(desktop)
-                    except Exception:
-                        pass
-                    self._log("[LAPOR] offline - laporan di Desktop.")
-                    selesai(True, "Tersimpan di Desktop + tersalin "
-                            "(offline) — kirim filenya ya!")
-                except Exception as e:
-                    try:
-                        selesai(False, f"gagal: {str(e)[:70]}")
-                    except Exception:
-                        pass
-            _th.Thread(target=kerja, daemon=True).start()
+            self._lapor_kiriman(kategori, deskripsi, selesai)
 
         try:
             from .dialogs import dialog_lapor_bug
             dialog_lapor_bug(self.root, kirim)
         except Exception as e:
             self._log(f"[LAPOR] dialog gagal: {str(e)[:90]}")
+
+
 
 
 
