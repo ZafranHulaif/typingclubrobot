@@ -1499,15 +1499,19 @@ def dialog_lapor_bug(induk, kirim):
         if i % 2 == 0:
             baris = tk.Frame(d.body, bg=bg)
             baris.pack(fill="x")
-        b = tk.Label(baris, text=nama, font=("Segoe UI", 9), fg=FG,
-                     bg=CARD, padx=8, pady=6, cursor="hand2",
-                     highlightthickness=1, highlightbackground=EDGE)
+        # tk.Button + command: klik GARANTASI nyala (Label+bind rapuh
+        # di mode overlay - keluhan user 19 Nov: tile tak merespons)
+        b = tk.Button(baris, text=nama, font=("Segoe UI", 9),
+                      fg=FG, bg=CARD, activeforeground=ACCENT,
+                      activebackground=CARD_HOVER, relief="flat",
+                      bd=1, highlightthickness=1,
+                      highlightbackground=EDGE, cursor="hand2",
+                      command=lambda n=nama: pilih(n))
         b.pack(side="left", fill="x", expand=True, padx=(0, 6))
         tombol[nama] = b
-        b.bind("<Button-1>", lambda e, n=nama: pilih(n))
-        b.bind("<Enter>", lambda e, w=b: w.configure(bg=CARD_HOVER)
+        b.bind("<Enter>", lambda e, w=b: w.configure(fg=ACCENT)
                if pilih["nama"] != w.cget("text") else None)
-        b.bind("<Leave>", lambda e, w=b: w.configure(bg=CARD)
+        b.bind("<Leave>", lambda e, w=b: w.configure(fg=FG, bg=CARD)
                if pilih["nama"] != w.cget("text") else None)
 
     # ---- kotak cerita (opsional)

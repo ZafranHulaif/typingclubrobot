@@ -978,19 +978,24 @@ class Wv2Host(tk.Frame):
                             text="menyiapkan folder data…",
                             font=("Segoe UI", 10), fg="#9aa6b8", bg=warna)
             info.place(relx=0.5, rely=0.58, anchor="center")
-            stl = ttk.Style(self._pcv_frame)
+            bar = None
             try:
-                stl.theme_use("clam")
-            except Exception:
-                pass
-            stl.configure("pcv.Horizontal.TProgressbar",
-                          troughcolor="#202636", background=ACCENT,
-                          bordercolor=warna, lightcolor=ACCENT,
-                          darkcolor=ACCENT)
-            bar = ttk.Progressbar(self._pcv_frame, maximum=100, value=6,
-                                  style="pcv.Horizontal.TProgressbar",
-                                  length=320)
-            bar.place(relx=0.5, rely=0.66, anchor="center")
+                stl = ttk.Style(self._pcv_frame)
+                try:
+                    stl.theme_use("clam")
+                except Exception:
+                    pass
+                stl.configure("pcv.Horizontal.TProgressbar",
+                              troughcolor="#202636", background=ACCENT,
+                              bordercolor=warna, lightcolor=ACCENT,
+                              darkcolor=ACCENT)
+                bar = ttk.Progressbar(self._pcv_frame, maximum=100,
+                                      value=6,
+                                      style="pcv.Horizontal.TProgressbar",
+                                      length=320)
+                bar.place(relx=0.5, rely=0.66, anchor="center")
+            except Exception as ex:
+                print(f"[PCV] loading bar gagal dibuat: {str(ex)[:80]}")
             self._pcv_aktif = True
             self._pcv_widgets = (cv, lbl, nm, info, bar)
             self._pcv_val = 6.0
@@ -1017,7 +1022,7 @@ class Wv2Host(tk.Frame):
                 for j, item in enumerate(dots):
                     cv.itemconfigure(item, fill=palet[(j - fase["i"]) % N])
                 # loading bar: merayap halus ke target tahap berikut
-                if self._pcv_val < self._pcv_target:
+                if self._pcv_val < self._pcv_target and bar is not None:
                     self._pcv_val = min(self._pcv_target,
                                         self._pcv_val + 0.9)
                     try:
