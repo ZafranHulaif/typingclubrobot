@@ -1591,6 +1591,23 @@ class Wv2Host(tk.Frame):
                             self._tahan = None
                             self._boot_selesai = True
                             self._boot_cover = None
+                    # ---- boot cover: halaman LOGIN siap = angkat
+                    # cover SEKETIKA (user langsung login - dulu cover
+                    # menggantung 45 dtk di halaman login sambil nunggu
+                    # pill profil yang tidak akan muncul di halaman
+                    # login = 'stuck', keluhan user 19 Nov)
+                    if getattr(self, "_boot_cover", None)                             and "/signin" in u:
+                        try:
+                            _login_siap = pg.evaluate(
+                                "() => (document.body.innerText||'')"
+                                ".includes('Login Individual Edition')")
+                        except Exception:
+                            _login_siap = False
+                        if _login_siap:
+                            self._boot_cover = None
+                            self._boot_selesai = True
+                            catat("[BOOT] halaman login siap - cover "
+                                  "dibuka untuk login user")
                     # ---- permintaan supervisor: cover utk pindah rute
                     # .play klasik (state.TAHAN_NAV diset sebelum goto)
                     try:
