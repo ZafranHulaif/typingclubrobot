@@ -1043,6 +1043,15 @@ class Wv2Host(tk.Frame):
                 user32.ShowWindow(self._chwnd, 0)
             except Exception:
                 pass
+            # WATCHDOG 60 dtk: apa pun yang terjadi (watcher reconnect
+            # setelah webview dibuat ulang, dll), cover SELALU menutup
+            # dalam 1 menit - tidak ada stuck tanpa akhir (live 19 Nov:
+            # cover menggantung 'hampir selesai' selamanya)
+            def _pcv_watchdog():
+                if getattr(self, "_pcv_aktif", False):
+                    print("[PCV] cover >60 dtk - tutup paksa")
+                    self._pcv_selesai = True
+            self.after(60000, _pcv_watchdog)
         except Exception:
             pass
 
