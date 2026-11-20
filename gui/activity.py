@@ -559,8 +559,9 @@ class ActivityMixin:
                                     self._aktiv_sub_teks
                                     or "Buka pelajaran mana pun di jendela browser.")
 
-            self.btn_pause.configure(
-                text="⏸  Pause" if not bot.PAUSED else "▶  Lanjut")
+            # tombol Pause DIHAPUS (Start saja; F9 tetap bisa jeda) -
+            # dulu configure btn_pause yang tak ada = tick crash tiap
+            # siklus = seluruh UI mati (live 19 Nov, build dev4)
             self._sync_btn_states()
             # slider kecepatan ikut kalau kecepatan diubah dari hotkey F10
             w = getattr(self.bot, "SPEED_WPM", 0)

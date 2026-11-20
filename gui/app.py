@@ -178,16 +178,23 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             kot.pack(side="left", padx=(0, 10))
             return kot
 
-        self.btn_start = self._btn(ctrl, "▶  Start", GREEN, self.on_start,
-                                   besar=True, gaya="isi")
-        self.btn_start.pack(in_=_kot(ctrl), fill="both", expand=True)
-        self.btn_stop = self._btn(ctrl, "⏹  Stop", RED, self.on_stop,
+        # PENTING: tombol = ANAK KANDUNG kot-nya (dulu _btn(ctrl) lalu
+        # pack(in_=kot): geometri pindah tapi parent tetap ctrl, kot
+        # (dibuat belakangan) menutupi tombol dgn latar solid = tombol
+        # 'hilang' padahal ada di bawahnya - live 21 Nov dev5)
+        kot_start = _kot(ctrl, 150)
+        self.btn_start = self._btn(kot_start, "▶  Start", GREEN,
+                                   self.on_start, besar=True, gaya="isi")
+        self.btn_start.pack(fill="both", expand=True)
+        kot_stop = _kot(ctrl, 150)
+        self.btn_stop = self._btn(kot_stop, "⏹  Stop", RED, self.on_stop,
                                   besar=True, gaya="hantu")
         self.btn_stop["state"] = "disabled"
         self._style_btn(self.btn_stop)
-        self.btn_stop.pack(in_=_kot(ctrl), fill="both", expand=True)
+        self.btn_stop.pack(fill="both", expand=True)
 
-        self.kanan = tk.Frame(ctrl, bg=BG, height=self._header_h)
+        self.kanan = tk.Frame(ctrl, bg=BG, width=340,
+                              height=self._header_h)
         self.kanan.pack_propagate(False)
         self.kanan.pack(side="right")
         # 🪲 Lapor bug: chip DI SAMPING tombol akun (keluhan user 19
@@ -250,7 +257,8 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # 'pod' bulat dgn titik tier + arc merah muda + thumb glow). Baris
         # kontrol tetap satu baris & ramping.
         self._dial = None            # popup SpeedDial aktif (None = tutup)
-        kot_wpm = tk.Frame(grp, bg=BG, height=self._header_h,
+        kot_wpm = tk.Frame(grp, bg=BG, width=170,
+                           height=self._header_h,
                            highlightthickness=0)
         kot_wpm.pack_propagate(False)
         kot_wpm.pack(side="left")
@@ -307,6 +315,32 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self.host.pack_propagate(False)
 
         root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        # DEBUG GEOMETRI HEADER (sementara): dump posisi semua widget
+        # header ke log 3 dtk setelah tampil - diagnosa 'tombol hilang'
+        def _dump_geom():
+            try:
+                from .theme import LOG_FILE
+                tujuan = os.path.join(os.path.dirname(LOG_FILE),
+                                      "geom_debug.txt")
+                with open(tujuan, "w", encoding="utf-8") as f:
+                    def jalan(w, kedalaman=0):
+                        try:
+                            x, y = w.winfo_rootx(), w.winfo_rooty()
+                            ww, hh = w.winfo_width(), w.winfo_height()
+                            nm = w.winfo_name() or type(w).__name__
+                            kls = type(w).__name__
+                            f.write(f"{'  ' * kedalaman}{kls}/{nm}: "
+                                    f"{x},{y} {ww}x{hh}" + chr(10))
+                        except Exception:
+                            pass
+                        for c in w.winfo_children():
+                            jalan(c, kedalaman + 1)
+                    jalan(self.root)
+                print(f"[GEOM] dump: {tujuan}")
+            except Exception as e:
+                print(f"[GEOM] gagal: {e}")
+        self.root.after(3000, _dump_geom)
 
         self._log(f"TypingBot v{APP_VERSION}  •  build {_build_stamp()}")
         if self.lisensi_ok:
