@@ -1489,6 +1489,15 @@ class LaunchMixin:
         bot = self.bot
         if not bot:
             return
+        # UMPAN BALIK INSTAN (detik-0): sebelum apa pun - dulu klik
+        # Start diam 3+ dtk (join cek lisensi memblokir UI) = 'tombol
+        # ga ada indikasi udah kepencet' (keluhan user 19 Nov)
+        self._set_state("⏳ Menyalakan bot…", ACCENT, "memulai")
+        try:
+            self.btn_start.configure(
+                text="⏳  Menyalakan…", bg=GREEN_HOVER, fg=BTN_FG)
+        except Exception:
+            pass
         if self.bot_thread:
             if self.bot_thread.is_alive():
                 # thread lama nyangkut di panggilan playwright yang lambat
@@ -1533,7 +1542,7 @@ class LaunchMixin:
         self._set_state("🔎 Cek lisensi...", ACCENT)
         t_cek = threading.Thread(target=cek_gerbang, daemon=True)
         t_cek.start()
-        t_cek.join(timeout=3.4)
+        t_cek.join(timeout=1.2)
         if kotak["tolak"]:
             return
         # Rentang level ditanyakan setelah tersambung & login diketahui
@@ -1596,6 +1605,9 @@ class LaunchMixin:
         if self._rentang_mulai > 1 or self._rentang_akhir:
             self._log(f"Rentang level aktif: {self._rentang_mulai} - "
                       f"{self._rentang_akhir or 'akhir kursus'}.")
+        # pulihkan label tombol (balik dari 'Menyalakan…')
+        self.btn_start.configure(text="▶  Start",
+                                  bg=GREEN, fg=BTN_FG)
         self.bot_thread = threading.Thread(target=self._run_bot, daemon=True)
         # TAHAN supervisor SEJAK SEBELUM thread jalan (dulu: iterasi pertama
         # supervisor sempat lari -> deteksi minigame ngetik 'Dashboard' di

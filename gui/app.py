@@ -166,10 +166,6 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # (keluhan user: 'looks so bad').
         self.btn_start = self._btn(ctrl, "▶  Start", GREEN, self.on_start,
                                    besar=True, gaya="isi")
-        self.btn_pause = self._btn(ctrl, "⏸  Pause", YELLOW, self.on_pause,
-                                   besar=True, gaya="hantu")
-        self.btn_pause["state"] = "disabled"
-        self._style_btn(self.btn_pause)
         self.btn_stop = self._btn(ctrl, "⏹  Stop", RED, self.on_stop,
                                   besar=True, gaya="hantu")
         self.btn_stop["state"] = "disabled"
@@ -177,6 +173,19 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
         self.kanan = tk.Frame(ctrl, bg=BG)
         self.kanan.pack(side="right")
+        # 🪲 Lapor bug: chip DI SAMPING tombol akun (keluhan user 19
+        # Nov: 'why is it even inside that pop up' - keluar dari popover)
+        self.btn_bug = tk.Label(self.kanan, text="🪲", fg=ACCENT, bg=PANEL,
+                                font=("Segoe UI", 11), padx=10, pady=10,
+                                cursor="hand2", highlightthickness=1,
+                                highlightbackground=EDGE)
+        self.btn_bug.pack(side="left", padx=(0, 10))
+        self.btn_bug.bind("<Enter>", lambda e: self.btn_bug.configure(
+            fg="#e8eaf0", bg=CARD_HOVER))
+        self.btn_bug.bind("<Leave>", lambda e: self.btn_bug.configure(
+            fg=ACCENT, bg=PANEL))
+        self.btn_bug.bind("<Button-1>",
+                          lambda e: self._safe(self._lapor_bug))
         # 👤 Akun: manajer sesi edclub - ganti/tambah/hapus akun
         # (permintaan user 11 Nov 2026). Butuh CDP webview utk tukar
         # cookie -> nonaktif sampai WebView2 siap (lihat boot).
@@ -200,9 +209,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # (v3.2 permintaan user: makin sedikit baris kontrol = makin tinggi
         # ruang halaman web di bawah. Caption kecil + slider + readout.)
         grp = tk.Frame(ctrl, bg=BG)
-        grp.pack(side="left", padx=(16, 0))
-        tk.Label(grp, text="KECEPATAN", font=("Segoe UI", 8, "bold"),
-                 fg=FAINT, bg=BG).pack(side="left", pady=(0, 26), padx=(0, 8))
+        grp.pack(side="left", padx=(30, 0))   # jarak dari tombol aksi
         # Slider HALUS: drag = nilai wpm mengalir live ke engine (permintaan
         # user: snap instan terasa kasar - biar mengalir dulu, lepas baru
         # spring ke tick terdekat dengan bounce kecil). Tangga 85-300 wpm:
@@ -226,7 +233,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         self._dial = None            # popup SpeedDial aktif (None = tutup)
         self.speed_chip = tk.Label(grp, text=f"⚡  {self._speed_wpm} wpm",
                                    font=("Segoe UI", 10, "bold"), fg=FG,
-                                   bg=PANEL, padx=16, pady=8, cursor="hand2",
+                                   bg=PANEL, padx=18, pady=10, cursor="hand2",
                                    highlightthickness=1,
                                    highlightbackground=EDGE)
         self.speed_chip.pack(side="left", padx=(0, 4), pady=(0, 16))
@@ -424,6 +431,24 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         b.bind("<Button-1>", lambda e: self._safe(cmd))
         return b
 
+        # animasi TEKAN: tombol mengempis saat ditekan, kembali saat
+        # dilepas - umpan balik langsung "tombol kepencet" (permintaan
+        # user 19 Nov: start terasa kurang responsif)
+        _padx0, _pady0 = padx, pady
+
+        def tekan(_e=None):
+            if str(b["state"]) != "disabled":
+                b.configure(padx=max(6, _padx0 - 10),
+                            pady=max(2, _pady0 - 4))
+
+        def lepas(_e=None):
+            if str(b["state"]) != "disabled":
+                b.configure(padx=_padx0, pady=_pady0)
+
+        b.bind("<Button-1>", tekan, add="+")
+        b.bind("<ButtonRelease-1>", lepas, add="+")
+        return b
+
     def _style_btn(self, b):
         """Warna tombol sesuai gaya + state (disabled = redup)."""
         if str(b["state"]) == "disabled":
@@ -443,9 +468,8 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         """Set state Start/Pause/Stop dr status thread + rapikan warna."""
         jalan = bool(self.bot_thread)
         self.btn_start["state"] = "disabled" if jalan else "normal"
-        self.btn_pause["state"] = "normal" if jalan else "disabled"
         self.btn_stop["state"] = "normal" if jalan else "disabled"
-        for b in (self.btn_start, self.btn_pause, self.btn_stop):
+        for b in (self.btn_start, self.btn_stop):
             self._style_btn(b)
 
 
