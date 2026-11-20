@@ -180,15 +180,14 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
         self.btn_start = self._btn(ctrl, "▶  Start", GREEN, self.on_start,
                                    besar=True, gaya="isi")
-        self.btn_start.pack(in_=_kot(ctrl, 150), fill="both", expand=True)
+        self.btn_start.pack(in_=_kot(ctrl), fill="both", expand=True)
         self.btn_stop = self._btn(ctrl, "⏹  Stop", RED, self.on_stop,
                                   besar=True, gaya="hantu")
         self.btn_stop["state"] = "disabled"
         self._style_btn(self.btn_stop)
-        self.btn_stop.pack(in_=_kot(ctrl, 150), fill="both", expand=True)
+        self.btn_stop.pack(in_=_kot(ctrl), fill="both", expand=True)
 
-        self.kanan = tk.Frame(ctrl, bg=BG, height=self._header_h,
-                              width=340)
+        self.kanan = tk.Frame(ctrl, bg=BG, height=self._header_h)
         self.kanan.pack_propagate(False)
         self.kanan.pack(side="right")
         # 🪲 Lapor bug: chip DI SAMPING tombol akun (keluhan user 19
