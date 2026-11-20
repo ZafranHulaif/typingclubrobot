@@ -126,7 +126,17 @@ if (!out.std) {
 
 if (!out.std && !out.mini && !out.tut) {
     const targets = [];
-    try { if (window.core) { out.core = true; targets.push(window.core); } } catch (e) {}
+    try { if (window.core) {
+      out.core = true;
+      // CORE NEW-LOOK (punya cur_char/record_keydown_time) = milik
+      // jalur balon/tutorial - fallback teks TIDAK BOLEH menebak:
+      // dulu menebak field 'on_error: block' sbg teks lesson =
+      // mengetik kata 'block' selamanya di tutorial sekolah,
+      // memakan semua siklus (live 19 Nov, Dewi M lesson 127)
+      if (window.core.cur_char !== undefined ||
+          window.core.record_keydown_time) return out;
+      targets.push(window.core);
+    } } catch (e) {}
     outer_core:
     for (const t of targets) {
         try {
