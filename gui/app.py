@@ -164,14 +164,31 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # (Start hijau), aksi sekunder ghost dgn tint semantik tipis -
         # dulu tiga tombol terisi hijau/kuning/merang menyala berdampingan
         # (keluhan user: 'looks so bad').
+        # SEMUA kontrol header = tinggi seragam 56px (frame pembatas +
+        # pack_propagate False) - dulu chip wpm offset ke atas & tombol
+        # 🪲 lebih pendek dr tombol lain (keluhan user 19 Nov)
+        self._header_h = 56
+
+        def _kot(induk, lebar=0):
+            kot = tk.Frame(induk, bg=BG, height=self._header_h,
+                           highlightthickness=0)
+            if lebar:
+                kot.configure(width=lebar)
+            kot.pack_propagate(False)
+            kot.pack(side="left", padx=(0, 10))
+            return kot
+
         self.btn_start = self._btn(ctrl, "▶  Start", GREEN, self.on_start,
                                    besar=True, gaya="isi")
+        self.btn_start.pack(in_=_kot(ctrl), fill="both", expand=True)
         self.btn_stop = self._btn(ctrl, "⏹  Stop", RED, self.on_stop,
                                   besar=True, gaya="hantu")
         self.btn_stop["state"] = "disabled"
         self._style_btn(self.btn_stop)
+        self.btn_stop.pack(in_=_kot(ctrl), fill="both", expand=True)
 
-        self.kanan = tk.Frame(ctrl, bg=BG)
+        self.kanan = tk.Frame(ctrl, bg=BG, height=self._header_h)
+        self.kanan.pack_propagate(False)
         self.kanan.pack(side="right")
         # 🪲 Lapor bug: chip DI SAMPING tombol akun (keluhan user 19
         # Nov: 'why is it even inside that pop up' - keluar dari popover)
@@ -179,7 +196,8 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                                 font=("Segoe UI", 11), padx=10, pady=10,
                                 cursor="hand2", highlightthickness=1,
                                 highlightbackground=EDGE)
-        self.btn_bug.pack(side="left", padx=(0, 10))
+        self.btn_bug.pack(side="left", fill="both",
+                           expand=True, padx=(0, 8))
         self.btn_bug.bind("<Enter>", lambda e: self.btn_bug.configure(
             fg="#e8eaf0", bg=CARD_HOVER))
         self.btn_bug.bind("<Leave>", lambda e: self.btn_bug.configure(
@@ -198,6 +216,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             self.btn_akun.configure(width=16, anchor="center")
         except Exception:
             pass
+        self.btn_akun.pack_configure(fill="both", expand=True)
         self.btn_akun["state"] = "disabled"
         self._akun_perlu_login = None
         # v3.2: tombol Pulihkan & ❓ DIHAPUS (permintaan user) - Pulihkan
