@@ -1497,10 +1497,27 @@ def dialog_lapor_bug(induk, kirim):
             self.lift()
             self.grab_set()
             self.bind("<Escape>", lambda e: self.tutup())
-            self.bind("<FocusOut>", lambda e: self.after(120,
-                                                         self.tutup))
+            # klik DI LUAR popup menutup (dulu FocusOut: grab tidak
+            # memberi fokus = FocusOut menyala seketika = popup mati
+            # prematur sebelum kategori terpilih, live 19 Nov)
+            root_ui = induk2.winfo_toplevel()
+            self._luar_ui = root_ui
+
+            def pasang_luar():
+                # DIPASANG TERJADWAL 150ms: dulu dipasang seketika saat
+                # create - event klik pembuka ikut merambat ke binding
+                # ini = popup tutup di detik yang sama (live 19 Nov)
+                self._luar_id = root_ui.bind(
+                    "<Button-1>",
+                    lambda e: str(e.widget) != str(self) and self.tutup(),
+                    add="+")
+            root_ui.after(150, pasang_luar)
 
         def tutup(self):
+            try:
+                self._luar_ui.unbind("<Button-1>", self._luar_id)
+            except Exception:
+                pass
             try:
                 self.grab_release()
             except Exception:
