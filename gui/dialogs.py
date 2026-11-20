@@ -1450,6 +1450,138 @@ def dialog_dev_code(induk):
 
 # ------------------------------------------------------ lapor bug
 def dialog_lapor_bug(induk, kirim):
+    """Form lapor bug satu dialog: tile kategori (wajib, indikator
+    jelas) + cerita opsional. Log terlampir otomatis TANPA disebut
+    (user awam - 19 Nov).
+
+    kirim(kategori, deskripsi, selesai) di THREAD BARU; selesai(ok,
+    pesan) boleh dari thread mana pun (dimarshal after).
+    Return: "kirim" / None (batal)."""
+    KATEGORI = ["Kedip hitam / layar berkedip", "Login ulang terus",
+                "Level macet / tidak lanjut", "Game tidak jalan",
+                "Ganti akun bermasalah", "Lambat / loading lama",
+                "Salah ketik / hasil salah", "Tombol tidak merespons",
+                "Lainnya"]
+    d = _Dialog(induk, "Lapor Bug", "", ikon="🪲", warna=ACCENT)
+    bg = str(d.body.cget("bg"))
+
+    # ---- label wajib (merah *)
+    lbl = tk.Label(d.body, text="Masalah *", font=("Segoe UI", 9, "bold"),
+                   fg="#ef4444", bg=bg, anchor="w")
+    lbl.pack(fill="x", pady=(2, 6))
+
+    # ---- grid tile kategori 2 kolom, ADA JARAK antar tile; terpilih =
+    #      bg tint biru + border ACCENT 2px + tanda ✓ (indikator jelas,
+    #      keluhan user 19 Nov: 'buttons touching, no indicator')
+    pilih = {"nama": ""}
+    tombol = {}
+
+    def gaya(w, dipil):
+        try:
+            if dipil:
+                w.configure(fg="#e8eaf0", bg="#1d3a5c",
+                            highlightbackground=ACCENT,
+                            highlightthickness=2,
+                            text="✓  " + w._kat)
+            else:
+                w.configure(fg=FG, bg=CARD,
+                            highlightbackground=EDGE,
+                            highlightthickness=1,
+                            text=w._kat)
+        except Exception:
+            pass
+
+    def pilih(nama_kategori):
+        pilih["nama"] = nama_kategori
+        for n, w in tombol.items():
+            gaya(w, n == nama_kategori)
+
+    for i, nama in enumerate(KATEGORI):
+        if i % 2 == 0:
+            baris = tk.Frame(d.body, bg=bg)
+            baris.pack(fill="x", pady=(0, 7))
+        b = tk.Button(baris, text=nama, font=("Segoe UI", 9),
+                      fg=FG, bg=CARD, activeforeground=ACCENT,
+                      activebackground=CARD_HOVER, relief="flat",
+                      bd=0, highlightthickness=1,
+                      highlightbackground=EDGE, cursor="hand2",
+                      command=lambda n=nama: pilih(n),
+                      padx=10, pady=7)
+        b.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        b._kat = nama
+        tombol[nama] = b
+
+    # ---- kotak cerita (opsional)
+    lbl2 = tk.Label(d.body, text="Apa yang terjadi? (opsional)",
+                    font=("Segoe UI", 9), fg=FAINT, bg=bg, anchor="w")
+    lbl2.pack(fill="x", pady=(8, 0))
+    kotak = tk.Text(d.body, height=4, wrap="word", relief="flat",
+                    bg=CARD, fg=FG, insertbackground=FG,
+                    selectbackground="#2e4059", padx=10, pady=8,
+                    font=("Segoe UI", 10), highlightthickness=1,
+                    highlightbackground=EDGE, highlightcolor=ACCENT)
+    kotak.pack(fill="both", expand=True, pady=(4, 6))
+    kotak.bind("<Return>", lambda e: None)   # Enter = baris baru
+    kotak.bind("<Control-Return>", lambda e: _kirim())
+    d.bind("<Return>", lambda e: None)
+    d.bind("<Control-Return>", lambda e: _kirim())
+    kotak.focus_set()
+
+    # ---- status + validasi
+    stat = tk.Label(d.body, text="", font=("Segoe UI", 9),
+                    fg="#ef4444", bg=bg, anchor="w", wraplength=420,
+                    justify="left")
+    stat.pack(fill="x")
+
+    btn_kirim = d.button("Kirim", "kirim", warna_btn=GREEN)
+    d.button("Batal", None, primer=False)
+    kirim_state = {"jalan": False}
+
+    def _kirim():
+        if kirim_state["jalan"]:
+            return
+        if not pilih["nama"]:
+            # wajib: tanpa kategori = tolak dengan pesan merah
+            stat.configure(text="pilih masalah dulu (wajib)", fg="#ef4444")
+            return
+        kirim_state["jalan"] = True
+        try:
+            deskripsi = kotak.get("1.0", "end").strip()[:2000]
+        except Exception:
+            deskripsi = ""
+        try:
+            btn_kirim.configure(text="Mengirim…", fg=DIM, bg=CARD,
+                                cursor="arrow")
+            btn_kirim.unbind("<Button-1>")
+        except Exception:
+            pass
+        stat.configure(text="mengirim…", fg=DIM)
+
+        def selesai(ok, pesan):
+            def ui():
+                try:
+                    stat.configure(text=pesan,
+                                   fg=GREEN if ok else YELLOW)
+                    d.after(1500 if ok else 2600,
+                            lambda: d.done("kirim"))
+                except Exception:
+                    pass    # dialog sudah ditutup user - abaikan
+            try:
+                d.after(0, ui)
+            except Exception:
+                pass
+        kirim(pilih["nama"], deskripsi, selesai)
+
+    def _kirim_cmd(_e=None):
+        _kirim()
+    btn_kirim.bind("<Button-1>", _kirim_cmd)
+    btn_kirim._klik = _kirim_cmd
+
+    hasil = d.show()
+    return hasil if hasil == "kirim" else None
+
+
+def dialog_lapor_bug(induk, kirim):
     """Form lapor bug satu dialog (tile kategori + cerita opsional).
     Tile = wajib (merah *); Kirim terkunci sampai kategori dipilih.
     Log terlampir otomatis TANPA disebut (user awam - 19 Nov).
