@@ -185,15 +185,18 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         kot_start = _kot(ctrl, 150)
         self.btn_start = self._btn(kot_start, "▶  Start", GREEN,
                                    self.on_start, besar=True, gaya="isi")
-        self.btn_start.pack(fill="both", expand=True)
+        # padx=0 eksplisit: pack() Tk MEMPERTAHANKAN opsi lama (padx
+        # (0,8) dr _btn) - tanpa ini tombol 142px = sisa gelap 8px di
+        # kanan kot = kesan gap Start-Stop lebih lebar (user 21 Nov)
+        self.btn_start.pack(fill="both", expand=True, padx=0, pady=0)
         kot_stop = _kot(ctrl, 150)
         self.btn_stop = self._btn(kot_stop, "⏹  Stop", RED, self.on_stop,
                                   besar=True, gaya="hantu")
         self.btn_stop["state"] = "disabled"
         self._style_btn(self.btn_stop)
-        self.btn_stop.pack(fill="both", expand=True)
+        self.btn_stop.pack(fill="both", expand=True, padx=0, pady=0)
 
-        self.kanan = tk.Frame(ctrl, bg=BG, width=340,
+        self.kanan = tk.Frame(ctrl, bg=BG, width=560,
                               height=self._header_h)
         self.kanan.pack_propagate(False)
         self.kanan.pack(side="right")
@@ -257,7 +260,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # 'pod' bulat dgn titik tier + arc merah muda + thumb glow). Baris
         # kontrol tetap satu baris & ramping.
         self._dial = None            # popup SpeedDial aktif (None = tutup)
-        kot_wpm = tk.Frame(grp, bg=BG, width=170,
+        kot_wpm = tk.Frame(grp, bg=BG, width=200,
                            height=self._header_h,
                            highlightthickness=0)
         kot_wpm.pack_propagate(False)
@@ -267,8 +270,11 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                                    bg=PANEL, padx=18, cursor="hand2",
                                    highlightthickness=1,
                                    highlightbackground=EDGE)
-        self.speed_chip.pack(fill="both", expand=True)
-        self.speed_chip.pack(side="left", padx=(0, 4), pady=(0, 16))
+        # SATU pack saja: dulu dua pack (sisa refactor) - pack kedua
+        # membawa pady=(0,16) lama = chip terpotong 16px = kekecilan
+        # (keluhan user 21 Nov 'speed button a little too small')
+        self.speed_chip.pack(fill="both", expand=True, side="left",
+                             padx=(0, 4), pady=0)
         self.speed_chip.bind("<Button-1>",
                              lambda e: self._safe(self._toggle_dial))
         self.speed_chip.bind("<Enter>", lambda e: self.speed_chip.configure(

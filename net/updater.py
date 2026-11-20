@@ -25,8 +25,12 @@ class UpdateCancelled(Exception):
 
 
 def parse_version(s):
+    # "3.5.5-dev5" -> (3, 5, 5): dulu loop break pd "5-dev5" = angka
+    # patch DIBUANG -> (3,5) < (3,5,4) = dev build ditawari downgrade
+    # (ketemu 21 Nov saat user lapor 'tombol update hilang')
+    teks = str(s).strip().split("-", 1)[0]
     bagian = []
-    for x in str(s).strip().split("."):
+    for x in teks.split("."):
         try:
             bagian.append(int(x))
         except ValueError:
