@@ -250,11 +250,16 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # 'pod' bulat dgn titik tier + arc merah muda + thumb glow). Baris
         # kontrol tetap satu baris & ramping.
         self._dial = None            # popup SpeedDial aktif (None = tutup)
-        self.speed_chip = tk.Label(grp, text=f"⚡  {self._speed_wpm} wpm",
+        kot_wpm = tk.Frame(grp, bg=BG, height=self._header_h,
+                           highlightthickness=0)
+        kot_wpm.pack_propagate(False)
+        kot_wpm.pack(side="left")
+        self.speed_chip = tk.Label(kot_wpm, text=f"⚡  {self._speed_wpm} wpm",
                                    font=("Segoe UI", 10, "bold"), fg=FG,
-                                   bg=PANEL, padx=18, pady=10, cursor="hand2",
+                                   bg=PANEL, padx=18, cursor="hand2",
                                    highlightthickness=1,
                                    highlightbackground=EDGE)
+        self.speed_chip.pack(fill="both", expand=True)
         self.speed_chip.pack(side="left", padx=(0, 4), pady=(0, 16))
         self.speed_chip.bind("<Button-1>",
                              lambda e: self._safe(self._toggle_dial))
