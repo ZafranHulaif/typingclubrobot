@@ -1014,8 +1014,13 @@ class LaunchMixin:
         baris_lapor.bind(
             "<Leave>", lambda e: baris_lapor.configure(
                 fg=DIM, bg=CARD))
-        baris_lapor.bind("<Button-1>",
-                         lambda e: self._safe(self._lapor_bug))
+        def lapor_dari_pop():
+            # tutup popover DULU (lepas Tk grab) - dulu form dibuka
+            # dgn grab popover masih pegang = form tak bisa diklik/
+            # di-hover sama sekali (keluhan user 19 Nov)
+            tutup()
+            self._safe(self._lapor_bug)
+        baris_lapor.bind("<Button-1>", lambda e: lapor_dari_pop())
         refresh()
         # + Akun dibuka: tutup selector pilih-level bila terbuka
         # (dua overlay sekaligus = tumpang tindih, live 18 Nov)
