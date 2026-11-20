@@ -250,47 +250,13 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # dikecilkan vertikal, kartu aktivitas-lah yang menyusut, footer
         # selalu tampak (dulu footer di-pack terakhir -> teks terpotong
         # duluan;).
-        self._hotkey = True
-        self.hotkey_lbl = tk.Label(root, text="", font=("Segoe UI", 9),
-                                   fg=FAINT, bg=BG, cursor="hand2",
-                                   wraplength=640, justify="center")
-        self.hotkey_lbl.pack(side="bottom", fill="x", pady=(0, 8))
-        self.hotkey_lbl.bind("<Button-1>", lambda e: self._safe(self._toggle_hotkey))
-        self._update_hotkey_label()
-        # tombol lapor bug (permintaan user 19 Nov: teman tak perlu
-        # repot cari log - satu klik = file laporan di Desktop +
-        # tersalin ke clipboard, tinggal kirim via chat)
-        # chip lapor bug: kecil, kanan-bawah, hover lembut
-        self.bug_lbl = tk.Label(root, text="🪲  Lapor bug",
-                                font=("Segoe UI", 9, "bold"), fg=DIM,
-                                bg=CARD, cursor="hand2", anchor="center",
-                                padx=12, pady=4,
-                                highlightthickness=1,
-                                highlightbackground=EDGE)
-        self.bug_lbl.pack(side="bottom", anchor="e", padx=18, pady=(0, 6))
-        self.bug_lbl.bind(
-            "<Enter>", lambda e: self.bug_lbl.configure(
-                fg=ACCENT, bg=CARD_HOVER))
-        self.bug_lbl.bind(
-            "<Leave>", lambda e: self.bug_lbl.configure(
-                fg=DIM, bg=CARD))
-        self.bug_lbl.bind("<Button-1>",
-                          lambda e: self._safe(self._lapor_bug))
-        # ticker status: satu baris tipis di atas footer - meneruskan
-        # kalimat aktivitas saat browser sudah menempati kartu tengah
-        self.ticker_lbl = tk.Label(root, text="", font=("Segoe UI", 9),
-                                   fg=DIM, bg=BG, anchor="w", wraplength=900)
-        self.ticker_lbl.pack(side="bottom", fill="x", padx=18, pady=(0, 4))
-
-        # ---------- host web (mengisi sisa ruang tengah) ----------
-        # v3.2: WebView2 chromeless ditanam di frame ini - yang tampak
-        # HANYA halaman web, tanpa UI browser apa pun (tab/URL/bookmark).
-        # Overlay menampilkan status besar sebelum WebView2 siap.
+        self._hotkey = True   # hotkey F9/F10/F11 tetap aktif (tanpa
+        # indikator footer - footer lama DIHAPUS: kartu Siap/login/
+        # ticker menembus cover profil & startup (keluhan user 19 Nov:
+        # 'remove all old states'). State cukup lewat header.
         self.host = Wv2Host(
             root, paths.data_path("wv2profile"))  # sandbox ikut mode SIM
         self.host.pack(fill="both", expand=True, padx=18, pady=(0, 2))
-        self._aktiv_sub_teks = ""
-        self._aktiv_nama = ""
         tengah = tk.Frame(self.host, bg=PANEL)
         # panggung animasi status: sprite per status + crossfade antar status
         self._stage_kan = tk.Canvas(tengah, width=460, height=56, bg=PANEL,
@@ -505,7 +471,8 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             self.aktiv_lbl.configure(text=utama)
             self.aktiv_sub.configure(text=sub)
             baris = utama + (f"  •  {sub}" if sub else "")
-            self.ticker_lbl.configure(text=baris)
+            if hasattr(self, "ticker_lbl"):
+                self.ticker_lbl.configure(text=baris)
         except Exception:
             pass
 
@@ -538,6 +505,8 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
     def _update_hotkey_label(self):
         """Footer = indikator + saklar hotkey global (permintaan user:
         F9/F10/F11 bisa tak sengaja mengetik bot saat dipakai app lain)."""
+        if not hasattr(self, "hotkey_lbl"):
+            return   # footer lama dihapus - tak ada yang dikonfigurasi
         try:
             if self._hotkey:
                 self.hotkey_lbl.configure(

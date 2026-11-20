@@ -2609,11 +2609,12 @@ class Wv2Host(tk.Frame):
         if not self._chwnd:
             return
         try:
-            # margin bawah 26px utk strip footer (y-offset ekstra JANGAN:
-            # bikin gap gelap di atas - live 19 Nov)
+            # FULL height: webview mengisi sisa window sampai bawah -
+            # footer lama DIHAPUS total (keluhan user 19 Nov: strip
+            # hitam di bawah webview)
             user32.MoveWindow(self._chwnd, 0, 0,
                               max(self.winfo_width(), 50),
-                              max(self.winfo_height() - 26, 50), True)
+                              max(self.winfo_height(), 50), True)
         except Exception:
             pass
 
