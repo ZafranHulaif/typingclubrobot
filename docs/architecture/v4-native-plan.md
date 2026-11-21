@@ -178,7 +178,28 @@ Owner ran dev3 on Windows. Typing works (slow first start). Fixed in dev4:
   turns the OAuth popup into a main-frame navigation, and edclub's callback page expects
   `window.opener`. Needs the dev4 bot.log to confirm before changing the OAuth path.
 
-## Owner test checklist (Windows, build 4.0.0-dev4 from the CI artifact)
+### Second owner test (dev4) -> dev5
+- Login lost on every restart: edclub's `rt` refresh cookie is a session cookie. 3.5.x saved and
+  re-set it (gui/webview2_host.py); v4 now does the same per account (`tb_sesi.json` in the
+  account folder; restored via CDP before the first navigation, re-saved whenever it rotates
+  while logged in; cleared on logout).
+- Auto login: an account that logged in with Google before and opens logged out tries a silent
+  Google OAuth (`prompt=none`) under the cover once; failure = /signin. Never after an explicit
+  logout.
+- New Google user loop: the relay sent a Google identity without an edclub account back to
+  /signin silently. The relay (source in gui/webview2_host.py, generated js_init.dart) now
+  creates the edclub account when the user clicked "Sign up with Google", otherwise shows a
+  banner pointing to sign-up.
+- OAuth relay pages are hidden under the cover ("Sedang masuk..."): no white flashes.
+- Tambah akun: the account is only listed after a successful login, gets the edclub display name,
+  and an abandoned new account is deleted.
+- Real keycap icon (rendered from the in-app logo by ui/tool/render_icon_test.dart +
+  make_ico.py), title-bar icon hidden, clicking the page closes Flutter popups.
+- CI self-test (TB_SELFTEST): the app runs UI steps itself and CI saves screenshots + bot.log
+  as the `selftest` artifact. First run confirmed on real Windows: holes work (panel over live
+  page), maximized, dark title bar, login gate -> /signin.
+
+## Owner test checklist (Windows, build 4.0.0-dev5 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

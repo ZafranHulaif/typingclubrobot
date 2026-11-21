@@ -22,6 +22,8 @@ class FakeNative {
   final String version;
   final calls = <MethodCall>[];
   final cdpCalls = <String>[];
+  final cdpParams = <String>[];
+  String? rt; // kuki rt di jar palsu
 
   Future<Object?> _handle(MethodCall c) async {
     calls.add(c);
@@ -31,7 +33,12 @@ class FakeNative {
       case 'create':
         return (c.arguments as Map)['id'];
       case 'cdp':
-        cdpCalls.add('${(c.arguments as Map)['method']}');
+        final m = '${(c.arguments as Map)['method']}';
+        cdpCalls.add(m);
+        cdpParams.add('${(c.arguments as Map)['params']}');
+        if (m == 'Network.getCookies' && rt != null) {
+          return '{"cookies": [{"name": "rt", "value": "$rt"}]}';
+        }
         return '{}';
       case 'eval':
         // cek login saat webview dibuka: anggap sudah login
@@ -125,7 +132,9 @@ void main() {
       await _flush();
       final create = fake.named('create').single.arguments as Map;
       expect(create['folder'], endsWith('wv2profile'));
-      expect(create['url'], homeUrl);
+      // dibuat kosong, kuki sesi dipasang, baru navigasi
+      expect(create['url'], '');
+      expect(fake.named('navigate').first.arguments['url'], homeUrl);
       expect((create['scripts'] as List).length, initScripts.length);
       expect(create['scripts'][0], contains('window.open'));
       expect(cover()['visible'], true);
@@ -176,10 +185,38 @@ void main() {
       await be.request('acct.add');
       await _flush();
       final c = fake.named('create').last.arguments as Map;
-      expect(c['url'], signinUrl);
+      expect(fake.named('navigate').last.arguments['url'], signinUrl);
       expect(c['folder'], endsWith('Akun baru'));
       expect((_last['account'] as Map)['active'], 'Akun baru');
       expect((_last['account'] as Map)['pending'], true);
+    });
+
+    test('sesi edclub (kuki rt): disimpan saat login, dipasang lagi saat buka', () async {
+      _listen(be);
+      await be.connect();
+      await _flush();
+      // login: halaman lesson + penanda 'in', jar punya rt
+      fake.rt = 'RT-1';
+      await fake.emit(1, 'nav', {'phase': 'done', 'url': homeUrl});
+      await Future<void>.delayed(const Duration(milliseconds: 3300));
+      await _flush();
+      final f = File('${AccountStore(tmp.path).folderFor(null)}/tb_sesi.json');
+      expect(jsonDecode(f.readAsStringSync())['rt'], 'RT-1');
+      be.close();
+      // buka lagi (jar kosong, kuki sesi hilang): rt dipasang SEBELUM navigasi
+      fake.rt = null;
+      fake.calls.clear();
+      final b2 = NativeBackend(
+          version: 't', host: WebHost(), accounts: AccountStore(tmp.path),
+          checkLicense: false, revealTimeout: const Duration(seconds: 5));
+      await b2.connect();
+      await _flush();
+      final i = fake.cdpCalls.lastIndexOf('Network.setCookie');
+      expect(i, greaterThanOrEqualTo(0));
+      expect(fake.cdpParams[i], contains('RT-1'));
+      final names = fake.calls.map((c) => c.method).toList();
+      expect(names.lastIndexOf('cdp'), lessThan(names.indexOf('navigate')));
+      b2.close();
     });
 
     test('akun baru ditinggal sebelum login = dibuang; login = tersimpan', () async {

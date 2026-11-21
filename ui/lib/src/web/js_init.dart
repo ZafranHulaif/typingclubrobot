@@ -220,6 +220,17 @@ const oauthRelayPageJs = r'''
     var api = 'https://api.edclub.com';
     var opt = {method: 'POST', credentials: 'include',
                headers: {'Content-Type': 'application/json'}};
+    // niat = tombol yang diklik sebelum ke Google ('signup'/'signin',
+    // dicatat listener klik di blok 4). Sekali pakai.
+    var niat = '';
+    try {
+      niat = sessionStorage.getItem('tb_oauth_from') || '';
+      sessionStorage.removeItem('tb_oauth_from');
+    } catch (e) {}
+    var tujuan = 'https://www.edclub.com/signin';
+    function pesan(m) {
+      try { sessionStorage.setItem('tb_oauth_msg', m); } catch (e) {}
+    }
     (async () => {
       for (var i = 0; i < issuers.length; i++) {
         try {
@@ -234,6 +245,41 @@ const oauthRelayPageJs = r'''
           var tok = null;
           for (var j = 0; j < k.length; j++)
             if (k[j] && k[j].login_token) { tok = k[j].login_token; break; }
+          // AKUN GOOGLE TANPA AKUN EDCLUB (bundle live edclub, Nov
+          // 2026: resolve balas 200 tanpa user -> /signin asli cuma
+          // menampilkan 'User not found.', dan /signup memanggil
+          // /website/create_tp_oauth_user/ {sign} -> login_token).
+          // DULU: break -> balik ke /signin TANPA pesan = user baru
+          // berputar signin -> google -> signin selamanya.
+          if (!tok && !k.length && d &&
+              !d.identity_confirmation_status) {
+            if (niat === 'signup' && d.sign) {
+              try {
+                var rs = await fetch(
+                  api + '/website/create_tp_oauth_user/',
+                  Object.assign({}, opt, {body: JSON.stringify(
+                    {sign: d.sign, locale: 'en_US'})}));
+                var ds = rs.ok ? await rs.json() : null;
+                if (ds && ds.login_token) tok = ds.login_token;
+              } catch (e) {}
+              if (!tok) {
+                pesan('Akun baru gagal dibuat. Coba lagi ya.');
+                tujuan = 'https://www.edclub.com/signup';
+              }
+            } else {
+              pesan('Akun Google ini belum terdaftar di edclub. ' +
+                    'Klik "Sign up with Google" di halaman ini ' +
+                    'untuk membuat akun baru.');
+              tujuan = 'https://www.edclub.com/signup';
+            }
+          }
+          if (!tok && d && d.identity_confirmation_status) {
+            pesan(d.identity_confirmation_status === 'sent'
+              ? 'edclub mengirim link konfirmasi ke email akun ini. ' +
+                'Buka emailnya dulu, lalu login lagi.'
+              : 'Konfirmasi email belum selesai. Cek email akun ini ' +
+                'atau coba lagi beberapa menit lagi.');
+          }
           if (!tok) break;
           // simpan login_token: tiket tukar-token ini yang bikin sesi
           // hidup (cookie rt saja TIDAK cukup - boot dengan rt tetap
@@ -254,7 +300,7 @@ const oauthRelayPageJs = r'''
           }
         } catch (e) {}
       }
-      location.replace('https://www.edclub.com/signin');
+      location.replace(tujuan);
     })();
     }
   } catch (e) {}
@@ -358,6 +404,50 @@ const oauthRelayPageJs = r'''
       };
       setTimeout(cek, 2000);
       setInterval(cek, 3000);
+    }
+  } catch (e) {}
+  // 4) niat + pesan (hanya sampai sini di host edclub).
+  //    a) catat tombol OAuth yang diklik: 'Sign up with ...' = user
+  //       memang mau BUAT akun (blok 2 baru boleh membuatkan akun).
+  //    b) tampilkan pesan titipan blok 2 (textContent, aman CSP).
+  try {
+    document.addEventListener('click', function (ev) {
+      try {
+        var el = ev.target;
+        for (var i = 0; i < 6 && el; i++, el = el.parentElement) {
+          var t = ((el.textContent || '') + '').toLowerCase();
+          if (t.length > 60) break;
+          var up = t.indexOf('sign up with') >= 0;
+          if (up || t.indexOf('sign in with') >= 0) {
+            sessionStorage.setItem('tb_oauth_from',
+                                   up ? 'signup' : 'signin');
+            return;
+          }
+        }
+      } catch (e) {}
+    }, true);
+    var msg = sessionStorage.getItem('tb_oauth_msg') || '';
+    if (msg && !rc) {
+      sessionStorage.removeItem('tb_oauth_msg');
+      var tampil = function () {
+        try {
+          var b = document.createElement('div');
+          b.id = 'tb-oauth-msg';
+          b.textContent = msg;
+          b.style.cssText = 'position:fixed;top:12px;left:50%;' +
+            'transform:translateX(-50%);z-index:2147483647;' +
+            'max-width:520px;padding:12px 16px;border-radius:8px;' +
+            'background:#1f2937;color:#fff;font:14px/1.4 system-ui,' +
+            'sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.25);' +
+            'cursor:pointer';
+          b.addEventListener('click', function () { b.remove(); });
+          document.body.appendChild(b);
+          setTimeout(function () { try { b.remove(); } catch (e) {} },
+                     20000);
+        } catch (e) {}
+      };
+      if (document.body) tampil();
+      else document.addEventListener('DOMContentLoaded', tampil);
     }
   } catch (e) {}
 })();

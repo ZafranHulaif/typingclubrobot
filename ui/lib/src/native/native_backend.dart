@@ -9,6 +9,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import '../bridge/bridge.dart';
 import '../engine/clock.dart';
@@ -29,6 +30,22 @@ import 'view_bridge.dart';
 
 const homeUrl = 'https://www.edclub.com/student/course/3';
 const signinUrl = 'https://www.edclub.com/signin';
+
+/// URL mulai OAuth Google edclub + prompt=none: Google langsung balik
+/// (sesi Google ada -> login lewat relay; tidak ada -> ?error -> /signin),
+/// tanpa pernah menampilkan UI. client_id dari api.edclub.com/auth/get_account.
+String googleSilentUrl() {
+  final r = Random.secure();
+  final st = [for (var i = 0; i < 32; i++) r.nextInt(256).toRadixString(16).padLeft(2, '0')].join();
+  return Uri.https('accounts.google.com', '/o/oauth2/v2/auth', {
+    'response_type': 'code',
+    'redirect_uri': 'https://s.typingclub.com/m/auth_callback.html',
+    'client_id': '1036962974046-hsai0fu9h3huagfkqmn61nfuqgr01mn3.apps.googleusercontent.com',
+    'scope': 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+    'state': st,
+    'prompt': 'none',
+  }).toString();
+}
 
 /// Init script utk tiap dokumen (urutan sama dgn pengawas 3.5.x).
 const initScripts = [
@@ -126,6 +143,15 @@ class NativeBackend implements Backend {
   // cek login sekali tiap webview dibuka (cover tetap sampai pasti)
   bool _gatePending = false;
   int _gateRun = 0;
+  // sesi edclub: kuki rt (kuki sesi = hilang saat app tutup) disimpan per
+  // akun di tb_sesi.json & dipasang lagi sebelum navigasi pertama
+  String? _viewAcct;
+  Timer? _rtT;
+  bool _rtBusy = false, _seenIn = false;
+  String _rtSaved = '';
+  // login Google otomatis / tahan cover selama relay OAuth
+  bool _oauthHold = false, _oauthSeen = false, _autoTried = false;
+  Timer? _holdT;
   // Mulai ditekan tapi mesin belum jalan: tunggu login / pilih level
   Timer? _waitT;
   bool _waitBusy = false;
@@ -305,17 +331,28 @@ class NativeBackend implements Backend {
     _revealT?.cancel();
     WebView v;
     try {
+      // tanpa URL dulu: kuki sesi dipasang sebelum halaman pertama
       v = await host.create(
-          folder: accounts.folderFor(name), url: url, scripts: initScripts);
+          folder: accounts.folderFor(name), url: '', scripts: initScripts);
     } on WebHostException catch (e) {
       _cover('Halaman edclub gagal dibuka (${e.code}). Tutup lalu buka '
           'lagi TypingBot ya.');
       return;
     }
     _view = v;
+    _viewAcct = name;
+    _rtSaved = '';
+    _seenIn = false;
+    _autoTried = false;
+    _oauthHold = false;
+    _oauthSeen = false;
     _gatePending = !url.contains('/signin');
     _gateRun++;
     _viewSub = v.events.listen(_onWeb);
+    await _rtRestore(v, name);
+    await v.navigate(url).catchError((_) {});
+    _rtT?.cancel();
+    _rtT = Timer.periodic(const Duration(seconds: 3), (_) => _rtTick());
     // jaga-jaga: halaman lambat / gagal = tetap tampilkan
     _revealT = Timer(revealTimeout, () => _cover(null));
     if (old != null) await old.dispose().catchError((_) {});
@@ -324,18 +361,59 @@ class NativeBackend implements Backend {
   void _onWeb(WebEvent e) {
     switch (e.type) {
       case 'nav':
-        if (e.data['phase'] == 'done' && _coverOn) {
-          if (_gatePending) {
-            // belum login = langsung ke halaman login (jangan tampilkan
-            // daftar level kosong); cover turun setelah pasti
-            _gatePending = false;
-            unawaited(_loginGate());
-          } else {
-            _revealT?.cancel();
+        final url = e.url;
+        if (url.isEmpty || url.startsWith('about:')) return;
+        // relay OAuth (auth_callback / ?oauth_relay=): cover menutupi
+        // kilatan putih sampai login selesai
+        if (e.data['phase'] == 'start' && _relayUrl(url)) {
+          _oauthSeen = true;
+          if (!_oauthHold) {
+            _oauthHold = true;
+            _cover('Sedang masuk...');
+          }
+          _revealT?.cancel();
+          _revealT = Timer(revealTimeout, () {
+            _oauthHold = false;
             _cover(null);
+          });
+        }
+        if (e.data['phase'] == 'done') {
+          final u = Uri.tryParse(url);
+          final host = u?.host ?? '';
+          if (_oauthHold) {
+            if (host.contains('google')) {
+              // prompt=none tak pernah berhenti di Google kecuali error
+              _oauthHold = false;
+              _view?.navigate(signinUrl).catchError((_) {});
+            } else if (host.endsWith('edclub.com') && !_relayUrl(url)) {
+              _holdT?.cancel();
+              void buka() {
+                _oauthHold = false;
+                _revealT?.cancel();
+                _cover(null);
+              }
+              if (u!.path.contains('/signin')) {
+                // bisa jadi halaman relay (URL sudah dibersihkan): tunggu
+                _holdT = Timer(const Duration(seconds: 4), () {
+                  if (_oauthHold) buka();
+                });
+              } else {
+                buka();
+              }
+            }
+          } else if (_coverOn) {
+            if (_gatePending) {
+              // belum login = coba masuk otomatis / ke halaman login
+              // (jangan tampilkan daftar level kosong)
+              _gatePending = false;
+              unawaited(_loginGate());
+            } else {
+              _revealT?.cancel();
+              _cover(null);
+            }
           }
         }
-        _web(e.url);
+        _web(url);
       case 'source':
         _web(e.url);
       case 'title':
@@ -412,14 +490,32 @@ class NativeBackend implements Backend {
     }
   }
 
+  bool _relayUrl(String u) => u.contains('auth_callback') || u.contains('oauth_relay=');
+
   Future<void> _loginGate() async {
     final run = _gateRun;
     var out = 0;
-    for (var i = 0; i < 10; i++) {
+    for (var i = 0; i < 25; i++) { // maks ~10 dtk
       final r = await _profile();
       if (run != _gateRun) return;
-      if (r == 'in') break;
-      if (r == 'out' && ++out >= 2) {
+      if (r == 'in') {
+        _seenIn = true;
+        break;
+      }
+      out = r == 'out' ? out + 1 : 0;
+      if (out >= 6) { // 'out' bertahan ~2,4 dtk (bukan kilatan hidrasi)
+        if (!_autoTried && _sesiLoad(_viewAcct)['google'] != false) {
+          _autoTried = true;
+          _oauthHold = true;
+          _log('[LOGIN] Mencoba masuk otomatis lewat Google.');
+          _cover('Masuk otomatis...');
+          try {
+            await _view?.navigate(googleSilentUrl());
+            return;
+          } catch (_) {
+            _oauthHold = false;
+          }
+        }
         _log('[LOGIN] Belum login - membuka halaman login.');
         _set('bot', {'needs_login': true});
         try {
@@ -434,6 +530,83 @@ class NativeBackend implements Backend {
     if (run != _gateRun) return;
     _revealT?.cancel();
     _cover(null);
+  }
+
+  // ---- sesi edclub (kuki rt) per akun
+  String _sesiPath(String? name) =>
+      '${accounts.folderFor(name)}${Platform.pathSeparator}tb_sesi.json';
+
+  Map<String, dynamic> _sesiLoad(String? name) {
+    try {
+      return (jsonDecode(File(_sesiPath(name)).readAsStringSync()) as Map)
+          .cast<String, dynamic>();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  void _sesiSave(String? name, Map<String, dynamic> patch) {
+    try {
+      final f = File(_sesiPath(name))..parent.createSync(recursive: true);
+      f.writeAsStringSync(jsonEncode({..._sesiLoad(name), ...patch}));
+    } catch (_) {}
+  }
+
+  Future<String?> _rtNow(WebView v) async {
+    final r = await v.cdp('Network.getCookies', {
+      'urls': ['https://api.edclub.com/']
+    });
+    for (final c in (r['cookies'] as List? ?? const [])) {
+      if (c is Map && c['name'] == 'rt') return '${c['value']}';
+    }
+    return null;
+  }
+
+  /// rt = kuki sesi (hilang saat app tutup): pasang lagi SEBELUM navigasi.
+  Future<void> _rtRestore(WebView v, String? name) async {
+    final rt = '${_sesiLoad(name)['rt'] ?? ''}';
+    if (rt.isEmpty) return;
+    try {
+      if (await _rtNow(v) != null) return; // jar masih punya rt lebih baru
+      await v.cdp('Network.setCookie', {
+        'name': 'rt',
+        'value': rt,
+        'domain': '.edclub.com',
+        'path': '/',
+        'secure': true,
+        'httpOnly': true,
+        'sameSite': 'None',
+        'expires': DateTime.now().millisecondsSinceEpoch / 1000 + 180 * 86400,
+      });
+      _rtSaved = rt;
+    } catch (_) {}
+  }
+
+  /// rt berputar tiap refresh: simpan tiap berubah, HANYA saat pasti login
+  /// (boot anonim juga dapat rt, itu tidak boleh menimpa yang bagus).
+  Future<void> _rtTick() async {
+    final v = _view;
+    if (v == null || v.disposed || _rtBusy) return;
+    final url = '${_snap['web']!['url'] ?? ''}';
+    final u = Uri.tryParse(url);
+    if (u == null || !u.host.endsWith('edclub.com')) return;
+    if (u.path.contains('/signin') || u.path.contains('/signup')) {
+      _seenIn = false;
+      return;
+    }
+    _rtBusy = true;
+    try {
+      final rt = await _rtNow(v);
+      if (rt == null || rt.isEmpty || rt == _rtSaved) return;
+      final masuk = (diLesson(url) && _seenIn) || await _profile() == 'in';
+      if (!masuk || v != _view) return;
+      _seenIn = true;
+      _sesiSave(_viewAcct, {'rt': rt, if (_oauthSeen) 'google': true});
+      _rtSaved = rt;
+    } catch (_) {
+    } finally {
+      _rtBusy = false;
+    }
   }
 
   // ------------------------------------------------------------ request
@@ -587,6 +760,9 @@ class NativeBackend implements Backend {
           'storageTypes': 'local_storage,session_storage,indexeddb,cache_storage',
         }).catchError((_) => const <String, dynamic>{});
       }
+      // keluar sengaja = jangan dipasang lagi / masuk otomatis
+      _sesiSave(_viewAcct, {'rt': '', 'google': false});
+      _rtSaved = '';
       await v.navigate(signinUrl);
     } on WebHostException {
       _cover(null);
@@ -1178,6 +1354,8 @@ class NativeBackend implements Backend {
     _poll?.cancel();
     _stopWaiting();
     _gateRun++;
+    _rtT?.cancel();
+    _holdT?.cancel();
     _revealT?.cancel();
     _viewSub?.cancel();
     _view?.dispose().catchError((_) {});
