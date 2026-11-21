@@ -248,7 +248,10 @@ class Page {
     _attached = false;
     _wakeNav();
     for (final c in _loadWaiters) {
-      if (!c.isCompleted) c.completeError(PageError('halaman ditutup'));
+      if (!c.isCompleted) {
+        c.future.ignore();
+        c.completeError(PageError('halaman ditutup'));
+      }
     }
     _loadWaiters.clear();
   }
@@ -376,9 +379,16 @@ class Page {
   }
 
   // ------------------------------------------------------------ navigasi
-  Future<void> _waitLoad(Completer<void> c, double timeout) =>
-      c.future.timeout(Duration(milliseconds: (timeout * 1000).round()),
+  Future<void> _waitLoad(Completer<void> c, double timeout) async {
+    try {
+      await c.future.timeout(Duration(milliseconds: (timeout * 1000).round()),
           onTimeout: () => throw TimeoutException('menunggu halaman'));
+    } finally {
+      // penunggu yang habis waktu jangan tertinggal di daftar
+      _loadWaiters.remove(c);
+      _navWaiters.remove(c);
+    }
+  }
 
   Future<void> goto(String url, {double timeout = 30}) async {
     final c = Completer<void>();

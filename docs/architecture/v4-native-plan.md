@@ -113,7 +113,7 @@ injectable (tests run instantly with a fake clock).
      route (always 15 s wasted). Dart normalises first.
 - Not ported (not needed in the native app): browser launch/port/profile code, hotkeys,
   `baca_progres_akun` (old start dialog), Stripe/ad tab sweepers, `_probe_tab_login`.
-- Tests (`ui/test/engine_*_test.dart`, `native_engine_test.dart`, 71 total with N1/N2): typing
+- Tests (`ui/test/engine_*_test.dart`, `native_engine_test.dart`; 92 in the whole suite after N4): typing
   accuracy against a fake edclub lesson (clean text with symbols/Enter/Tab, dropped keystrokes,
   site-marked mistakes -> Backspace and retype, pre-existing errors, progressive line render,
   stage not ready, STOP mid-lesson; all must end with zero wrong characters), burst timing
@@ -149,6 +149,24 @@ injectable (tests run instantly with a fake clock).
   machine -> need/pending with 5 s polling up to 30 min, quick status gate before Mulai.
   New license state `checking` shows "Memeriksa lisensi..." in the existing banner.
 - Tests: `ui/test/net_test.dart`, `ui/test/native_license_test.dart` (local fake worker).
+
+## Owner test checklist (Windows, build 4.0.0-dev3 from the CI artifact)
+Close any running 3.5.x first (same data folder). Everything happens inside the app window.
+1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
+   account switch (menu) opens the other account's edclub, logout lands on /signin.
+2. **License (N4)**: with the 3.5.x `license.dat` the bar should NOT ask for a nickname. If it says
+   "dicabut", copy the `[LISENSI]` lines from `%LOCALAPPDATA%/TypingBot/bot.log`.
+3. **Mulai/Stop (N3)**: with a plan (e.g. 1 tile around the next level), press Mulai: the bot opens
+   the level, types it, presses through the score screen, moves on. Level number and progress
+   bar update in the capsule. Stop ends within a few seconds.
+4. **Accuracy**: a few standard lessons should finish with 100% accuracy at 400 wpm.
+5. **Lesson kinds**: try at least one each of video, intro ("type the f key"), a game (balloon /
+   monster) and a tutorial. Game and video levels are the risky ones (cross-origin iframes, see
+   N2 note). If one stalls >30 s, send a bug report from the app (it attaches the log).
+6. **Plan lock**: while running, editing the active tile or the next one is refused with a
+   friendly message; a later tile can still be changed.
+7. **Speed**: changing speed while running takes effect on the next burst.
+8. **Bug report** button sends (owner thread receives it).
 
 ## Open questions
 - **Update path from 3.5.x.** The old updater replaces one `TypingBot.exe`. v4 is a folder
