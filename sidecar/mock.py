@@ -14,7 +14,7 @@ _KIND_NAME = {"standard": "Pelajaran", "game": "Game", "video": "Video",
 
 
 class MockBackend(Backend):
-    def __init__(self, version="3.6.0-dev1"):
+    def __init__(self, version="4.0.0-dev1"):
         super().__init__()
         s = self.snapshot
         s.update("app", version=version, platform="mock", mode="mock")

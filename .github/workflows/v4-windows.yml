@@ -1,0 +1,43 @@
+name: v4-windows
+
+# Cek build v4 di mesin Windows asli setiap push: sidecar Python (tes
+# protokol) + UI Flutter (analyze + build windows). Hasil build UI
+# disimpan sebagai artifact supaya bisa diunduh & dicoba.
+on:
+  push:
+    branches: [v4]
+  workflow_dispatch:
+
+jobs:
+  sidecar:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Kompilasi semua modul python
+        run: python -W error::SyntaxWarning -m compileall -q sidecar engine net gui bot_gui.py autopilot_pw.py paths.py
+      - name: Tes protokol sidecar
+        run: python -X utf8 -m sidecar.test_protocol
+
+  ui:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Analyze
+        working-directory: ui
+        run: |
+          flutter pub get
+          flutter analyze
+      - name: Build windows
+        working-directory: ui
+        run: flutter build windows --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typingbot-ui-windows
+          path: ui/build/windows/x64/runner/Release
