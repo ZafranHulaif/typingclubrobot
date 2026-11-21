@@ -662,7 +662,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                         self._set_state(
                             "🪲 Laporan terkirim - terima kasih!",
                             ACCENT)
-                        selesai(True, "Laporan terkirim — terima kasih!")
+                        selesai(True, "Terkirim, terima kasih")
                         return
                     print(f"[LAPOR] server tolak ({status}).")
                 except Exception as e:
@@ -686,11 +686,12 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                 except Exception:
                     pass
                 self._log("[LAPOR] offline - laporan di Desktop.")
-                selesai(True, "Tersimpan di Desktop + tersalin "
-                        "(offline) — kirim filenya ya!")
+                selesai(True, "Internet bermasalah. Laporannya "
+                        "kusimpan di Desktop, tolong kirim filenya "
+                        "ke aku ya!")
             except Exception as e:
                 try:
-                    selesai(False, f"gagal: {str(e)[:70]}")
+                    selesai(False, "Gagal mengirim. Coba lagi.")
                 except Exception:
                     pass
         _th.Thread(target=kerja, daemon=True).start()
@@ -827,14 +828,14 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
         def kirim(_e=None):
             if not pilih["nama"]:
-                status.configure(text="Pilih masalah dulu (tandai ✓).",
+                status.configure(text="Pilih masalah dulu ya.",
                                  fg=RED)
                 return
             teks = cerita.get("1.0", "end").strip()[:2000]
             btn_kirim.configure(text="Mengirim…", fg=DIM, bg=CARD,
                                 cursor="arrow")
             btn_kirim.unbind("<Button-1>")
-            status.configure(text="mengirim laporan + log…", fg=DIM)
+            status.configure(text="Sedang mengirim…", fg=DIM)
 
             def cb(ok, pesan):
                 def ui():
