@@ -1212,6 +1212,13 @@ class Wv2Host(tk.Frame):
         self._pcv_log(f"nav coba {coba}: src={src[:60]}")
         if "about:blank" in src or src.strip() in ("", "about:blank"):
             try:
+                # suntik anti-popup SEBELUM Navigate: dokumen signin
+                # wajib lahir dgn stub window.open (dulu suntikan
+                # nunggu tick _jaga setelah load_url -> dokumen signin
+                # lahir telanjang -> klik Google jadi popup asli dgn
+                # tombol X sendiri - keluhan user 21 Nov)
+                core.AddScriptToExecuteOnDocumentCreatedAsync(
+                    _NO_POPUP_JS)
                 core.Navigate(url)
                 self._pcv_log("Navigate OK")
             except Exception as ex:
