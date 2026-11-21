@@ -1,0 +1,30 @@
+name: typingbot
+description: "TypingBot desktop UI (Material 3) - talks to the Python sidecar."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.14.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  material_ui: ^1.1.0
+  web_socket_channel: ^3.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo.png
+  fonts:
+    - family: Jakarta
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans.ttf
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter.ttf
