@@ -8,7 +8,8 @@ class LaunchParams {
   final Uri url;
   final String token;
 
-  /// true = jendela desktop Windows dgn WebView2 tertanam dari sidecar
+  /// true = jendela desktop Windows: WebView2 native di dalam proses,
+  /// backend Dart (tanpa sidecar)
   final bool embedded;
 
   static LaunchParams read() => impl.read();

@@ -2,15 +2,21 @@ import 'package:material_ui/material_ui.dart';
 
 import 'src/bridge/bridge.dart';
 import 'src/bridge/launch_params.dart';
+import 'src/native/factory.dart';
 import 'src/state/store.dart';
 import 'src/theme/theme.dart';
 import 'src/ui/shell.dart';
+import 'src/version.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   final lp = LaunchParams.read();
-  final bridge = Bridge(url: lp.url, token: lp.token);
-  final store = AppStore(bridge, embedded: lp.embedded);
-  bridge.connect();
+  // Windows: semua di dalam proses. Preview (web/Linux): sidecar mock.
+  final Backend backend = lp.embedded
+      ? createNativeBackend(appVersion)
+      : Bridge(url: lp.url, token: lp.token);
+  final store = AppStore(backend, embedded: lp.embedded);
+  backend.connect();
   runApp(TypingBotApp(store: store));
 }
 

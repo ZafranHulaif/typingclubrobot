@@ -1,18 +1,16 @@
 // Area halaman edclub.
-// Windows (embedded): kotak kosong; posisinya dikirim ke runner C++ yang
-//   menaruh jendela WebView2 milik sidecar persis di sini.
+// Windows (embedded): kotak kosong; posisinya dikirim ke host WebView2 di
+//   runner C++ (web/web_host.dart) yang menaruh halaman persis di sini.
 // Preview (web/mock): pratinjau pelajaran palsu yang mengikuti progres.
 // Cover (boot/ganti akun/OAuth) digambar Flutter di area yang sama
-// selagi sidecar menyembunyikan jendela WebView2.
-import 'package:flutter/services.dart';
+// selagi backend menyembunyikan WebView2.
 import 'package:material_ui/material_ui.dart';
 
 import '../state/store.dart';
 import '../theme/theme.dart';
+import '../web/web_host.dart';
 import 'widgets/common.dart';
 import 'widgets/logo.dart';
-
-const _host = MethodChannel('typingbot/web_host');
 
 class WebArea extends StatefulWidget {
   const WebArea({super.key});
@@ -23,15 +21,9 @@ class WebArea extends StatefulWidget {
 class _WebAreaState extends State<WebArea> {
   final _key = GlobalKey();
   Rect? _last;
-  int _hwnd = 0;
 
   void _report(AppStore s) {
     if (!s.embedded) return;
-    final hwnd = (s.snap['web'] as Map?)?['hwnd'] as int? ?? 0;
-    if (hwnd != _hwnd) {
-      _hwnd = hwnd;
-      _host.invokeMethod('attach', {'hwnd': hwnd});
-    }
     final box = _key.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize) return;
     final dpr = View.of(context).devicePixelRatio;
@@ -43,8 +35,8 @@ class _WebAreaState extends State<WebArea> {
         (box.size.height * dpr).roundToDouble());
     if (r == _last) return;
     _last = r;
-    _host.invokeMethod('setRect',
-        {'x': r.left, 'y': r.top, 'w': r.width, 'h': r.height});
+    webHost.setRect(
+        r.left.toInt(), r.top.toInt(), r.width.toInt(), r.height.toInt());
   }
 
   @override

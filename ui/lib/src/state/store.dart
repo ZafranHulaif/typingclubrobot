@@ -1,4 +1,4 @@
-// Satu sumber state UI: snapshot dari sidecar + ask + pesan singkat.
+// Satu sumber state UI: snapshot dari backend + ask + pesan singkat.
 import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
@@ -31,7 +31,7 @@ class AppStore extends ChangeNotifier {
     _subs.add(bridge.link.listen((_) => notifyListeners()));
   }
 
-  final Bridge bridge;
+  final Backend bridge;
   final bool embedded;
   final _subs = <StreamSubscription>[];
 
@@ -162,8 +162,8 @@ class AppStore extends ChangeNotifier {
   // ---- halaman native vs popup Flutter (airspace)
   int _occluders = 0;
 
-  /// Popup terbuka di atas area web: minta sidecar menyembunyikan
-  /// WebView2 (dan menampilkan cuplikan beku) selama popup tampil.
+  /// Popup terbuka di atas area web: minta backend menyembunyikan
+  /// WebView2 selama popup tampil (jendela native selalu di atas Flutter).
   void occlude(bool on) {
     _occluders += on ? 1 : -1;
     if (_occluders < 0) _occluders = 0;

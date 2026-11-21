@@ -28,6 +28,9 @@ bool FlutterWindow::OnCreate() {
   web_host_ = std::make_unique<WebHost>(
       flutter_controller_->engine()->messenger(), GetHandle());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  // FlutterView jangan menggambar di atas wadah webview (saudaranya)
+  HWND fv = flutter_controller_->view()->GetNativeWindow();
+  SetWindowLong(fv, GWL_STYLE, GetWindowLong(fv, GWL_STYLE) | WS_CLIPSIBLINGS);
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
@@ -42,7 +45,8 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
-  // lepas wadah dulu, baru jendela hancur
+  // tutup semua webview dulu, baru jendela hancur
+  if (web_host_) web_host_->Shutdown();
   web_host_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
@@ -72,8 +76,8 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_ACTIVATE:
       if (web_host_) web_host_->OnActivate(LOWORD(wparam) != WA_INACTIVE);
       break;
-    case WM_CLOSE:
-      if (web_host_) web_host_->Detach();
+    case WM_MOVE:
+      if (web_host_) web_host_->OnMove();
       break;
   }
 

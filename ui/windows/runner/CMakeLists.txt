@@ -35,6 +35,27 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+
+# WebView2 SDK (header + loader statis) dari NuGet, diunduh sekali ke folder
+# build. Loader statis = tidak ada WebView2Loader.dll yang harus ikut dikirim.
+set(WEBVIEW2_VERSION "1.0.2903.40")
+set(WEBVIEW2_DIR "${CMAKE_BINARY_DIR}/webview2-${WEBVIEW2_VERSION}")
+if(NOT EXISTS "${WEBVIEW2_DIR}/build/native/include/WebView2.h")
+  set(WEBVIEW2_PKG "${CMAKE_BINARY_DIR}/webview2-${WEBVIEW2_VERSION}.zip")
+  file(DOWNLOAD
+    "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/${WEBVIEW2_VERSION}"
+    "${WEBVIEW2_PKG}" STATUS WEBVIEW2_DL TLS_VERIFY ON)
+  list(GET WEBVIEW2_DL 0 WEBVIEW2_DL_CODE)
+  if(NOT WEBVIEW2_DL_CODE EQUAL 0)
+    message(FATAL_ERROR "Gagal unduh WebView2 SDK: ${WEBVIEW2_DL}")
+  endif()
+  file(ARCHIVE_EXTRACT INPUT "${WEBVIEW2_PKG}" DESTINATION "${WEBVIEW2_DIR}")
+endif()
+target_include_directories(${BINARY_NAME} PRIVATE
+  "${WEBVIEW2_DIR}/build/native/include")
+target_link_libraries(${BINARY_NAME} PRIVATE
+  "${WEBVIEW2_DIR}/build/native/x64/WebView2LoaderStatic.lib"
+  "version.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

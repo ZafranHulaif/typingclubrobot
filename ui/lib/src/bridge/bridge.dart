@@ -37,7 +37,20 @@ class SidecarAsk {
 
 enum LinkState { connecting, online, offline }
 
-class Bridge {
+/// Yang dibutuhkan UI dari "otak" app: request -> Future, event & ask ->
+/// stream. Dua wujud: [Bridge] (sidecar lewat WebSocket: preview/mock) dan
+/// NativeBackend (Windows, semua di dalam proses).
+abstract interface class Backend {
+  Stream<SidecarEvent> get events;
+  Stream<SidecarAsk> get asks;
+  Stream<LinkState> get link;
+  LinkState get state;
+  Future<void> connect();
+  Future<dynamic> request(String method, [Map<String, dynamic>? params]);
+  void close();
+}
+
+class Bridge implements Backend {
   Bridge({required this.url, required this.token});
 
   final Uri url;
@@ -53,9 +66,13 @@ class Bridge {
   bool _closed = false;
   Map<String, dynamic> hello = const {};
 
+  @override
   Stream<SidecarEvent> get events => _events.stream;
+  @override
   Stream<SidecarAsk> get asks => _asks.stream;
+  @override
   Stream<LinkState> get link => _link.stream;
+  @override
   LinkState get state => _state;
 
   void _setState(LinkState s) {
@@ -65,6 +82,7 @@ class Bridge {
 
   /// Konek + hello. Kalau putus, coba lagi otomatis (sidecar bisa
   /// lahir belakangan dari UI saat dev).
+  @override
   Future<void> connect() async {
     var tunggu = const Duration(milliseconds: 300);
     while (!_closed) {
@@ -106,6 +124,7 @@ class Bridge {
     ch.sink.add(jsonEncode(obj));
   }
 
+  @override
   Future<dynamic> request(String method, [Map<String, dynamic>? params]) {
     final id = ++_seq;
     final c = Completer<dynamic>();
@@ -151,6 +170,7 @@ class Bridge {
     }
   }
 
+  @override
   void close() {
     _closed = true;
     _ch?.sink.close();

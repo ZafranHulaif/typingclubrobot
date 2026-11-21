@@ -30,7 +30,7 @@ class FlutterWindow : public Win32Window {
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
 
-  // wadah WebView2 dari sidecar (lihat web_host.h)
+  // host WebView2 di dalam proses (lihat web_host.h)
   std::unique_ptr<WebHost> web_host_;
 };
 

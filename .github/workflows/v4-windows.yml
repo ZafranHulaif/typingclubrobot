@@ -1,8 +1,9 @@
 name: v4-windows
 
-# Cek build v4 di mesin Windows asli setiap push: sidecar Python (tes
-# protokol) + UI Flutter (analyze + build windows). Hasil build UI
-# disimpan sebagai artifact supaya bisa diunduh & dicoba.
+# Cek build v4 di mesin Windows asli setiap push: app native Flutter
+# (JS verbatim cocok dgn Python, analyze, tes, build windows dgn host
+# WebView2 C++). Hasil build disimpan sebagai artifact supaya bisa
+# diunduh & dicoba. Job sidecar = jalur lama (diparkir), tetap dicek.
 on:
   push:
     branches: [v4]
@@ -29,11 +30,16 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: JS init cocok dengan sumber Python
+        run: python ui/tool/gen_js.py --check
       - name: Analyze
         working-directory: ui
         run: |
           flutter pub get
           flutter analyze
+      - name: Tes
+        working-directory: ui
+        run: flutter test
       - name: Build windows
         working-directory: ui
         run: flutter build windows --release
