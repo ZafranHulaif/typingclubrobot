@@ -1208,8 +1208,8 @@ class Wv2Host(tk.Frame):
             self._pcv_tutup()
             print("[AKUN] webview tidak siap - coba klik akun lagi.")
             return
-        self._pcv_log(f"nav coba {coba}: src={src[:60]}")
         src = str(getattr(core, "Source", "") or "")
+        self._pcv_log(f"nav coba {coba}: src={src[:60]}")
         if "about:blank" in src or src.strip() in ("", "about:blank"):
             try:
                 core.Navigate(url)
@@ -2376,6 +2376,13 @@ class Wv2Host(tk.Frame):
             os.makedirs(self._profil, exist_ok=True)
             ec = EdgeChrome(control, window, self._profil)
             self._ec = ec
+            try:
+                # latar kontrol = warna app: masa warm-up renderer
+                # (setelah reveal) menyatu, tidak tampak hitam
+                from System.Drawing import ColorTranslator
+                control.DefaultBackgroundColor =                     ColorTranslator.FromHtml("#101116")
+            except Exception:
+                pass
             self._chwnd = int(str(control.Handle))
             user32.SetParent(self._chwnd, self.winfo_id())
             self._pas_ukuran()
