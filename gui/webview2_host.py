@@ -1018,12 +1018,7 @@ class Wv2Host(tk.Frame):
                 if self._pcv_job is None:
                     return
                 if bar is not None:
-                    # halaman ditandai siap tapi PIKSEL belum nyata
-                    # (kedip putih/hitam SPA) = TAHAN: rayap pelan cap
-                    # 90 - jangan gas & tutup di tengah kedip
-                    boleh_gas = self._pcv_selesai and self._webview_isi_ada()
-                    if self._pcv_selesai and not boleh_gas:
-                        self._pcv_target = min(self._pcv_target, 90.0)
+                    boleh_gas = self._pcv_selesai
                     langkah = 3.5 if boleh_gas else 1.1
                     if self._pcv_val < self._pcv_target:
                         self._pcv_val = min(self._pcv_target,
@@ -1050,13 +1045,13 @@ class Wv2Host(tk.Frame):
             self._pcv_job = self.after(90, tik)
             self._pcv_info_set("menyiapkan folder data…")
             try:
-                # geser webview OFFSCREEN (bukan ShowWindow 0): tetap
-                # merender -> PrintWindow dapat gambar nyata utk
-                # gerbang piksel (v40: window tersembunyi = hitam palsu)
-                self._pcv_offscreen = True
-                self._webview_offscreen_paksa()
-            except Exception:
+                # SEMBUNYIKAN webview (bukan offscreen - PrintWindow di
+                # window offscreen juga hitam palsu, log dev12). DOM &
+                # JS tetap jalan, jadi gate via ExecuteScriptAsync.
+                self._pcv_ganti = True
                 user32.ShowWindow(self._chwnd, 0)
+            except Exception:
+                pass
             # WATCHDOG 45 dtk: apa pun yang terjadi (watcher reconnect
             # setelah webview dibuat ulang, dll), cover SELALU menutup
             # dalam 45 dtk - tidak ada stuck tanpa akhir
@@ -1097,22 +1092,23 @@ class Wv2Host(tk.Frame):
                 pass
         self._pcv_frame = None
         self._pcv_aktif = False
-        self._pcv_offscreen = False
+        self._pcv_ganti = False
 
     def _pcv_tutup(self):
         self._pcv_tutup_cepat()
         try:
-            # webview tadi digeser offscreen - tarik balik ke layout
-            # normal (metode layout host menghitung posisi persis)
-            self._pas_ukuran()
+            user32.ShowWindow(self._chwnd, 1)   # SW_SHOW
         except Exception:
             pass
         try:
-            user32.ShowWindow(self._chwnd, 1)   # SW_SHOW
+            self._pas_ukuran()   # rapikan posisi/ukuran webview
         except Exception:
             pass
 
     def ganti_profil(self, folder, url, nama=""):
+        self._gp_dom_ok = False
+        self._gp_task = None
+        self._gp_ct = 0
         """Ganti folder data WebView2 (jar per akun). Dijalankan sbg
         state machine after(): cover spinner + LOADING BAR bertahap
         tetap hidup & menutup halaman-perantara sampai tujuan siap
@@ -1167,13 +1163,11 @@ class Wv2Host(tk.Frame):
             self.buka(port, url, cover=False)
         except Exception as ex:
             print(f"[AKUN] ganti profil gagal: {str(ex)[:80]}")
-        self._webview_offscreen_paksa()
         self.after(300, lambda: self._gp_nav(folder, url, nama, 0))
 
     def _gp_nav(self, folder, url, nama, coba):
         self._pcv_info_set("hampir selesai…")
         self._pcv_target_set(85)
-        self._webview_offscreen_paksa()   # webview baru jangan bocor
         core = None
         try:
             core = self._ec.webview.CoreWebView2
@@ -1195,93 +1189,75 @@ class Wv2Host(tk.Frame):
                 pass
         self.after(1200, lambda: self._gp_pantau(nama, 0))
 
-    def _webview_offscreen_paksa(self):
-        """Saat cover ganti akun aktif, webview APA PUN (lama maupun
-        baru hasil buka-ulang) ditahan di luar layar: HWND native
-        menutupi cover Tk (airspace) - dulu webview baru muncul normal
-        = kedip putih/hitam terlihat di atas cover (keluhan user 21
-        Nov). Ditarik balik oleh _pas_ukuran saat cover menutup."""
-        if not getattr(self, "_pcv_offscreen", False):
-            return
-        hwnd = getattr(self, "_chwnd", None)
-        if hwnd:
-            try:
-                user32.SetWindowPos(hwnd, 0, -32000, -32000,
-                                    0, 0, 0x0013)  # NOSIZE|NOZORDER|NOACT
-            except Exception:
-                pass
-
-    def _webview_isi_ada(self):
-        """True kalau webview SUDAH menggambar konten nyata - sampling
-        PrintWindow + GetPixel. Putih polos = SPA belum render (cover
-        tahan); hitam polos total = capture gagal (anggap siap, jangan
-        sampai nyangkut - pelajaran v40). Webview digeser offscreen
-        pasang cover, jadi PrintWindow dapat gambar asli."""
-        hwnd = getattr(self, "_chwnd", None)
-        if not hwnd:
-            return True
-        try:
-            u32 = ctypes.windll.user32
-            gdi = ctypes.windll.gdi32
-            rc = wintypes.RECT()
-            if not u32.GetWindowRect(hwnd, ctypes.byref(rc)):
-                return True
-            w, h = rc.right - rc.left, rc.bottom - rc.top
-            if w < 50 or h < 50:
-                return True
-            hdc = u32.GetWindowDC(hwnd)
-            mem = gdi.CreateCompatibleDC(hdc)
-            bmp = gdi.CreateCompatibleBitmap(hdc, w, h)
-            gdi.SelectObject(mem, bmp)
-            ok = u32.PrintWindow(hwnd, mem, 2)   # 2 = RENDERFULLCONTENT
-            warna = []
-            for i in range(6):
-                for j in range(4):
-                    c = gdi.GetPixel(mem,
-                                     8 + i * (w - 16) // 5,
-                                     8 + j * (h - 16) // 3)
-                    warna.append(int(c) & 0xFFFFFF)
-            gdi.DeleteObject(bmp)
-            gdi.DeleteDC(mem)
-            u32.ReleaseDC(hwnd, hdc)
-            if not ok:
-                return True        # PrintWindow gagal = tak bisa cek
-            # putih/hitam polos sama-sama = belum render (cover tahan).
-            # Window kini offscreen-HIDUP: PrintWindow dipercaya.
-            return len(set(warna)) >= 6
-        except Exception:
-            return True
-
     def _gp_pantau(self, nama, n):
-        """Pantau langsung webview (.NET): judul stabil 3x berturut +
-        PIKSEL konten nyata (putih/hitam polos = belum render - gerbang
-        piksel dipulihkan dgn webview offscreen; v40 bocor karena
-        webview disembunyikan = capture hitam palsu). 'siap' HANYA
-        menandai - bar merayap ke 100% lalu menutup cover."""
-        self._webview_offscreen_paksa()   # tahan ulang (hwnd baru?)
-        siap = False
+        """Pantau webview (.NET): judul stabil 2x + KESIAPAN DOM via
+        ExecuteScriptAsync (hasil .NET di-poll tanpa callback - larangan
+        GIL). PrintWindow tidak dipercaya: window tersembunyi/offscreen
+        selalu hitam palsu (v40 & v44). Halaman siap = login form
+        terender ATAU masuk /student ATAU teks login - pola boot cover
+        yang terbukti."""
+        self._gp_task = getattr(self, "_gp_task", None)
+        dom_ok = getattr(self, "_gp_dom_ok", False)
+        core = None
         try:
             core = self._ec.webview.CoreWebView2
-            src = str(getattr(core, "Source", "") or "")
-            ttl = str(getattr(core, "DocumentTitle", "") or "").strip()
-            if "edclub" in src and ttl and "about:blank" not in src:
-                if ttl == getattr(self, "_gp_ttl", None):
-                    self._gp_ct = getattr(self, "_gp_ct", 0) + 1
-                    if self._gp_ct >= 3 and self._webview_isi_ada():
-                        siap = True
-                else:
-                    self._gp_ct = 0
-                self._gp_ttl = ttl
         except Exception:
             pass
+        if core is not None:
+            try:
+                src = str(getattr(core, "Source", "") or "")
+                if "edclub" in src and self._gp_task is None and not dom_ok:
+                    js = ("(function(){try{var f=document.querySelector("
+                          "'input');return JSON.stringify({rs:document."
+                          "readyState,inp:!!(f&&f.offsetParent),t:"
+                          "(document.body.innerText||'').indexOf('Login "
+                          "Individual Edition')>=0,st:location.pathname."
+                          "indexOf('/student')===0});}catch(e){return "
+                          "'{\"err\":1}';}})()")
+                    self._gp_task = core.ExecuteScriptAsync(js)
+            except Exception:
+                self._gp_task = None
+            # baca hasil poll sebelumnya (RanToCompletion = 5)
+            try:
+                task = self._gp_task
+                if task is not None and int(task.Status) == 5:
+                    import json as _json
+                    out = str(task.Result.ToString())
+                    self._gp_task = None
+                    try:
+                        data = _json.loads(out)  # hasil = JSON string
+                    except Exception:
+                        data = None
+                    if (isinstance(data, dict)
+                            and data.get("rs") == "complete"
+                            and (data.get("inp") or data.get("t")
+                                 or data.get("st"))):
+                        self._gp_dom_ok = True
+            except Exception:
+                self._gp_task = None
+        src = str(getattr(core, "Source", "") or "") if core is not None else ""
+        ttl = str(getattr(core, "DocumentTitle", "") or "").strip() \
+            if core is not None else ""
+        siap = False
+        if (core is not None and "edclub" in src
+                and "about:blank" not in src and ttl
+                and getattr(self, "_gp_dom_ok", False)):
+            if ttl == getattr(self, "_gp_ttl", None):
+                self._gp_ct = getattr(self, "_gp_ct", 0) + 1
+                if self._gp_ct >= 2:
+                    siap = True
+            else:
+                self._gp_ct = 0
+            self._gp_ttl = ttl
         if siap:
-            self._pcv_selesai = True     # bar yang menutup, bukan ini
+            self._pcv_selesai = True   # bar gas ke 100%, lalu menutup
+            print("[PCV] gate DOM siap - bar gas ke 100%")
             self.after(1500, lambda: self._gp_selesai(nama))
             return
         if n < 120:
             self.after(500, lambda: self._gp_pantau(nama, n + 1))
             return
-        self._pcv_selesai = True         # lewat batas - bar yang tutup
+        self._pcv_selesai = True       # lewat batas - bar yang tutup
 
     def _gp_selesai(self, nama):
         # cover ditutup oleh _pcv_selesai (pill/login page terdeteksi
@@ -1789,7 +1765,7 @@ class Wv2Host(tk.Frame):
                         # padahal sesinya sama - keluhan user 12 Nov)
                         nm = re.sub(r"\s+", " ", (nm or "")).strip()
                         if (getattr(self, "_pcv_aktif", False)
-                                and not getattr(self, "_pcv_offscreen",
+                                and not getattr(self, "_pcv_ganti",
                                                 False)):
                             # cover profil: tandai halaman tujuan siap
                             # (pill profil = sudah login; /signin dgn

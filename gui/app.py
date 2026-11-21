@@ -703,6 +703,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         klik luar = tutup, baris hover terang, terpilih = border
         ACCENT + tanda centang. Kirim = _lapor_kiriman (otomatis)."""
         # TOGGLE: klik kedua pada tombol menutup popover (ala akun)
+        self._pop_tutup_lain("_bug_pop")
         if getattr(self, "_bug_pop", None) is not None:
             try:
                 self._bug_pop.destroy()

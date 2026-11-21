@@ -464,6 +464,20 @@ class LaunchMixin:
         except Exception:
             pass
 
+    def _pop_tutup_lain(self, kecuali):
+        """Tutup popover LAIN saat satu popover dibuka (keluhan user
+        21 Nov: popover akun & lapor bisa kebuka bareng)."""
+        for attr in ("_akun_pop", "_bug_pop", "_update_pop"):
+            if attr == kecuali:
+                continue
+            pop = getattr(self, attr, None)
+            if pop is not None:
+                try:
+                    pop.destroy()
+                except Exception:
+                    pass
+                setattr(self, attr, None)
+
     def _pop_tempatkan(self, pop, jangkar):
         """Pojok KANAN popover sejajar tepi kanan tombol jangkar dengan
         LEBAR TETAP 340: lebar mengikuti isi (label 'hapus?' muncul,
@@ -620,6 +634,7 @@ class LaunchMixin:
         gelap - halaman tetap hidup, unduhan jalan di latar, progres
         tampil di tombol header, klik di luar = tutup, dan mulai ulang
         hanya dilakukan SETELAH unduhan siap."""
+        self._pop_tutup_lain("_update_pop")
         if getattr(self, "_update_pop", None) is not None:
             if time.time() - getattr(self, "_update_pop_laju", 0) < 0.6:
                 return          # anti-dobloklik (pola popover akun)
@@ -815,6 +830,7 @@ class LaunchMixin:
         from . import webview2_host as _w2v
         if not getattr(self, "host", None):
             return
+        self._pop_tutup_lain("_akun_pop")
         if getattr(self, "_akun_pop", None) is not None:
             # ANTI-DOBLKLIK: klik kedua dalam 0.6 dtk (kebiasaan klik
             # dobel / bouncing mouse) dulu men-toggle tutup = popover
