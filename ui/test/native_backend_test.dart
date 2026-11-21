@@ -34,6 +34,8 @@ class FakeNative {
         cdpCalls.add('${(c.arguments as Map)['method']}');
         return '{}';
       case 'eval':
+        // cek login saat webview dibuka: anggap sudah login
+        if ('${(c.arguments as Map)['js']}'.contains('tb:login')) return '"in"';
         return '42';
       case 'info':
         return {'url': 'https://www.edclub.com/', 'title': 't'};

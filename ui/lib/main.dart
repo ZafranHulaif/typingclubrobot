@@ -4,6 +4,7 @@ import 'src/bridge/bridge.dart';
 import 'src/bridge/launch_params.dart';
 import 'src/native/factory.dart';
 import 'src/state/store.dart';
+import 'src/ui/widgets/web_layer.dart';
 import 'src/theme/theme.dart';
 import 'src/ui/shell.dart';
 import 'src/version.dart';
@@ -15,6 +16,7 @@ void main() {
   final Backend backend = lp.embedded
       ? createNativeBackend(appVersion)
       : Bridge(url: lp.url, token: lp.token);
+  WebLayer.instance.enabled = lp.embedded;
   final store = AppStore(backend, embedded: lp.embedded);
   backend.connect();
   runApp(TypingBotApp(store: store));

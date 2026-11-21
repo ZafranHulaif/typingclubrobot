@@ -43,7 +43,10 @@ class AppStore extends ChangeNotifier {
   bool flashError = false;
   Timer? _flashT;
 
-  bool planOpen = true;
+  bool planOpen = false;
+
+  /// level terakhir kursus (Typing Jungle)
+  static const lastLevel = 685;
 
   bool get online => bridge.state == LinkState.online;
   bool get everOnline => snap.isNotEmpty;
@@ -63,8 +66,15 @@ class AppStore extends ChangeNotifier {
   Map<String, dynamic> get plan => _m('plan');
 
   String get phase => (bot['phase'] as String?) ?? 'idle';
-  bool get busy => const {'starting', 'running', 'paused', 'stopping'}
+  bool get busy => const {'waiting', 'starting', 'running', 'paused', 'stopping'}
       .contains(phase);
+
+  /// 'free' (tanpa rencana) / 'plan'
+  String get mode => (bot['mode'] as String?) ?? 'free';
+  bool get planRunning => busy && mode == 'plan';
+  Map<String, dynamic> get free => _m('free');
+  int get freeStars => (free['stars'] as num?)?.toInt() ?? 5;
+  bool get freeSilver => free['silver'] == true;
   bool get licensed => license['state'] == null || license['state'] == 'ok';
   int get levelNum => (level['num'] as num?)?.toInt() ?? 0;
   int get wpm => (speed['wpm'] as num?)?.toInt() ?? 400;
@@ -86,7 +96,8 @@ class AppStore extends ChangeNotifier {
   int? get activeSegment => (plan['active'] as num?)?.toInt();
   /// selama jalan: bagian yg mulai <= ini terkunci (sedang/segera dikerjakan)
   int? get lockUntil => busy ? (plan['lock_until'] as num?)?.toInt() : null;
-  bool locked(Segment sg) => lockUntil != null && sg.from <= lockUntil!;
+  bool locked(Segment sg) =>
+      planRunning && lockUntil != null && sg.from <= lockUntil!;
   int get doneInActive => (plan['done_in_active'] as num?)?.toInt() ?? 0;
 
   // ---------------------------------------------------------- event
@@ -145,31 +156,32 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  /// Tombol atas: Mulai tanpa rencana (level dipilih di halaman) / Stop.
   Future<void> toggleRun() async {
     if (busy) {
       await call('bot.stop');
     } else {
-      await call('bot.start');
+      await call('bot.start', {'mode': 'free'});
     }
+  }
+
+  Future<void> startPlan() async {
+    if (busy) return;
+    await call('bot.start', {'mode': 'plan'});
+  }
+
+  Future<void> resume() async {
+    await call('bot.resume');
+  }
+
+  Future<void> setFreeStars(int stars, bool silver) async {
+    await call('free.set', {'stars': stars, 'silver': silver});
   }
 
   Future<bool> savePlan(List<Segment> segs) async {
     final r = await call(
         'plan.set', {'segments': segs.map((s) => s.toJson()).toList()});
     return r != null;
-  }
-
-  // ---- halaman native vs popup Flutter (airspace)
-  int _occluders = 0;
-
-  /// Popup terbuka di atas area web: minta backend menyembunyikan
-  /// WebView2 selama popup tampil (jendela native selalu di atas Flutter).
-  void occlude(bool on) {
-    _occluders += on ? 1 : -1;
-    if (_occluders < 0) _occluders = 0;
-    if (embedded) {
-      bridge.request('web.visible', {'on': _occluders == 0}).ignore();
-    }
   }
 
   @override

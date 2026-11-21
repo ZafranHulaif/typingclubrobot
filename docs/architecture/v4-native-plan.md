@@ -152,7 +152,33 @@ injectable (tests run instantly with a fake clock).
   New license state `checking` shows "Memeriksa lisensi..." in the existing banner.
 - Tests: `ui/test/net_test.dart`, `ui/test/native_license_test.dart` (local fake worker).
 
-## Owner test checklist (Windows, build 4.0.0-dev3 from the CI artifact)
+### First owner test (dev3) -> fixes in dev4
+Owner ran dev3 on Windows. Typing works (slow first start). Fixed in dev4:
+- **Page slot drift / black area**: the webview rect was only reported on rebuild, so animated
+  layout left it stale. Now `widgets/web_layer.dart` reports the slot every frame it changes.
+- **Popups & plan panel over the page**: no more hiding the whole webview. Flutter sends "holes"
+  (`setHoles`, physical px, rounded) and the runner cuts them out of the webview container with
+  `SetWindowRgn`, so the live page stays visible around popups. The plan panel now slides OVER
+  the page (no pushing). Unverified on hardware: that the WebView2 child HWND is clipped by the
+  container region (should be; fallback = region on the child too).
+- **Runner**: real app icon (docs/logo.ico), starts maximized, dark title bar #0B0C10, WebView2
+  profile forced to light scheme (Google login page was dark).
+- **Not logged in on open**: a login check runs before the cover drops; logged out = straight to
+  /signin instead of the empty lesson list.
+- **Two start modes** (owner request): top **Mulai** = no plan: waits for login, then waits for
+  the user to open a level on the page and types from there onward. Star target for this mode is
+  a picker in the capsule (stored, enforced in N7). **Mulai rencana** (button in the plan panel)
+  = follow the plan. Waiting for login no longer starts the engine (no "Mengetik/Perlu login"
+  flicker).
+- **Paused state**: leaving the lesson while typing now shows "Dijeda" with a **Lanjut** button
+  (goes back to the level in progress); opening another level on the page also continues there.
+- **Plan editor**: Tambah opens a draft (saved only on "Buat"), the editor opens right under the
+  tapped tile, levels capped at 685.
+- Open: Google login needed two tries the first time. Likely cause (Fable review): `noPopupJs`
+  turns the OAuth popup into a main-frame navigation, and edclub's callback page expects
+  `window.opener`. Needs the dev4 bot.log to confirm before changing the OAuth path.
+
+## Owner test checklist (Windows, build 4.0.0-dev4 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

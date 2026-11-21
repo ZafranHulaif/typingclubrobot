@@ -63,6 +63,12 @@ class WebHost {
   Future<void> setRect(int x, int y, int w, int h) =>
       _call('setRect', {'x': x, 'y': y, 'w': w, 'h': h});
 
+  /// Lubang di atas webview (piksel fisik, ruang sama dgn [setRect]):
+  /// di area ini halaman tidak digambar, jadi popup/panel Flutter di
+  /// bawahnya kelihatan. Kosong = tanpa lubang.
+  Future<void> setHoles(List<List<int>> rects, {int radius = 0}) =>
+      _call('setHoles', {'rects': [for (final r in rects) ...r], 'radius': radius});
+
   /// Buat webview baru dgn folder data [folder]. [scripts] dipasang
   /// SEBELUM navigasi pertama (dokumen pertama sudah lahir dgnnya).
   Future<WebView> create({

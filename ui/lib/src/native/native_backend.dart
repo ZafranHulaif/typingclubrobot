@@ -14,7 +14,9 @@ import '../bridge/bridge.dart';
 import '../engine/clock.dart';
 import '../engine/engine.dart';
 import '../engine/level_map.dart';
+import '../engine/js.dart' show profileCheckJs;
 import '../engine/page.dart';
+import '../engine/urls.dart' show diLesson, lessonPlayUrl;
 import '../net/api.dart';
 import '../net/license.dart' as lic;
 import '../net/machine.dart' as machine;
@@ -39,6 +41,9 @@ const initScripts = [
 
 /// Bagian rencana yang mulai <= level kini + ini terkunci saat jalan.
 const lockDistance = 2;
+
+/// Level terakhir kursus Typing Jungle.
+const lastLevel = 685;
 
 class NativeBackend implements Backend {
   NativeBackend({
@@ -78,6 +83,11 @@ class NativeBackend implements Backend {
         ],
       },
       'web': {'url': '', 'title': ''},
+      // target bintang utk Mulai tanpa rencana
+      'free': {
+        'stars': ((((_settings['free'] as Map?) ?? const {})['stars'] as num?) ?? 5).toInt().clamp(1, 5),
+        'silver': ((_settings['free'] as Map?) ?? const {})['silver'] == true,
+      },
     };
   }
 
@@ -113,6 +123,15 @@ class NativeBackend implements Backend {
   Timer? _revealT;
   bool _occluded = false;
   bool _switching = false;
+  // cek login sekali tiap webview dibuka (cover tetap sampai pasti)
+  bool _gatePending = false;
+  int _gateRun = 0;
+  // Mulai ditekan tapi mesin belum jalan: tunggu login / pilih level
+  Timer? _waitT;
+  bool _waitBusy = false;
+  bool _waitNavLogin = false;
+  int _waitUnknown = 0;
+  String _mode = 'free';
   bool _urlNeedsLogin = false;
 
   // ---- mesin bot
@@ -129,6 +148,9 @@ class NativeBackend implements Backend {
   WebView? get view => _view;
   Engine? get engine => _engine;
   bool get running => _run != null;
+
+  /// mesin jalan ATAU masih menunggu login/pilihan level
+  bool get busy => running || _waitT != null;
 
   @override
   Stream<SidecarEvent> get events => _events.stream;
@@ -287,6 +309,8 @@ class NativeBackend implements Backend {
       return;
     }
     _view = v;
+    _gatePending = !url.contains('/signin');
+    _gateRun++;
     _viewSub = v.events.listen(_onWeb);
     // jaga-jaga: halaman lambat / gagal = tetap tampilkan
     _revealT = Timer(revealTimeout, () => _cover(null));
@@ -297,8 +321,15 @@ class NativeBackend implements Backend {
     switch (e.type) {
       case 'nav':
         if (e.data['phase'] == 'done' && _coverOn) {
-          _revealT?.cancel();
-          _cover(null);
+          if (_gatePending) {
+            // belum login = langsung ke halaman login (jangan tampilkan
+            // daftar level kosong); cover turun setelah pasti
+            _gatePending = false;
+            unawaited(_loginGate());
+          } else {
+            _revealT?.cancel();
+            _cover(null);
+          }
         }
         _web(e.url);
       case 'source':
@@ -319,6 +350,42 @@ class NativeBackend implements Backend {
     _urlNeedsLogin =
         u != null && u.host.contains('edclub') && u.path.contains('/signin');
     _set('bot', {'needs_login': _urlNeedsLogin || (_engine?.st.needsLogin ?? false) && running});
+  }
+
+  /// 'in' / 'out' / null dari penanda DOM halaman aktif.
+  Future<String?> _profile() async {
+    final v = _view;
+    if (v == null || v.disposed) return null;
+    try {
+      final r = await v.eval('(() => {/*tb:login*/$profileCheckJs})()');
+      return r is String ? r : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _loginGate() async {
+    final run = _gateRun;
+    var out = 0;
+    for (var i = 0; i < 10; i++) {
+      final r = await _profile();
+      if (run != _gateRun) return;
+      if (r == 'in') break;
+      if (r == 'out' && ++out >= 2) {
+        _log('[LOGIN] Belum login - membuka halaman login.');
+        _set('bot', {'needs_login': true});
+        try {
+          await _view?.navigate(signinUrl);
+          return; // cover turun begitu halaman login selesai dimuat
+        } catch (_) {
+          break;
+        }
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    }
+    if (run != _gateRun) return;
+    _revealT?.cancel();
+    _cover(null);
   }
 
   // ------------------------------------------------------------ request
@@ -376,10 +443,18 @@ class NativeBackend implements Backend {
         _saveSettings(Map<String, dynamic>.from(p));
         return Map<String, dynamic>.from(_settings);
       case 'bot.start':
-        return _start(p['range']);
+        return _start(p['mode'], p['range']);
       case 'bot.stop':
         _stop();
         return {};
+      case 'bot.resume':
+        return _resume();
+      case 'free.set':
+        final st = ((p['stars'] as num?) ?? 5).toInt().clamp(1, 5);
+        final f = {'stars': st, 'silver': p['silver'] == true && st == 5};
+        _set('free', f);
+        _saveSettings({'free': f});
+        return f;
       case 'bot.recover':
         _engine?.st.askRecovery = true;
         return {};
@@ -414,7 +489,7 @@ class NativeBackend implements Backend {
   }
 
   void _notWhileRunning() {
-    if (running) {
+    if (busy) {
       throw RpcException('busy', 'Hentikan bot dulu sebelum ganti akun.');
     }
   }
@@ -484,6 +559,9 @@ class NativeBackend implements Backend {
       if (a < 1 || (b != 0 && b < a)) {
         throw RpcException('bad_input', 'Rentang $a-$b tidak valid.');
       }
+      if (a > lastLevel || b > lastLevel) {
+        throw RpcException('bad_input', 'Level terakhir itu $lastLevel ya.');
+      }
       if (out.isNotEmpty &&
           (out.last['to'] == 0 || a <= (out.last['to'] as int))) {
         throw RpcException(
@@ -509,8 +587,11 @@ class NativeBackend implements Backend {
   }
 
   // ------------------------------------------------------------ bot
-  Future<dynamic> _start(dynamic range) async {
-    if (running) {
+  /// Mulai: [mode] 'free' (tanpa rencana: mulai dari level yang dibuka
+  /// user di halaman) atau 'plan' (ikuti rencana). Belum login = tunggu
+  /// login dulu; mode free tanpa lesson terbuka = tunggu user memilih.
+  Future<dynamic> _start(dynamic mode, dynamic range) async {
+    if (busy) {
       throw RpcException('busy', 'Bot masih jalan. Tunggu sebentar ya.');
     }
     if (_snap['license']!['state'] != 'ok') {
@@ -521,20 +602,111 @@ class NativeBackend implements Backend {
     if (v == null || v.disposed) {
       throw RpcException('not_ready', 'Halaman edclub belum siap.');
     }
-    final segs = _segments;
-    int mulai, akhir;
-    if (segs.isNotEmpty) {
-      mulai = segs.first['from'] as int;
-      akhir = segs.last['to'] as int;
-    } else if (range is Map && range['mode'] == 'custom') {
-      mulai = (range['start'] as num).toInt();
-      akhir = ((range['end'] as num?) ?? 0).toInt();
-    } else {
-      // tanpa rencana: lanjut dari level terakhir yang dikerjakan bot
-      // (seperti 'lanjut' di mock); belum pernah = level 1
-      final pos = (_levels ??= LevelMap(_base)).posisi;
-      mulai = pos > 0 ? pos + 1 : 1;
-      akhir = 0;
+    if (range is Map && range['mode'] == 'custom') {
+      return _launch((range['start'] as num).toInt(), ((range['end'] as num?) ?? 0).toInt());
+    }
+    _mode = mode == 'plan' ? 'plan' : 'free';
+    if (_mode == 'plan' && _segments.isEmpty) {
+      throw RpcException('empty', 'Rencana masih kosong. Tambah bagian dulu ya.');
+    }
+    _waitNavLogin = false;
+    _waitUnknown = 0;
+    _set('bot', {'phase': 'waiting', 'wait': '', 'mode': _mode, 'error': ''});
+    _waitT = Timer.periodic(const Duration(milliseconds: 500), (_) => _waitTick());
+    await _waitTick();
+    return {'started': true};
+  }
+
+  Future<String> _webUrl() async {
+    var u = '${_snap['web']!['url'] ?? ''}';
+    if (u.isEmpty) {
+      try {
+        u = (await _view!.info()).url;
+      } catch (_) {}
+    }
+    return u;
+  }
+
+  Future<void> _waitTick() async {
+    if (_waitT == null || _waitBusy) return;
+    _waitBusy = true;
+    try {
+      final url = await _webUrl();
+      final low = url.toLowerCase();
+      final diLogin = low.contains('/signin') ||
+          low.contains('accounts.google') ||
+          low.contains('/login') ||
+          low.contains('sportal.');
+      String wait;
+      if (diLogin) {
+        wait = 'login';
+      } else {
+        final prof = diLesson(url) ? 'in' : await _profile();
+        if (_waitT == null) return;
+        if (prof == 'out') {
+          wait = 'login';
+          if (!_waitNavLogin) {
+            _waitNavLogin = true;
+            _log('[LOGIN] Belum login - membuka halaman login.');
+            await _view?.navigate(signinUrl).catchError((_) {});
+          }
+        } else if (prof == null && ++_waitUnknown < 10) {
+          wait = 'check';
+        } else if (_mode == 'plan') {
+          wait = '';
+          final segs = _segments;
+          _stopWaiting();
+          _log('Mulai rencana: level ${segs.first['from']} - '
+              '${segs.last['to'] == 0 ? 'akhir' : segs.last['to']}.');
+          await _launch(segs.first['from'] as int, segs.last['to'] as int);
+          return;
+        } else if (diLesson(url)) {
+          wait = '';
+          final n = (_levels ??= LevelMap(_base)).urlToLevel(lessonPlayUrl(url)) ?? 1;
+          _stopWaiting();
+          _log('Mulai tanpa rencana dari level yang dibuka (${n > 1 ? n : '?'}).');
+          await _launch(n, 0);
+          return;
+        } else {
+          wait = 'pick';
+        }
+      }
+      _set('bot', {'phase': 'waiting', 'wait': wait, 'needs_login': wait == 'login'});
+    } finally {
+      _waitBusy = false;
+    }
+  }
+
+  void _stopWaiting() {
+    _waitT?.cancel();
+    _waitT = null;
+  }
+
+  /// Bot dijeda karena user membuka halaman lain: kembali ke level yang
+  /// sedang dikerjakan (rencana / tanpa rencana sama).
+  Future<dynamic> _resume() async {
+    final e = _engine;
+    if (e == null || !running) return {'ok': false};
+    final n = e.st.rangeMaxSeen > e.st.levelStart ? e.st.rangeMaxSeen : e.st.levelStart;
+    if (n < 1) {
+      throw RpcException('unknown', 'Buka level yang mau dikerjakan di halaman ya.');
+    }
+    e.st.userLepas = false;
+    e.st.userWatchElapsed = 1e9;
+    e.st.userWatchT = 0;
+    final ok = await e.gotoLevelUrl(n);
+    if (!ok) {
+      throw RpcException('unknown', 'Level $n belum dikenal. Buka levelnya di halaman ya.');
+    }
+    _log('[USER] Lanjut ke level $n.');
+    return {'ok': true, 'level': n};
+  }
+
+  Future<dynamic> _launch(int mulai, int akhir) async {
+    final v = _view;
+    if (v == null || v.disposed) {
+      _set('bot', {'phase': 'idle', 'wait': ''});
+      throw RpcException('not_ready', 'Halaman edclub belum siap.');
     }
     final page = Page(_bridgeFor(v), clock: clock);
     final eng = Engine(
@@ -555,7 +727,7 @@ class NativeBackend implements Backend {
     }
     _engine = eng;
     _page = page;
-    _set('bot', {'phase': 'starting', 'error': ''});
+    _set('bot', {'phase': 'starting', 'wait': '', 'error': ''});
     _set('range', {'start': mulai, 'end': akhir});
     // fokus ke halaman: klik tombol Mulai mem-blur webview, dan blur
     // dihitung 'user aktif' oleh pengawas (bot bisa menunggu 25 dtk)
@@ -579,6 +751,11 @@ class NativeBackend implements Backend {
   }
 
   void _stop() {
+    if (_waitT != null) {
+      _stopWaiting();
+      _set('bot', {'phase': 'idle', 'wait': '', 'needs_login': _urlNeedsLogin});
+      return;
+    }
     final e = _engine;
     if (e == null || !running) return;
     e.st.stop = true;
@@ -626,7 +803,9 @@ class NativeBackend implements Backend {
         ? (st.rangeDone ? 'done' : 'idle')
         : st.stop
             ? 'stopping'
-            : 'running';
+            : (st.userLepas || st.waitUserUrl.isNotEmpty)
+                ? 'paused'
+                : 'running';
     _set('bot', {
       'phase': phase,
       'needs_login': _urlNeedsLogin || (jalan && st.needsLogin),
@@ -651,7 +830,8 @@ class NativeBackend implements Backend {
 
   void _planTick(bool jalan, int lvl) {
     final p = _snap['plan']!;
-    if (!jalan || lvl == 0) {
+    // mode tanpa rencana: rencana tidak dipakai & tidak dikunci
+    if (!jalan || lvl == 0 || _mode != 'plan') {
       if (p['active'] != null || p['lock_until'] != null) {
         _set('plan', {'active': null, 'lock_until': null, 'done_in_active': 0});
       }
@@ -943,6 +1123,8 @@ class NativeBackend implements Backend {
     _closed = true;
     _engine?.st.stop = true;
     _poll?.cancel();
+    _stopWaiting();
+    _gateRun++;
     _revealT?.cancel();
     _viewSub?.cancel();
     _view?.dispose().catchError((_) {});

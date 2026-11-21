@@ -8,9 +8,9 @@ import 'package:material_ui/material_ui.dart';
 
 import '../state/store.dart';
 import '../theme/theme.dart';
-import '../web/web_host.dart';
 import 'widgets/common.dart';
 import 'widgets/logo.dart';
+import 'widgets/web_layer.dart';
 
 class WebArea extends StatefulWidget {
   const WebArea({super.key});
@@ -19,51 +19,30 @@ class WebArea extends StatefulWidget {
 }
 
 class _WebAreaState extends State<WebArea> {
-  final _key = GlobalKey();
-  Rect? _last;
-
-  void _report(AppStore s) {
-    if (!s.embedded) return;
-    final box = _key.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize) return;
-    final dpr = View.of(context).devicePixelRatio;
-    final o = box.localToGlobal(Offset.zero);
-    final r = Rect.fromLTWH(
-        (o.dx * dpr).roundToDouble(),
-        (o.dy * dpr).roundToDouble(),
-        (box.size.width * dpr).roundToDouble(),
-        (box.size.height * dpr).roundToDouble());
-    if (r == _last) return;
-    _last = r;
-    webHost.setRect(
-        r.left.toInt(), r.top.toInt(), r.width.toInt(), r.height.toInt());
-  }
-
   @override
   Widget build(BuildContext context) {
     final s = StoreScope.of(context);
     final c = Theme.of(context).colorScheme;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _report(s);
-    });
     final cover = s.cover['visible'] == true;
     return Container(
-      key: _key,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: c.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(Radii.lg),
         border: Border.all(color: c.outlineVariant),
       ),
-      child: Stack(fit: StackFit.expand, children: [
-        if (!s.embedded) const _Preview(),
-        AnimatedSwitcher(
-          duration: Motion.drawer,
-          switchInCurve: Motion.out,
-          switchOutCurve: Motion.out,
-          child: cover ? const _Cover(key: ValueKey('cover')) : const SizedBox.shrink(),
-        ),
-      ]),
+      // posisi slot dikirim ke host tiap frame (web_layer.dart)
+      child: WebSlot(
+        child: Stack(fit: StackFit.expand, children: [
+          if (!s.embedded) const _Preview(),
+          AnimatedSwitcher(
+            duration: Motion.drawer,
+            switchInCurve: Motion.out,
+            switchOutCurve: Motion.out,
+            child: cover ? const _Cover(key: ValueKey('cover')) : const SizedBox.shrink(),
+          ),
+        ]),
+      ),
     );
   }
 }

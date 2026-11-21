@@ -1,6 +1,7 @@
 // N3: backend native + mesin bot: Mulai/Stop, snapshot (fase, level,
 // kemajuan), kunci rencana, kecepatan, ask, log. Host C++ dipalsukan
 // lewat mock MethodChannel; CDP lewat edclub palsu.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -34,6 +35,13 @@ void main() {
           return '131.0';
         case 'create':
           return (c.arguments as Map)['id'];
+        case 'info':
+          return {'url': fake.url, 'title': ''};
+        case 'eval':
+          // cek login (penanda DOM) mengikuti edclub palsu
+          if ('${(c.arguments as Map)['js']}'.contains('tb:login')) {
+            return jsonEncode(fake.profile);
+          }
       }
       return null;
     });
@@ -87,7 +95,7 @@ void main() {
         {'from': 6, 'to': 20, 'stars': 4},
       ]
     });
-    final r = await be.request('bot.start');
+    final r = await be.request('bot.start', {'mode': 'plan'});
     expect(r, {'started': true});
     // halaman difokuskan dulu (blur = dianggap user aktif)
     await waitFor(() => fake.url == _l2 && fake.lesson!.done);
@@ -119,7 +127,7 @@ void main() {
         {'from': 10, 'to': 30, 'stars': 3},
       ]
     });
-    await be.request('bot.start');
+    await be.request('bot.start', {'mode': 'plan'});
     await waitFor(() => plan()['lock_until'] == 3);
     // ubah bagian ke-2 (mulai 3 <= kunci 3) = ditolak
     expect(
@@ -148,18 +156,57 @@ void main() {
     expect(() => be.request('bot.start'), throwsA(isA<RpcException>()));
   });
 
-  test('sesi mati saat jalan -> needs_login di snapshot', () async {
+  test('belum login: Mulai menunggu login (mesin belum jalan), lalu lanjut', () async {
     fake.url = 'https://www.edclub.com/signin';
     fake.profile = 'out';
-    await be.request('bot.start');
-    await waitFor(() => be.engine!.st.needsLogin);
-    await waitFor(() => bot()['needs_login'] == true);
-    expect(fake.keyEvents, isEmpty);
+    await be.request('bot.start', {'mode': 'free'});
+    await pumpEventQueue();
+    expect(bot()['phase'], 'waiting');
+    expect(bot()['wait'], 'login');
+    expect(bot()['needs_login'], true);
+    expect(be.engine, isNull);
+    // user login & membuka lesson -> mesin mulai di lesson itu
+    fake.profile = 'in';
+    fake.lesson = FakeLesson('abc', label: 'L1');
+    fake.url = _l1;
+    await waitFor(() => be.running, ms: 3000);
+    expect(be.engine!.st.levelEnd, 0);
+  });
+
+  test('Stop saat menunggu = kembali siap', () async {
+    fake.url = 'https://www.edclub.com/student/course/3';
+    await be.request('bot.start', {'mode': 'free'});
+    await pumpEventQueue();
+    expect(bot()['wait'], 'pick');
+    await be.request('bot.stop');
+    await pumpEventQueue();
+    expect(bot()['phase'], 'idle');
+    expect(be.busy, isFalse);
+  });
+
+  test('rencana kosong: Mulai rencana ditolak dgn pesan', () async {
+    expect(() => be.request('bot.start', {'mode': 'plan'}),
+        throwsA(isA<RpcException>().having((e) => e.code, 'code', 'empty')));
+  });
+
+  test('level di atas 685 ditolak', () async {
+    expect(
+        () => be.request('plan.set', {
+              'segments': [
+                {'from': 600, 'to': 690, 'stars': 5},
+              ]
+            }),
+        throwsA(isA<RpcException>()));
   });
 
   test('ask level.next: jawab Berhenti -> bot berhenti', () async {
     fake.url = 'https://www.edclub.com/student/course/3';
-    await be.request('bot.start');
+    await be.request('plan.set', {
+      'segments': [
+        {'from': 1, 'to': 0, 'stars': 5},
+      ]
+    });
+    await be.request('bot.start', {'mode': 'plan'});
     await waitFor(() => be.engine != null && be.running);
     be.engine!.st.askNextLevel = true;
     await waitFor(() => asks.isNotEmpty);
@@ -171,23 +218,25 @@ void main() {
     expect(bot()['phase'], 'idle');
   });
 
-  test('tanpa rencana: lanjut dari posisi terakhir + 1', () async {
-    be.close();
-    File('${tmp.path}/posisi_level.json').writeAsStringSync('{"posisi": 41}');
-    final b2 = NativeBackend(
-        version: 't',
-        host: WebHost(),
-        accounts: AccountStore(tmp.path),
-        checkLicense: false,
-        bridgeFor: (_) => fake.bridge,
-        clock: fake.clock);
-    await b2.connect();
-    fake.url = 'https://www.edclub.com/student/course/3/lesson/116';
-    await b2.request('bot.start');
-    expect(b2.engine!.st.levelStart, 42);
-    expect(b2.engine!.st.levelEnd, 0);
-    b2.engine!.st.stop = true;
-    await b2.stopped;
+  test('tanpa rencana: menunggu user memilih level, lalu mulai di situ', () async {
+    fake.url = 'https://www.edclub.com/student/course/3';
+    await be.request('bot.start', {'mode': 'free'});
+    await pumpEventQueue();
+    expect(bot()['phase'], 'waiting');
+    expect(bot()['wait'], 'pick');
+    expect(bot()['mode'], 'free');
+    fake.lesson = FakeLesson('abc', label: 'L1');
+    fake.url = _l1;
+    await waitFor(() => be.running, ms: 3000);
+    // tanpa rencana: kotak rencana tidak aktif/terkunci
+    await waitFor(() => bot()['phase'] == 'running');
+    expect(plan()['lock_until'], isNull);
+  });
+
+  test('lesson sudah terbuka saat Mulai: langsung jalan', () async {
+    fake.lesson = FakeLesson('abc', label: 'L1');
+    await be.request('bot.start', {'mode': 'free'});
+    expect(be.running, isTrue);
   });
 
   test('pengaturan lama (speed/plan) dimuat saat buka', () async {

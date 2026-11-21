@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "WebView2.h"
 
@@ -21,6 +22,9 @@
 // - CDP lewat CallDevToolsProtocolMethod + event receiver (tanpa port debug)
 // - popup (window.open / target=_blank) TIDAK pernah jadi jendela: halaman
 //   utama yang navigasi (OAuth Google tetap di dalam app)
+//
+// - lubang (setHoles): bagian wadah yang dipotong dgn window region supaya
+//   popup/panel Flutter di bawahnya tampak di atas halaman yang tetap hidup
 //
 // Semua callback WebView2 datang di thread UI ini juga (STA) = thread
 // platform Flutter, jadi aman memanggil MethodChannel langsung.
@@ -41,6 +45,10 @@ class WebHost {
   // harus ikut posisi baru.
   void OnMove();
 
+  // HWND FlutterView (saudara di bawah wadah): digambar ulang saat lubang
+  // berubah supaya bagian yang baru terbuka langsung terisi.
+  void SetBackdrop(HWND flutter_view) { backdrop_ = flutter_view; }
+
  private:
   using Result = std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>;
 
@@ -48,6 +56,9 @@ class WebHost {
     int64_t id = 0;
     HWND container = nullptr;
     bool visible = false;
+    // region terakhir yang dipasang: {w, h, radius, lalu l,t,r,b tiap
+    // lubang (koordinat wadah)}; kosong = tanpa region
+    std::vector<int> region_key;
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> env;
     Microsoft::WRL::ComPtr<ICoreWebView2Controller> controller;
     Microsoft::WRL::ComPtr<ICoreWebView2> webview;
@@ -67,11 +78,19 @@ class WebHost {
   void SetRect(int x, int y, int w, int h);
   void SetVisible(View* v, bool on);
   void ApplyBounds(View* v);
+  void SetHoles(std::vector<RECT> holes, int radius);
+  // true kalau region wadah benar-benar berubah
+  bool ApplyRegion(View* v);
   View* Find(int64_t id);
   void Emit(int64_t id, const char* type, flutter::EncodableMap fields);
 
   HWND top_level_;
   RECT rect_{0, 0, 0, 0};
+  // lubang, piksel fisik relatif area klien jendela utama (sama dgn rect_)
+  std::vector<RECT> holes_;
+  // jari-jari sudut semua lubang (piksel fisik); 0 = siku
+  int hole_radius_ = 0;
+  HWND backdrop_ = nullptr;
   bool had_focus_ = false;
   std::map<int64_t, std::unique_ptr<View>> views_;
   // false setelah host dibongkar: callback async yang telat jangan

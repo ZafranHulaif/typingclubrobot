@@ -70,6 +70,35 @@ std::string ArgStr(const EncodableMap& m, const char* key) {
   return std::string();
 }
 
+// daftar datar [x,y,w,h, ...] -> RECT; lubang kosong/rusak dibuang
+std::vector<RECT> ArgRects(const EncodableMap& m, const char* key) {
+  std::vector<int> n;
+  const EncodableValue* v = Arg(m, key);
+  if (!v) return {};
+  if (auto list = std::get_if<EncodableList>(v)) {
+    for (const auto& e : *list) {
+      if (auto p = std::get_if<int32_t>(&e)) {
+        n.push_back(*p);
+      } else if (auto p64 = std::get_if<int64_t>(&e)) {
+        n.push_back(static_cast<int>(*p64));
+      } else if (auto pd = std::get_if<double>(&e)) {
+        n.push_back(static_cast<int>(*pd));
+      } else {
+        n.push_back(0);
+      }
+    }
+  } else if (auto i32 = std::get_if<std::vector<int32_t>>(v)) {
+    // Int32List dari Dart
+    n.assign(i32->begin(), i32->end());
+  }
+  std::vector<RECT> out;
+  for (size_t i = 0; i + 3 < n.size(); i += 4) {
+    if (n[i + 2] <= 0 || n[i + 3] <= 0) continue;
+    out.push_back(RECT{n[i], n[i + 1], n[i] + n[i + 2], n[i + 1] + n[i + 3]});
+  }
+  return out;
+}
+
 bool ArgBool(const EncodableMap& m, const char* key) {
   const EncodableValue* v = Arg(m, key);
   if (!v) return false;
@@ -151,6 +180,11 @@ void WebHost::Handle(const flutter::MethodCall<EncodableValue>& call,
   if (m == "setRect") {
     SetRect(static_cast<int>(ArgInt(a, "x")), static_cast<int>(ArgInt(a, "y")),
             static_cast<int>(ArgInt(a, "w")), static_cast<int>(ArgInt(a, "h")));
+    result->Success();
+    return;
+  }
+  if (m == "setHoles") {
+    SetHoles(ArgRects(a, "rects"), static_cast<int>(ArgInt(a, "radius")));
     result->Success();
     return;
   }
@@ -426,6 +460,16 @@ void WebHost::OnControllerReady(int64_t id, ICoreWebView2Controller* ctl,
     settings->put_IsStatusBarEnabled(FALSE);
     settings->put_IsZoomControlEnabled(FALSE);
   }
+  // halaman selalu tema terang (edclub + login Google), tidak ikut tema
+  // gelap Windows. Butuh runtime 105+; kalau belum ada ya dilewati.
+  ComPtr<ICoreWebView2_13> w13;
+  if (SUCCEEDED(v->webview.As(&w13)) && w13) {
+    ComPtr<ICoreWebView2Profile> profile;
+    if (SUCCEEDED(w13->get_Profile(&profile)) && profile) {
+      profile->put_PreferredColorScheme(
+          COREWEBVIEW2_PREFERRED_COLOR_SCHEME_LIGHT);
+    }
+  }
 
   std::shared_ptr<bool> alive = alive_;
   EventRegistrationToken tok{};
@@ -603,6 +647,85 @@ void WebHost::ApplyBounds(View* v) {
     RECT b{0, 0, w, h};
     v->controller->put_Bounds(b);
   }
+  // region tidak ikut ukuran jendela: hitung ulang (dilewati kalau sama)
+  if (ApplyRegion(v) && backdrop_) InvalidateRect(backdrop_, nullptr, FALSE);
+}
+
+void WebHost::SetHoles(std::vector<RECT> holes, int radius) {
+  if (radius < 0) radius = 0;
+  // dipanggil sampai sekali per frame saat popup beranimasi
+  if (radius == hole_radius_ && holes.size() == holes_.size()) {
+    bool same = true;
+    for (size_t i = 0; i < holes.size() && same; ++i) {
+      same = EqualRect(&holes[i], &holes_[i]) != FALSE;
+    }
+    if (same) return;
+  }
+  holes_ = std::move(holes);
+  hole_radius_ = radius;
+  bool changed = false;
+  for (auto& kv : views_) changed |= ApplyRegion(kv.second.get());
+  // FlutterView (WS_CLIPSIBLINGS) baru boleh menggambar di lubang setelah
+  // region berubah: minta gambar ulang supaya tidak ada sisa halaman
+  if (changed && backdrop_) InvalidateRect(backdrop_, nullptr, FALSE);
+}
+
+bool WebHost::ApplyRegion(View* v) {
+  if (!v->container) return false;
+  const int w = rect_.right - rect_.left;
+  const int h = rect_.bottom - rect_.top;
+  const RECT box{0, 0, w, h};
+  // lubang -> koordinat wadah. Tidak dipotong ke wadah: sudut bulatnya
+  // harus tetap di tempat walau lubang menjorok keluar (RGN_DIFF yang
+  // memotong). Lubang yang sama sekali di luar wadah dibuang.
+  std::vector<int> key;
+  for (const RECT& hole : holes_) {
+    RECT local{hole.left - rect_.left, hole.top - rect_.top,
+               hole.right - rect_.left, hole.bottom - rect_.top};
+    RECT clip;
+    if (!IntersectRect(&clip, &local, &box)) continue;
+    if (key.empty()) {
+      key.push_back(w);
+      key.push_back(h);
+      key.push_back(hole_radius_);
+    }
+    key.push_back(local.left);
+    key.push_back(local.top);
+    key.push_back(local.right);
+    key.push_back(local.bottom);
+  }
+  if (key == v->region_key) return false;
+
+  if (key.empty()) {
+    SetWindowRgn(v->container, nullptr, TRUE);
+    v->region_key.clear();
+    return true;
+  }
+  HRGN rgn = CreateRectRgn(0, 0, w, h);
+  if (!rgn) return false;
+  for (size_t i = 3; i + 3 < key.size(); i += 4) {
+    const int l = key[i], t = key[i + 1], r = key[i + 2], b = key[i + 3];
+    // jari-jari tak boleh lebih dari setengah sisi terpendek
+    int rad = hole_radius_;
+    if (rad > (r - l) / 2) rad = (r - l) / 2;
+    if (rad > (b - t) / 2) rad = (b - t) / 2;
+    // CreateRoundRectRgn: region-nya 1 piksel lebih pendek di kanan/bawah
+    // dibanding CreateRectRgn (maka +1), dan dua argumen terakhir =
+    // lebar/tinggi elips sudut = diameter (2 x jari-jari)
+    HRGN cut = rad > 0
+                   ? CreateRoundRectRgn(l, t, r + 1, b + 1, 2 * rad, 2 * rad)
+                   : CreateRectRgn(l, t, r, b);
+    if (!cut) continue;
+    CombineRgn(rgn, rgn, cut, RGN_DIFF);
+    DeleteObject(cut);
+  }
+  // berhasil = region jadi milik sistem (jangan dihapus); gagal = milik kita
+  if (!SetWindowRgn(v->container, rgn, TRUE)) {
+    DeleteObject(rgn);
+    return false;
+  }
+  v->region_key = std::move(key);
+  return true;
 }
 
 void WebHost::SetVisible(View* v, bool on) {

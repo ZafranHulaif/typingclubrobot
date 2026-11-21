@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../state/store.dart';
 import '../../theme/theme.dart';
+import 'web_layer.dart';
 
 /// Status inti: apakah bot sedang mengetik? (satu-satunya tempat status)
 ({Color color, String label, bool live}) phaseLook(
@@ -13,15 +14,23 @@ import '../../theme/theme.dart';
   if (s.bot['needs_login'] == true) {
     return (color: c.tertiary, label: 'Perlu login', live: false);
   }
+  if (s.phase == 'waiting') {
+    return switch (s.bot['wait']) {
+      'pick' => (color: c.secondary, label: 'Pilih level', live: true),
+      'login' => (color: c.tertiary, label: 'Perlu login', live: false),
+      _ => (color: c.onSurfaceVariant, label: 'Memeriksa', live: true),
+    };
+  }
   if (!s.licensed) {
     return (color: c.tertiary, label: 'Belum aktif', live: false);
   }
   return switch (s.phase) {
     'starting' => (color: c.primary, label: 'Menyiapkan', live: true),
     'running' => (color: c.primary, label: 'Mengetik', live: true),
-    'paused' => (color: c.tertiary, label: 'Berhenti sebentar', live: false),
+    'paused' => (color: c.tertiary, label: 'Dijeda', live: false),
     'stopping' => (color: c.onSurfaceVariant, label: 'Menghentikan', live: false),
-    'done' => (color: c.secondary, label: 'Rencana selesai', live: false),
+    'done' => (color: c.secondary,
+        label: s.mode == 'plan' ? 'Rencana selesai' : 'Selesai', live: false),
     'error' => (color: c.error, label: 'Macet', live: false),
     _ => (color: c.onSurfaceVariant, label: 'Siap', live: false),
   };
@@ -207,7 +216,7 @@ class StarRow extends StatelessWidget {
 }
 
 /// Popup kecil yang tumbuh dari tombol pemicunya (origin-aware).
-/// Saat terbuka, halaman web native disembunyikan (lihat AppStore.occlude).
+/// Saat terbuka, halaman native dilubangi di kotak popup (WebHole).
 class Popover extends StatefulWidget {
   const Popover({
     super.key,
@@ -241,7 +250,6 @@ class _PopoverState extends State<Popover> with SingleTickerProviderStateMixin {
   void _toggle() => _open ? _close() : _show();
 
   void _show() {
-    StoreScope.read(context).occlude(true);
     _ctl.show();
     _anim.forward(from: 0);
     setState(() {});
@@ -252,13 +260,11 @@ class _PopoverState extends State<Popover> with SingleTickerProviderStateMixin {
     await _anim.reverse();
     if (!mounted) return;
     _ctl.hide();
-    StoreScope.read(context).occlude(false);
     setState(() {});
   }
 
   @override
   void dispose() {
-    if (_open) StoreScope.read(context).occlude(false);
     _anim.dispose();
     super.dispose();
   }
@@ -292,7 +298,8 @@ class _PopoverState extends State<Popover> with SingleTickerProviderStateMixin {
                         scale: 0.96 + 0.04 * t, alignment: al, child: child),
                   );
                 },
-                child: Material(
+                child: WebHole(
+                 child: Material(
                   color: c.surfaceContainerHigh,
                   elevation: 8,
                   shadowColor: Colors.black,
@@ -306,6 +313,7 @@ class _PopoverState extends State<Popover> with SingleTickerProviderStateMixin {
                     child: SingleChildScrollView(
                         child: widget.content(ctx, _close)),
                   ),
+                 ),
                 ),
               ),
             ),

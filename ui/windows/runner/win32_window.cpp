@@ -18,13 +18,17 @@ namespace {
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
-/// Registry key for app theme preference.
-///
-/// A value of 0 indicates apps should use dark mode. A non-zero or missing
-/// value indicates apps should use light mode.
-constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
-  L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
+// Atribut DWM untuk warna title bar (Windows 11 build 22000+). Di SDK baru
+// ini anggota enum (bukan macro), jadi pakai nama sendiri supaya tetap
+// terkompilasi dgn SDK lama maupun baru.
+constexpr DWORD kDwmaDarkModeOld = 19;  // Windows 10 sebelum 2004
+constexpr DWORD kDwmaBorderColor = 34;
+constexpr DWORD kDwmaCaptionColor = 35;
+constexpr DWORD kDwmaTextColor = 36;
+
+// Warna app (COLORREF = 0x00BBGGRR): latar #0B0C10, teks #ECEEF2.
+constexpr COLORREF kTitleBarColor = 0x00100C0B;
+constexpr COLORREF kTitleTextColor = 0x00F2EEEC;
 
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
@@ -88,19 +92,28 @@ WindowClassRegistrar* WindowClassRegistrar::instance_ = nullptr;
 
 const wchar_t* WindowClassRegistrar::GetWindowClass() {
   if (!class_registered_) {
-    WNDCLASS window_class{};
+    WNDCLASSEX window_class{};
+    window_class.cbSize = sizeof(window_class);
     window_class.hCursor = LoadCursor(nullptr, IDC_ARROW);
     window_class.lpszClassName = kWindowClassName;
     window_class.style = CS_HREDRAW | CS_VREDRAW;
     window_class.cbClsExtra = 0;
     window_class.cbWndExtra = 0;
     window_class.hInstance = GetModuleHandle(nullptr);
-    window_class.hIcon =
-        LoadIcon(window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON));
+    // ikon besar (alt-tab, taskbar) dan kecil (title bar) diambil dari
+    // ukuran yang pas di app_icon.ico, bukan hasil perkecil ikon besar
+    window_class.hIcon = static_cast<HICON>(LoadImage(
+        window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
+        GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON),
+        LR_DEFAULTCOLOR | LR_SHARED));
+    window_class.hIconSm = static_cast<HICON>(LoadImage(
+        window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+        LR_DEFAULTCOLOR | LR_SHARED));
     window_class.hbrBackground = 0;
     window_class.lpszMenuName = nullptr;
     window_class.lpfnWndProc = Win32Window::WndProc;
-    RegisterClass(&window_class);
+    RegisterClassEx(&window_class);
     class_registered_ = true;
   }
   return kWindowClassName;
@@ -150,7 +163,8 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  // mulai maximize; ukuran dari Create() (1360x860) jadi ukuran restore
+  return ShowWindow(window_handle_, SW_SHOWMAXIMIZED);
 }
 
 // static
@@ -273,16 +287,17 @@ void Win32Window::OnDestroy() {
 }
 
 void Win32Window::UpdateTheme(HWND const window) {
-  DWORD light_mode;
-  DWORD light_mode_size = sizeof(light_mode);
-  LSTATUS result = RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
-                               kGetPreferredBrightnessRegValue,
-                               RRF_RT_REG_DWORD, nullptr, &light_mode,
-                               &light_mode_size);
-
-  if (result == ERROR_SUCCESS) {
-    BOOL enable_dark_mode = light_mode == 0;
-    DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
-                          &enable_dark_mode, sizeof(enable_dark_mode));
+  // App selalu gelap, tidak ikut tema sistem. Semua panggilan di bawah
+  // boleh gagal (Windows 10 tidak kenal warna caption) - diabaikan saja,
+  // title bar tinggal memakai tampilan bawaan.
+  BOOL dark = TRUE;
+  if (FAILED(DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                                   &dark, sizeof(dark)))) {
+    DwmSetWindowAttribute(window, kDwmaDarkModeOld, &dark, sizeof(dark));
   }
+  COLORREF caption = kTitleBarColor;
+  DwmSetWindowAttribute(window, kDwmaCaptionColor, &caption, sizeof(caption));
+  DwmSetWindowAttribute(window, kDwmaBorderColor, &caption, sizeof(caption));
+  COLORREF text = kTitleTextColor;
+  DwmSetWindowAttribute(window, kDwmaTextColor, &text, sizeof(text));
 }

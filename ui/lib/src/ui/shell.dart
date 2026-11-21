@@ -1,6 +1,7 @@
 // Kerangka: bar atas (kontrol langsung) + banner (kalau perlu) +
 // panel Rencana kiri (bisa dilipat) + halaman edclub.
-// Tidak ada yang menimpa halaman: WebView2 di Windows itu jendela native.
+// Panel & popup menimpa halaman lewat lubang di jendela WebView2
+// (lihat widgets/web_layer.dart).
 import 'package:material_ui/material_ui.dart';
 
 import '../bridge/bridge.dart';
@@ -11,6 +12,7 @@ import 'plan.dart';
 import 'web_area.dart';
 import 'widgets/common.dart';
 import 'widgets/logo.dart';
+import 'widgets/web_layer.dart';
 
 class Shell extends StatelessWidget {
   const Shell({super.key});
@@ -26,30 +28,88 @@ class Shell extends StatelessWidget {
             : Column(key: const ValueKey('app'), children: [
                 const _TopBar(),
                 const _Banners(),
-                Expanded(
-                  child: Row(children: [
-                    AnimatedContainer(
-                      duration: Motion.drawer,
-                      curve: Motion.drawerCurve,
-                      width: s.planOpen ? 272 : 0,
-                      child: ClipRect(
-                        child: OverflowBox(
-                          alignment: Alignment.topLeft,
-                          minWidth: 272,
-                          maxWidth: 272,
-                          child: const PlanPanel(),
-                        ),
-                      ),
-                    ),
-                    const Expanded(
+                const Expanded(
+                  child: Stack(fit: StackFit.expand, children: [
+                    Positioned.fill(
                       child: Padding(
-                        padding: EdgeInsets.fromLTRB(4, 0, 12, 12),
+                        padding: EdgeInsets.fromLTRB(12, 0, 12, 12),
                         child: WebArea(),
                       ),
                     ),
+                    // panel Rencana menimpa halaman (tidak mendorongnya):
+                    // halaman dilubangi di kotak panel (WebHole)
+                    _PlanDrawer(),
                   ]),
                 ),
               ]),
+      ),
+    );
+  }
+}
+
+/// Panel Rencana yg meluncur dari kiri DI ATAS halaman.
+class _PlanDrawer extends StatefulWidget {
+  const _PlanDrawer();
+  @override
+  State<_PlanDrawer> createState() => _PlanDrawerState();
+}
+
+class _PlanDrawerState extends State<_PlanDrawer>
+    with SingleTickerProviderStateMixin {
+  static const lebar = 296.0;
+  late final _a = AnimationController(
+      vsync: this, duration: Motion.drawer, reverseDuration: Motion.medium);
+  bool? _buka;
+
+  @override
+  void dispose() {
+    _a.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final c = Theme.of(context).colorScheme;
+    if (_buka != s.planOpen) {
+      if (_buka == null) {
+        _a.value = s.planOpen ? 1 : 0;
+      } else if (s.planOpen) {
+        _a.forward();
+      } else {
+        _a.reverse();
+      }
+      _buka = s.planOpen;
+    }
+    return AnimatedBuilder(
+      animation: _a,
+      builder: (_, child) {
+        // tertutup penuh = tidak ada di pohon (lubang ikut hilang)
+        if (_a.value == 0) {
+          return const Positioned(left: 0, top: 0, width: 0, height: 0, child: SizedBox());
+        }
+        final t = Motion.drawerCurve.transform(_a.value);
+        return Positioned(
+          left: 12 - (lebar + 12) * (1 - t),
+          top: 0,
+          bottom: 12,
+          width: lebar,
+          child: child!,
+        );
+      },
+      child: WebHole(
+        child: Container(
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: BorderRadius.circular(Radii.lg),
+            border: Border.all(color: c.outlineVariant),
+          ),
+          child: const Padding(
+            padding: EdgeInsets.only(top: 12),
+            child: PlanPanel(),
+          ),
+        ),
       ),
     );
   }
@@ -220,11 +280,19 @@ class _Capsule extends StatelessWidget {
     final prog = s.phase == 'running'
         ? ((s.level['progress'] as num?)?.toDouble() ?? 0)
         : 0.0;
-    final pos = (s.range['position'] as num?)?.toInt() ?? 0;
-    final mulaiDari = segs.isNotEmpty ? segs.first.from : pos + 1;
     final redup = t.bodyMedium!.copyWith(
         color: c.onSurfaceVariant,
         fontFeatures: const [FontFeature.tabularFigures()]);
+    final paused = s.phase == 'paused';
+    final String? info = switch (s.phase) {
+      'waiting' => switch (s.bot['wait']) {
+          'pick' => 'buka level di halaman',
+          'login' => 'login dulu di halaman',
+          _ => null,
+        },
+      'paused' => 'kamu buka halaman lain',
+      _ => s.busy && s.levelNum > 0 ? 'Level ${s.levelNum}' : null,
+    };
 
     final Widget kata = s.flash != null
         ? Text(s.flash!,
@@ -232,22 +300,50 @@ class _Capsule extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: t.bodyMedium!
                 .copyWith(color: s.flashError ? c.error : c.onSurface))
-        : Row(key: ValueKey('st${look.label}'), mainAxisSize: MainAxisSize.min, children: [
+        : Row(key: ValueKey('st${look.label}$info'), mainAxisSize: MainAxisSize.min, children: [
             StatusDot(color: look.color, pulse: look.live),
             const SizedBox(width: 6),
             Text(look.label, style: t.titleSmall!.copyWith(color: look.color)),
-            if (s.busy && s.levelNum > 0) ...[
+            if (info != null) ...[
               Text('  ·  ', style: redup),
-              Text('Level ${s.levelNum}', style: redup),
-            ] else if (!s.busy && s.licensed && s.online && mulaiDari > 0) ...[
-              Text('  ·  ', style: redup),
-              Text('mulai dari level $mulaiDari', style: redup),
+              Text(info, style: redup),
             ],
-            if (seg != null) ...[
-              const SizedBox(width: 10),
-              StarRow(seg.stars, silver: seg.silver, size: 13),
+            if (paused) ...[
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 28,
+                child: Press(
+                  child: FilledButton.tonal(
+                    style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        visualDensity: VisualDensity.compact),
+                    onPressed: s.resume,
+                    child: const Text('Lanjut'),
+                  ),
+                ),
+              ),
             ],
           ]);
+
+    // bintang: rencana jalan = ikut bagian aktif (terkunci); selain itu
+    // target "tanpa rencana" yang bisa diubah kapan saja
+    final Widget bintang = s.planRunning
+        ? (seg != null
+            ? Padding(
+                padding: const EdgeInsets.only(left: 10),
+                child: StarRow(seg.stars, silver: seg.silver, size: 13))
+            : const SizedBox.shrink())
+        : Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Tooltip(
+              message: 'Target bintang tanpa rencana',
+              child: StarPicker(
+                stars: s.freeStars,
+                silver: s.freeSilver,
+                onChanged: s.setFreeStars,
+              ),
+            ),
+          );
 
     return Container(
       height: 40,
@@ -273,7 +369,8 @@ class _Capsule extends StatelessWidget {
               child: kata,
             ),
           ),
-          const SizedBox(width: 14),
+          bintang,
+          const SizedBox(width: 10),
         ]),
         // garis progres level, menyatukan tombol & status
         Positioned(

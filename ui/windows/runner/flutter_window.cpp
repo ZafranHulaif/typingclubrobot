@@ -31,6 +31,8 @@ bool FlutterWindow::OnCreate() {
   // FlutterView jangan menggambar di atas wadah webview (saudaranya)
   HWND fv = flutter_controller_->view()->GetNativeWindow();
   SetWindowLong(fv, GWL_STYLE, GetWindowLong(fv, GWL_STYLE) | WS_CLIPSIBLINGS);
+  // lubang di wadah webview (setHoles) harus memperlihatkan FlutterView
+  web_host_->SetBackdrop(fv);
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
