@@ -237,19 +237,31 @@ void WebHost::Handle(const flutter::MethodCall<EncodableValue>& call,
   } else if (m == "cdp") {
     std::string params = ArgStr(a, "params");
     if (params.empty()) params = "{}";
-    HRESULT hr = v->webview->CallDevToolsProtocolMethod(
-        Wide(ArgStr(a, "method")).c_str(), Wide(params).c_str(),
-        Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-            [result](HRESULT err, LPCWSTR json) -> HRESULT {
-              if (FAILED(err)) {
-                // json berisi objek error CDP {code, message}
-                result->Error("cdp_failed", Utf8(json));
-              } else {
-                result->Success(EncodableValue(Utf8(json)));
-              }
-              return S_OK;
-            })
-            .Get());
+    auto done = Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+        [result](HRESULT err, LPCWSTR json) -> HRESULT {
+          if (FAILED(err)) {
+            // json berisi objek error CDP {code, message}
+            result->Error("cdp_failed", Utf8(json));
+          } else {
+            result->Success(EncodableValue(Utf8(json)));
+          }
+          return S_OK;
+        });
+    // session kosong = halaman utama; terisi = target anak (iframe lintas
+    // origin, hasil Target.setAutoAttach flatten) - N2
+    const std::string session = ArgStr(a, "session");
+    HRESULT hr = E_NOINTERFACE;
+    if (session.empty()) {
+      hr = v->webview->CallDevToolsProtocolMethod(
+          Wide(ArgStr(a, "method")).c_str(), Wide(params).c_str(), done.Get());
+    } else {
+      ComPtr<ICoreWebView2_11> w11;
+      if (SUCCEEDED(v->webview.As(&w11)) && w11) {
+        hr = w11->CallDevToolsProtocolMethodForSession(
+            Wide(session).c_str(), Wide(ArgStr(a, "method")).c_str(),
+            Wide(params).c_str(), done.Get());
+      }
+    }
     if (FAILED(hr)) result->Error("cdp_failed", HrText(hr));
   } else if (m == "cdpSubscribe") {
     std::string ev = ArgStr(a, "event");
@@ -278,6 +290,14 @@ void WebHost::Handle(const flutter::MethodCall<EncodableValue>& call,
               EncodableMap f;
               f[EncodableValue("event")] = EncodableValue(ev);
               f[EncodableValue("params")] = EncodableValue(TakeUtf8(json));
+              // event dari target anak (iframe lintas origin) bawa sessionId
+              ComPtr<ICoreWebView2DevToolsProtocolEventReceivedEventArgs2> a2;
+              if (SUCCEEDED(args->QueryInterface(IID_PPV_ARGS(&a2))) && a2) {
+                LPWSTR sid = nullptr;
+                if (SUCCEEDED(a2->get_SessionId(&sid))) {
+                  f[EncodableValue("session")] = EncodableValue(TakeUtf8(sid));
+                }
+              }
               Emit(id, "cdp", std::move(f));
               return S_OK;
             })

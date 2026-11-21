@@ -122,29 +122,40 @@ class WebView {
   }
 
   /// Panggil metode CDP (mis. 'Runtime.evaluate'); hasil = objek JSON.
+  /// [session] = sessionId target anak (iframe lintas origin); kosong =
+  /// halaman utama.
   Future<Map<String, dynamic>> cdp(String method,
-      [Map<String, dynamic>? params]) async {
+      [Map<String, dynamic>? params, String session = '']) async {
     final r = await _call<String>('cdp', {
       'method': method,
       'params': jsonEncode(params ?? const {}),
+      if (session.isNotEmpty) 'session': session,
     });
     if (r == null || r.isEmpty) return const {};
     return (jsonDecode(r) as Map).cast<String, dynamic>();
   }
 
   /// Aliran event CDP [event] (mis. 'Page.loadEventFired'); params JSON.
-  Stream<Map<String, dynamic>> on(String event) {
-    late StreamController<Map<String, dynamic>> c;
+  Stream<Map<String, dynamic>> on(String event) =>
+      onSession(event).map((e) => e.params);
+
+  /// Seperti [on] tapi ikut sessionId asal event ('' = halaman utama).
+  Stream<({Map<String, dynamic> params, String session})> onSession(
+      String event) {
+    late StreamController<({Map<String, dynamic> params, String session})> c;
     StreamSubscription<WebEvent>? sub;
-    c = StreamController<Map<String, dynamic>>(
+    c = StreamController(
       onListen: () {
         sub = events
             .where((e) => e.type == 'cdp' && e.data['event'] == event)
             .listen((e) {
           final p = '${e.data['params'] ?? ''}';
-          c.add(p.isEmpty
-              ? const {}
-              : (jsonDecode(p) as Map).cast<String, dynamic>());
+          c.add((
+            params: p.isEmpty
+                ? const <String, dynamic>{}
+                : (jsonDecode(p) as Map).cast<String, dynamic>(),
+            session: '${e.data['session'] ?? ''}',
+          ));
         });
         final n = _cdpListeners[event] = (_cdpListeners[event] ?? 0) + 1;
         if (n == 1) {
