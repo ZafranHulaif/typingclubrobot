@@ -22,6 +22,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT_INIT = ROOT / "ui/lib/src/web/js_init.dart"
 OUT_ENGINE = ROOT / "ui/lib/src/engine/js.dart"
+OUT_INLINE = ROOT / "ui/lib/src/engine/js_inline.dart"
 
 # (file sumber, nama variabel Python, nama Dart)
 INIT_SOURCES = [
@@ -42,6 +43,49 @@ ENGINE_EXTRA = [
     ("engine/lessons/ocr.py", "_MAJU_DASAR", "majuDasar"),
     ("engine/lessons/ocr.py", "_CARI_ULANG_JS", "cariUlangJs"),
 ]
+
+
+# JS yang ditulis langsung di dalam fungsi python (bukan konstanta modul):
+# (file, fungsi, penanda unik di dalam string, nama Dart)
+INLINE = [
+    ("engine/jsutil.py", "close_overlays_all_frames", "window.__CLICKPT = cands", "closePointJs"),
+    ("engine/jsutil.py", "dump_debug_info", "texts: (function()", "debugDumpJs"),
+    ("engine/typing_core.py", "focus_frame", "document.body.focus", "focusFrameJs"),
+    ("engine/lessons/games.py", "_phaser_try_advance", "const NX = ['next'", "advanceTextBtnJs"),
+    ("engine/lessons/ocr.py", "try_balloon_core", "ready to start", "readyStartJs"),
+    ("engine/lessons/ocr.py", "try_balloon_core", "new MouseEvent('pointerdown'", "canvasSkipJs"),
+    ("engine/lessons/ocr.py", "_core_bridge_frame", "^return !!(window.core", "coreMainJs"),
+    ("engine/lessons/ocr.py", "_core_bridge_frame", "if (!/phaser", "coreIframeJs"),
+    ("engine/lessons/ocr.py", "_probe_iframe", "o.stateKeys", "probeIframeJs"),
+    ("engine/lessons/ocr.py", "_balloon_frame", "return !!(window.Phaser && Phaser.GAMES", "phaserPresentJs"),
+    ("engine/levels.py", "_baca_unlock_js", "is_unlocked", "bacaUnlockJs"),
+    ("engine/levels.py", "_goto_level_via_daftar_isi", "(n) =>", "cariBarisJs"),
+    ("engine/levels.py", "_goto_level_via_daftar_isi", "scrollTo", "scrollBawahJs"),
+    ("engine/levels.py", "_lesson_hidup", "querySelectorAll('canvas').length", "lessonHidupJs"),
+    ("engine/levels.py", "_gate_atau_mulai", "audio-activation-gate", "gateAtauMulaiJs"),
+    ("engine/levels.py", "_klik_baris_js", "lsn_name", "klikBarisJs"),
+    ("engine/levels.py", "_level_label", "Lesson\\s+", "levelLabelJs"),
+    ("engine/levels.py", "build_level_map", "rows[i] ?", "barisLabelJs"),
+    ("engine/levels.py", "build_level_map", "div.box-container').length", "jumlahBarisJs"),
+    ("engine/recovery.py", "recover_and_restart_lesson", "v.currentTime", "mediaPlayingJs"),
+    ("engine/recovery.py", "recover_and_restart_lesson", "has_progress", "recoveryListClickJs"),
+]
+
+
+def inline_string(path, func, marker):
+    for node in ast.walk(_tree(path)):
+        if isinstance(node, ast.FunctionDef) and node.name == func:
+            # '^' di depan penanda = string harus DIAWALI penanda itu
+            cocok = ((lambda v: v.startswith(marker[1:])) if marker.startswith("^")
+                     else (lambda v: marker in v))
+            doc = ast.get_docstring(node, clean=False)
+            found = {c.value for c in ast.walk(node)
+                     if isinstance(c, ast.Constant) and isinstance(c.value, str)
+                     and c.value != doc and cocok(c.value)}
+            if len(found) != 1:
+                sys.exit(f"{path}:{func} penanda {marker!r} cocok {len(found)} string")
+            return found.pop()
+    sys.exit(f"fungsi {func} tidak ada di {path}")
 
 
 def _tree(path):
@@ -142,13 +186,21 @@ def render_engine():
     return "".join(parts)
 
 
+def render_inline():
+    parts = [HEAD, "// JS yang di python ditulis di dalam fungsi (dicari lewat penanda unik).\n"]
+    for path, func, marker, dart in INLINE:
+        parts.append(raw(dart, inline_string(path, func, marker), f"{path} :: {func}()"))
+    return "".join(parts)
+
+
 if __name__ == "__main__":
-    outs = [(OUT_INIT, render_init()), (OUT_ENGINE, render_engine())]
+    outs = [(OUT_INIT, render_init()), (OUT_ENGINE, render_engine()),
+            (OUT_INLINE, render_inline())]
     if "--check" in sys.argv:
         for out, text in outs:
             if not out.exists() or out.read_text(encoding="utf-8") != text:
                 sys.exit(f"{out.relative_to(ROOT)} basi: jalankan ui/tool/gen_js.py")
-        print("js_init.dart + engine/js.dart cocok dengan sumber Python")
+        print("js_init.dart + engine/js.dart + js_inline.dart cocok dengan sumber Python")
     else:
         for out, text in outs:
             out.parent.mkdir(parents=True, exist_ok=True)
