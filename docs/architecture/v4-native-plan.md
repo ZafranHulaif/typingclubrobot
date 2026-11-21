@@ -99,6 +99,8 @@ injectable (tests run instantly with a fake clock).
   for typing lessons, feeds the progress bar). Asks: `level.locked`, `level.next`. Speed + plan
   persist in `typingbot_settings.json`; engine log goes to `bot.log` + `log` events (friendly
   translation not ported yet, `friendly: null`). Account switch/add/logout refused while running.
+- Decision: Mulai with an empty plan continues from `posisi_level.json` + 1 (the mock's
+  "lanjut"); the old sidecar started at level 1 and could idle on the course page.
 - Decision: on Mulai the backend focuses the webview first. Clicking the Flutter button blurs the
   page, and `USER_WATCH_JS` counts blur as "user active" (the bot would wait up to 25 s).
 - Python bugs found while porting (fixed on the Dart side only; 3.5.x still has them):

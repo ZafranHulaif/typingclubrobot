@@ -530,7 +530,10 @@ class NativeBackend implements Backend {
       mulai = (range['start'] as num).toInt();
       akhir = ((range['end'] as num?) ?? 0).toInt();
     } else {
-      mulai = 1; // lanjut dari posisi akun
+      // tanpa rencana: lanjut dari level terakhir yang dikerjakan bot
+      // (seperti 'lanjut' di mock); belum pernah = level 1
+      final pos = (_levels ??= LevelMap(_base)).posisi;
+      mulai = pos > 0 ? pos + 1 : 1;
       akhir = 0;
     }
     final page = Page(_bridgeFor(v), clock: clock);

@@ -171,6 +171,25 @@ void main() {
     expect(bot()['phase'], 'idle');
   });
 
+  test('tanpa rencana: lanjut dari posisi terakhir + 1', () async {
+    be.close();
+    File('${tmp.path}/posisi_level.json').writeAsStringSync('{"posisi": 41}');
+    final b2 = NativeBackend(
+        version: 't',
+        host: WebHost(),
+        accounts: AccountStore(tmp.path),
+        checkLicense: false,
+        bridgeFor: (_) => fake.bridge,
+        clock: fake.clock);
+    await b2.connect();
+    fake.url = 'https://www.edclub.com/student/course/3/lesson/116';
+    await b2.request('bot.start');
+    expect(b2.engine!.st.levelStart, 42);
+    expect(b2.engine!.st.levelEnd, 0);
+    b2.engine!.st.stop = true;
+    await b2.stopped;
+  });
+
   test('pengaturan lama (speed/plan) dimuat saat buka', () async {
     File('${tmp.path}/typingbot_settings.json').writeAsStringSync(
         '{"speed": 225, "plan": [{"from": 4, "to": 9, "stars": 5, "silver": true}]}');
