@@ -509,6 +509,45 @@ class LaunchMixin:
             pop.after(1000, jaga)
         pop.after(1000, jaga)
 
+    def _pop_jaga_fokus(self, pop, attr, tutup, batas=0.8):
+        """Tutup popover saat app KEHILANGAN fokus OS >= batas dtk
+        (alt-tab ke app lain). Polling GetForegroundWindow: FocusOut Tk
+        tidak andal utk popover overrideredirect - dulu popover akun
+        tak nutup sama sekali saat alt-tab, popover lapor lambat 2
+        dtk (keluhan user 21 Nov). Sekarang 0.8 dtk, poll 200ms."""
+        import ctypes
+        _u32 = ctypes.windll.user32
+        _pid_saya = os.getpid()
+
+        def jaga():
+            if getattr(self, attr, None) is not pop:
+                return
+            lepas = False
+            try:
+                hwnd = _u32.GetForegroundWindow()
+                if hwnd:
+                    _pid = ctypes.c_uint(0)
+                    _u32.GetWindowThreadProcessId(hwnd,
+                                                  ctypes.byref(_pid))
+                    if _pid.value != _pid_saya:
+                        if not getattr(pop, "_fokus_lepas", None):
+                            pop._fokus_lepas = time.time()
+                        elif time.time() - pop._fokus_lepas >= batas:
+                            lepas = True
+                    else:
+                        pop._fokus_lepas = None
+            except Exception:
+                pass
+            if lepas:
+                try:
+                    tutup()
+                except Exception:
+                    pass
+                return
+            pop.after(200, jaga)
+
+        pop.after(400, jaga)
+
     def _pop_klik_global(self, pop, attr, tutup, jangkar):
         """Tutup popover saat KLIK SELESAI di luar popover & tombol
         jangkar - polling global (GetAsyncKeyState+GetCursorPos), jadi
@@ -1020,6 +1059,7 @@ class LaunchMixin:
         self._pop_angkat(pop)
         self._pop_jaga_diam(pop, "_akun_pop", tutup)
         self._pop_klik_global(pop, "_akun_pop", tutup, self.btn_akun)
+        self._pop_jaga_fokus(pop, "_akun_pop", tutup)
         self._log("[AKUN] popover dibuka")
         # TUTUP saat app kehilangan fokus OS (alt-tab ke app lain -
         # keluhan user 15 Nov: 'the pop up won't close until we click

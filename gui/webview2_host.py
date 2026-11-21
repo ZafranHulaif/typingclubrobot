@@ -1169,36 +1169,65 @@ class Wv2Host(tk.Frame):
                 pass
         self.after(1200, lambda: self._gp_pantau(nama, 0))
 
+    def _webview_isi_ada(self):
+        """True kalau webview SUDAH menggambar konten nyata - sampling
+        PrintWindow + GetPixel: halaman putih polos / hitam polos (SPA
+        edclub belum render) = False. Cover ganti akun menunggu sinyal
+        ini, bukan cuma judul halaman - dulu cover nutup saat judul
+        sudah muncul padahal layar masih putih lalu kedip
+        putih-hitam-putih (keluhan user 21 Nov)."""
+        hwnd = getattr(self, "_chwnd", None)
+        if not hwnd:
+            return True      # tak ada yang dicek = anggap siap
+        try:
+            u32 = ctypes.windll.user32
+            gdi = ctypes.windll.gdi32
+            rc = wintypes.RECT()
+            if not u32.GetWindowRect(hwnd, ctypes.byref(rc)):
+                return True
+            w, h = rc.right - rc.left, rc.bottom - rc.top
+            if w < 50 or h < 50:
+                return True
+            hdc = u32.GetWindowDC(hwnd)
+            mem = gdi.CreateCompatibleDC(hdc)
+            bmp = gdi.CreateCompatibleBitmap(hdc, w, h)
+            gdi.SelectObject(mem, bmp)
+            u32.PrintWindow(hwnd, mem, 2)   # 2 = RENDERFULLCONTENT
+            warna = set()
+            for i in range(6):
+                for j in range(4):
+                    c = gdi.GetPixel(mem,
+                                     8 + i * (w - 16) // 5,
+                                     8 + j * (h - 16) // 3)
+                    warna.add(int(c) & 0xFFFFFF)
+            gdi.DeleteObject(bmp)
+            gdi.DeleteDC(mem)
+            u32.ReleaseDC(hwnd, hdc)
+            if len(warna) <= 1 and 0 in warna:
+                return True   # semua hitam = PrintWindow gagal (tersembunyi)
+            return len(warna) >= 6
+        except Exception:
+            return True       # gagal cek = jangan sampai cover nyangkut
+
     def _gp_pantau(self, nama, n):
         """Pantau langsung webview (.NET, bukan CDP watcher): judul
-        halaman stabil 2x berturut = halaman hidup = cover selesai.
-        Habis dispose, koneksi CDP watcher bisa mati diam - itu yang
-        bikin cover dulu selalu nunggu watchdog tiap ganti akun."""
+        stabil 2x berturut + PIKSEL konten nyata (bukan putih/hitam
+        polos) = halaman hidup = cover selesai. Habis dispose, koneksi
+        CDP watcher bisa mati diam; judul saja pun belum berarti
+        render selesai (kedip putih-hitam, keluhan user 21 Nov)."""
         siap = False
         try:
             core = self._ec.webview.CoreWebView2
             src = str(getattr(core, "Source", "") or "")
             ttl = str(getattr(core, "DocumentTitle", "") or "").strip()
             if "edclub" in src and ttl and "about:blank" not in src:
-                if ttl == getattr(self, "_gp_ttl", None):
+                if (ttl == getattr(self, "_gp_ttl", None)
+                        and self._webview_isi_ada()):
                     siap = True
                 self._gp_ttl = ttl
         except Exception:
             pass
         if siap:
-            # profil pertama kali: SPA edclub boot lambat - judul sudah
-            # muncul tapi halaman masih putih beberapa detik (keluhan
-            # user 21 Nov). Tahan cover sampai render selesai.
-            if getattr(self, "_akun_pertama", False):
-                self._akun_pertama = False
-                self._pcv_info_set("menyiapkan halaman…")
-                self._pcv_target_set(96)
-
-                def tamat():
-                    self._pcv_selesai = True
-                    self._gp_selesai(nama)
-                self.after(6000, tamat)
-                return
             self._pcv_selesai = True
             self.after(1500, lambda: self._gp_selesai(nama))
             return

@@ -867,40 +867,14 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             bg=ACCENT))
 
         # posisi: menempel di bawah tombol 🪲 (ala popover akun)
-        # tutup saat app KEHILANGAN fokus (alt-tab ke app lain):
-        # popover topmost menempel di atas app lain terus = mengganggu
-        # ('doesn't close itself until i click, even after alt tabbing
-        # to t3', keluhan user 21 Nov). App lain aktif >= 2 dtk = tutup.
-        import ctypes
-        _u32 = ctypes.windll.user32
-        _pid_saya = os.getpid()
-
-        def jaga_fokus():
-            if getattr(self, "_bug_pop", None) is not pop:
-                return
-            try:
-                hwnd = _u32.GetForegroundWindow()
-                if hwnd:
-                    _pid_lain = ctypes.c_uint(0)
-                    _u32.GetWindowThreadProcessId(hwnd,
-                                                  ctypes.byref(_pid_lain))
-                    if _pid_lain.value != _pid_saya:
-                        if not getattr(pop, "_fokus_lepas", None):
-                            pop._fokus_lepas = time.time()
-                        elif time.time() - pop._fokus_lepas >= 2:
-                            tutup(alasan="app lain aktif")
-                            return
-                    else:
-                        pop._fokus_lepas = None
-            except Exception:
-                pass
-            pop.after(500, jaga_fokus)
-        pop.after(1000, jaga_fokus)
+        self._pop_tempatkan(pop, self.btn_bug)
+        pop.after(1000, jaga)
 
         self._pop_tempatkan(pop, self.btn_bug)
         self._pop_angkat(pop)
         self._pop_jaga_diam(pop, "_bug_pop", tutup, 60)
         self._pop_klik_global(pop, "_bug_pop", tutup, self.btn_bug)
+        self._pop_jaga_fokus(pop, "_bug_pop", tutup)
         self._bug_pop = pop
         self._log("[LAPOR] popover lapor bug dibuka (pilih masalah).")
 
