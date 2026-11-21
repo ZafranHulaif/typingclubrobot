@@ -317,6 +317,30 @@ _OAUTH_RELAY_PAGE_JS = """
 # utama dilempar ke sportal/program-3.game (keluhan live: pencet login
 # balik lagi ke halaman awal). Real popup asli: baca href lintas-origin
 # = THROW (dianggap sehat); stub kita "sehat" = href berubah.
+# Marker klik OAuth: listener klik level dokumen; begitu user klik
+# tombol Google, judul halaman di-set 'TB_OAUTH' - _jaga (thread UI,
+# baca .NET DocumentTitle murah tiap tick) mengangkat cover instan
+# tanpa nunggu tick pengawas. CSP-aman: cuma set document.title.
+OAUTH_MARKER_JS = """
+(function(){
+  if (window.__tb_oauth_mark) return; window.__tb_oauth_mark = 1;
+  document.addEventListener('click', function(ev){
+    try {
+      var el = ev.target;
+      for (var i = 0; i < 6 && el; i++, el = el.parentElement) {
+        var t = ((el.textContent || '') + '').toLowerCase();
+        var h = (el.getAttribute && el.getAttribute('href')) || '';
+        if (t.indexOf('sign in with google') >= 0 ||
+            h.indexOf('accounts.google') >= 0) {
+          document.title = 'TB_OAUTH';
+          return;
+        }
+      }
+    } catch (e) {}
+  }, true);
+})();
+"""
+
 _NO_POPUP_JS = """
 (function(){
   function buatStub(u0){
@@ -1219,6 +1243,8 @@ class Wv2Host(tk.Frame):
                 # tombol X sendiri - keluhan user 21 Nov)
                 core.AddScriptToExecuteOnDocumentCreatedAsync(
                     _NO_POPUP_JS)
+                core.AddScriptToExecuteOnDocumentCreatedAsync(
+                    OAUTH_MARKER_JS)
                 core.Navigate(url)
                 self._pcv_log("Navigate OK")
             except Exception as ex:
@@ -1678,7 +1704,21 @@ class Wv2Host(tk.Frame):
                     tahan = getattr(self, "_tahan", None)
                     if tahan:
                         pot, batas = tahan
-                        if (pot in u) or (time.time() > batas):
+                        cocok = pot in u
+                        if pot == "accounts.google":
+                            # butuh 2 tick beruntun: render pertama
+                            # google masih pra-hidrasi (tema flip
+                            # gelap->terang terlihat kalau cover
+                            # diangkat telalu pagi - keluhan user 21 Nov)
+                            if cocok:
+                                self._oauth_tik = (getattr(self,
+                                    "_oauth_tik", 0) + 1)
+                                cocok = self._oauth_tik >= 2
+                            else:
+                                self._oauth_tik = 0
+                        if cocok or (time.time() > batas):
+                            self._oauth_tik = 0
+                            self._tahan_putih = False
                             self._tahan = None
                             self._boot_selesai = True
                             self._boot_cover = None
@@ -2088,6 +2128,34 @@ class Wv2Host(tk.Frame):
                         # proses auth_callback/relay/redirect dgn cover
                         # putih sampai daftar level tampil. Hitam terasa
                         # gagal, putih terasa loading.
+                        # OAUTH HALUS (user 21 Nov): klik Google =
+                        # cover gelap sampai form stabil; google ->
+                        # google (identifier -> challenge) = cover juga
+                        # (tiap dokumen google hidrasi gelap->terang);
+                        # google -> callback/edclub = cover putih
+                        # sampai edclub mendarat (dashboard sukses /
+                        # login gagal utk retry)
+                        _lu = (_sebelum or "").lower()
+                        _nu = u.lower()
+                        _gl_b = "accounts.google." in _lu
+                        _gl_n = "accounts.google." in _nu
+                        if _gl_n and not _gl_b:
+                            self._oauth_tik = 0
+                            self._tahan_putih = False
+                            self._tahan = ("accounts.google",
+                                           time.time() + 15)
+                            catat("cover oauth naik (form google)")
+                        elif _gl_b and _gl_n:
+                            self._oauth_tik = 0
+                            self._tahan_putih = False
+                            self._tahan = ("accounts.google",
+                                           time.time() + 12)
+                            catat("cover oauth naik (langkah google)")
+                        elif _gl_b and not _gl_n:
+                            self._tahan_putih = True
+                            self._tahan = ("edclub",
+                                           time.time() + 60)
+                            catat("cover putih oauth naik (callback)")
                         if (_sebelum and "/signin" in _sebelum
                                 and "/signin" not in u
                                 and "edclub" in u.lower()
@@ -2549,6 +2617,27 @@ class Wv2Host(tk.Frame):
            webview kita yang ber-owner ke kontrol utama -> jadi CHILD
            frame ini, penuh memenuhi area. Popup menutup dirinya sendiri
            saat OAuth selesai (relasi opener tetap utuh)."""
+        # ---- marker klik OAuth: angkat cover INSTAN (thread UI) -
+        # dulu nunggu tick pengawas = flip tema google sempat terlihat
+        try:
+            core_j = self._ec.webview.CoreWebView2
+            if core_j is not None:
+                ttl_j = str(getattr(core_j, "DocumentTitle", "") or "")
+                src_j = str(getattr(core_j, "Source", "") or "").lower()
+                if "edclub.com/signin" in src_j:
+                    self._oauth_mark = True
+                if (getattr(self, "_oauth_mark", False)
+                        and ttl_j.startswith("TB_OAUTH")
+                        and not getattr(self, "_tahan", None)
+                        and "accounts.google." not in src_j):
+                    self._oauth_mark = False
+                    self._oauth_tik = 0
+                    self._tahan_putih = False
+                    self._tahan = ("accounts.google",
+                                   time.time() + 15)
+                    print("[PCV] cover oauth naik (klik google)")
+        except Exception:
+            pass
         # ---- cover tahan-halaman: buka bila diminta & belum terbuka
         tahan = getattr(self, "_tahan", None)
         if tahan and not getattr(self, "_boot_cover", None):
@@ -2558,12 +2647,12 @@ class Wv2Host(tk.Frame):
                 self._boot_cover = time.time()
                 self._boot_selesai = False
                 try:
-                    # COVER PUTIH utk transisi login -> daftar level
-                    # (user 15 Nov: hitam terasa gagal, putih terasa
-                    # loading). Cover boot biasa tetap gelap.
+                    # PUTIH = fasa callback OAuth / transisi login ->
+                    # daftar level (terasa loading); gelap = app.
+                    putih = (getattr(self, "_tahan_putih", False)
+                             or str(pot).startswith("login"))
                     self._overlay.configure(
-                        bg="#ffffff" if str(pot).startswith("login")
-                        else "#141519")
+                        bg="#ffffff" if putih else "#141519")
                     user32.ShowWindow(self._chwnd, 0)   # SW_HIDE
                     st = self._stage_widget
                     if st is not None:
