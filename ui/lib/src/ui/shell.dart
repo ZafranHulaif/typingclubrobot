@@ -106,13 +106,21 @@ class _TopBar extends StatelessWidget {
             ]),
           ),
           const SizedBox(width: 8),
-          const _RunButton(),
-          const SizedBox(width: 16),
-          const Expanded(child: _Status()),
-          if (s.update['available'] == true) const UpdateButton(),
+          const _Capsule(),
+          const SizedBox(width: 6),
+          const SpeedButton(),
+          const Spacer(),
           const ReportButton(),
           const SizedBox(width: 2),
           const AccountButton(),
+          AnimatedSize(
+            duration: Motion.medium,
+            curve: Motion.out,
+            child: s.update['available'] == true
+                ? const Padding(
+                    padding: EdgeInsets.only(left: 4), child: UpdateButton())
+                : const SizedBox.shrink(),
+          ),
         ]),
       ),
     );
@@ -159,7 +167,7 @@ class _RunButton extends StatelessWidget {
       child: AnimatedContainer(
         duration: Motion.short,
         curve: Motion.out,
-        height: 38,
+        height: 32,
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(Radii.md),
@@ -195,9 +203,10 @@ class _RunButton extends StatelessWidget {
   }
 }
 
-/// Satu-satunya tempat status: titik + kata + level + target bintang.
-class _Status extends StatelessWidget {
-  const _Status();
+/// Kapsul kontrol: tombol Mulai/Stop + status + level + bintang dalam
+/// SATU wadah, dgn garis progres level di tepi bawah (seperti pemutar musik).
+class _Capsule extends StatelessWidget {
+  const _Capsule();
 
   @override
   Widget build(BuildContext context) {
@@ -208,42 +217,78 @@ class _Status extends StatelessWidget {
     final segs = s.segments;
     final ai = s.activeSegment;
     final seg = ai != null && ai < segs.length ? segs[ai] : null;
+    final prog = s.phase == 'running'
+        ? ((s.level['progress'] as num?)?.toDouble() ?? 0)
+        : 0.0;
+    final pos = (s.range['position'] as num?)?.toInt() ?? 0;
+    final mulaiDari = segs.isNotEmpty ? segs.first.from : pos + 1;
+    final redup = t.bodyMedium!.copyWith(
+        color: c.onSurfaceVariant,
+        fontFeatures: const [FontFeature.tabularFigures()]);
 
     final Widget kata = s.flash != null
         ? Text(s.flash!,
             key: ValueKey('f${s.flash}'),
             overflow: TextOverflow.ellipsis,
-            style: t.bodyMedium!.copyWith(
-                color: s.flashError ? c.error : c.onSurface))
+            style: t.bodyMedium!
+                .copyWith(color: s.flashError ? c.error : c.onSurface))
         : Row(key: ValueKey('st${look.label}'), mainAxisSize: MainAxisSize.min, children: [
             StatusDot(color: look.color, pulse: look.live),
             const SizedBox(width: 6),
             Text(look.label, style: t.titleSmall!.copyWith(color: look.color)),
             if (s.busy && s.levelNum > 0) ...[
-              const SizedBox(width: 10),
-              Text('Level ${s.levelNum}',
-                  style: t.bodyMedium!.copyWith(
-                      color: c.onSurfaceVariant,
-                      fontFeatures: const [FontFeature.tabularFigures()])),
+              Text('  ·  ', style: redup),
+              Text('Level ${s.levelNum}', style: redup),
+            ] else if (!s.busy && s.licensed && s.online && mulaiDari > 0) ...[
+              Text('  ·  ', style: redup),
+              Text('mulai dari level $mulaiDari', style: redup),
             ],
             if (seg != null) ...[
               const SizedBox(width: 10),
               StarRow(seg.stars, silver: seg.silver, size: 13),
             ],
           ]);
-    return Row(children: [
-      Flexible(
-        child: AnimatedSwitcher(
-          duration: Motion.short,
-          switchInCurve: Motion.out,
-          layoutBuilder: (cur, prev) =>
-              Stack(alignment: Alignment.centerLeft, children: [...prev, ?cur]),
-          child: kata,
-        ),
+
+    return Container(
+      height: 40,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: c.surfaceContainer,
+        borderRadius: BorderRadius.circular(Radii.lg),
+        border: Border.all(color: c.outlineVariant),
       ),
-      const SizedBox(width: 10),
-      const SpeedButton(),
-    ]);
+      child: Stack(children: [
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          const Padding(padding: EdgeInsets.all(3), child: _RunButton()),
+          const SizedBox(width: 10),
+          AnimatedSize(
+            duration: Motion.short,
+            curve: Motion.out,
+            alignment: Alignment.centerLeft,
+            child: AnimatedSwitcher(
+              duration: Motion.short,
+              switchInCurve: Motion.out,
+              layoutBuilder: (cur, prev) => Stack(
+                  alignment: Alignment.centerLeft, children: [...prev, ?cur]),
+              child: kata,
+            ),
+          ),
+          const SizedBox(width: 14),
+        ]),
+        // garis progres level, menyatukan tombol & status
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: AnimatedOpacity(
+            duration: Motion.short,
+            opacity: s.phase == 'running' ? 1 : 0,
+            child: SmoothProgress(value: prog, height: 2,
+                color: c.primary.withValues(alpha: 0.8)),
+          ),
+        ),
+      ]),
+    );
   }
 }
 

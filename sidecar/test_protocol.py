@@ -133,6 +133,25 @@ def main():
     k.antre.clear()
     k.req("plan.set", segments=[])
 
+    # saat jalan: bagian aktif terkunci, bagian jauh di depan bebas diubah
+    k.req("plan.set", segments=[{"from": 1, "to": 1, "stars": 5},
+                                {"from": 50, "to": 60, "stars": 4}])
+    k.req("bot.start")
+    k.tunggu(lambda m: m.get("ev") == "state"
+             and m["d"].get("bot", {}).get("phase") == "running", 5)
+    r = k.req("plan.set", segments=[{"from": 1, "to": 1, "stars": 5},
+                                    {"from": 50, "to": 60, "stars": 2}])
+    cek("bagian depan bisa diubah saat jalan", r["ok"])
+    r = k.req("plan.set", segments=[{"from": 1, "to": 1, "stars": 3},
+                                    {"from": 50, "to": 60, "stars": 2}])
+    cek("bagian aktif terkunci saat jalan",
+        not r["ok"] and r["err"]["code"] == "locked")
+    k.req("bot.stop")
+    k.tunggu(lambda m: m.get("ev") == "state"
+             and m["d"].get("bot", {}).get("phase") == "idle", 10)
+    k.antre.clear()
+    k.req("plan.set", segments=[])
+
     # tanpa rencana -> ask range.pick; UI jawab custom
     k.n += 1
     sid = k.n

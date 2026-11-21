@@ -34,7 +34,8 @@ DEFAULT_SNAPSHOT = {
     # rencana: daftar bagian level berurutan, masing2 punya target bintang.
     #   segments: [{"from": 1, "to": 10, "stars": 5, "silver": True}, ...]
     #   to = 0 -> sampai habis. active = indeks bagian yg sedang dikerjakan.
-    "plan": {"segments": [], "active": None, "done_in_active": 0},
+    "plan": {"segments": [], "active": None, "done_in_active": 0,
+             "lock_until": None},
     "stats": {"levels_done": 0, "chars": 0, "started_at": None},
 }
 

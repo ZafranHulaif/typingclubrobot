@@ -36,7 +36,7 @@ class _PlanPanelState extends State<PlanPanel> {
     final c = Theme.of(context).colorScheme;
     final segs = s.segments;
     if (_edit != null && _edit! >= segs.length) _edit = null;
-    if (s.busy) _edit = null;
+    if (_edit != null && s.locked(segs[_edit!])) _edit = null;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 0, 8, 16),
@@ -70,11 +70,17 @@ class _PlanPanelState extends State<PlanPanel> {
                       ? s.doneInActive / (sg.to - sg.from + 1)
                       : 0,
                   selected: _edit == i,
-                  onTap: s.busy ? null : () => setState(() => _edit = _edit == i ? null : i),
+                  locked: s.locked(sg),
+                  onTap: () {
+                    if (s.locked(sg)) {
+                      s.say('Bagian ini sedang dikerjakan. Stop dulu untuk mengubahnya.');
+                      return;
+                    }
+                    setState(() => _edit = _edit == i ? null : i);
+                  },
                 ),
               ),
-            if (!s.busy)
-              SizedBox(width: w, height: w * 0.86, child: _AddTile(onTap: () => _tambah(s))),
+            SizedBox(width: w, height: w * 0.86, child: _AddTile(onTap: () => _tambah(s))),
           ]);
         }),
         AnimatedSize(
@@ -107,7 +113,9 @@ class _Tile extends StatefulWidget {
     required this.progress,
     required this.selected,
     required this.onTap,
+    this.locked = false,
   });
+  final bool locked;
   final Segment seg;
   final _TileState state;
   final double progress;
@@ -183,7 +191,10 @@ class _TileState2 extends State<_Tile> {
                                 fontFeatures: const [FontFeature.tabularFigures()])),
                       ),
                       if (done) Icon(Icons.check_rounded, size: 16, color: c.primary),
-                      if (active) StatusDot(color: c.primary, pulse: true),
+                      if (active)
+                        StatusDot(color: c.primary, pulse: true)
+                      else if (widget.locked && !done)
+                        Icon(Icons.lock_outline_rounded, size: 14, color: c.onSurfaceVariant),
                     ]),
                     Text(n == null ? 'sampai habis' : '$n level',
                         style: t.bodySmall!.copyWith(color: c.onSurfaceVariant)),
@@ -313,31 +324,17 @@ class _EditorState extends State<_Editor> {
             ),
           ),
         ]),
-        const SizedBox(height: 14),
+        const SizedBox(height: 10),
         Row(children: [
-          StarRow(_sg.stars,
-              size: 24,
-              silver: _sg.silver,
-              onTap: (n) => setState(() {
-                    _sg.stars = n;
-                    if (n < 5) _sg.silver = false;
-                  })),
-          const Spacer(),
-          Tooltip(
-            message: 'Bintang perak: nilai tertinggi',
-            child: FilterChip(
-              visualDensity: VisualDensity.compact,
-              showCheckmark: false,
-              label: const Text('Perak'),
-              selected: _sg.silver,
-              onSelected: _sg.stars == 5
-                  ? (v) => setState(() => _sg.silver = v)
-                  : null,
-            ),
+          StarPicker(
+            stars: _sg.stars,
+            silver: _sg.silver,
+            onChanged: (st, sv) => setState(() {
+              _sg.stars = st;
+              _sg.silver = sv;
+            }),
           ),
-        ]),
-        const SizedBox(height: 12),
-        Row(children: [
+          const Spacer(),
           TextButton(
             style: TextButton.styleFrom(foregroundColor: c.error),
             onPressed: () async {
@@ -346,7 +343,7 @@ class _EditorState extends State<_Editor> {
             },
             child: const Text('Hapus'),
           ),
-          const Spacer(),
+          const SizedBox(width: 4),
           Press(
             child: FilledButton(
               onPressed: () => _simpan(s),
@@ -355,6 +352,80 @@ class _EditorState extends State<_Editor> {
           ),
         ]),
       ]),
+    );
+  }
+}
+
+
+// ------------------------------------------------------------- pemilih bintang
+/// Chip tenang: angka berwarna bintang + ikon. Hover = sorot, klik = daftar
+/// baris bintang (angka di kiri). Perak = baris teratas.
+class StarPicker extends StatelessWidget {
+  const StarPicker(
+      {super.key, required this.stars, required this.silver, required this.onChanged});
+  final int stars;
+  final bool silver;
+  final void Function(int stars, bool silver) onChanged;
+
+  static const _opsi = [(5, true), (5, false), (4, false), (3, false), (2, false), (1, false)];
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final c = Theme.of(context).colorScheme;
+    Color warna(bool sv) => sv ? silverStar : c.tertiary;
+    return Popover(
+      alignRight: false,
+      width: 196,
+      trigger: (_, toggle, open) => Material(
+        color: open ? c.surfaceContainerHighest : Colors.transparent,
+        borderRadius: BorderRadius.circular(Radii.sm),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(Radii.sm),
+          hoverColor: c.surfaceContainerHighest,
+          onTap: toggle,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Text('$stars',
+                  style: t.titleMedium!.copyWith(color: warna(silver))),
+              const SizedBox(width: 3),
+              Icon(Icons.star_rounded, size: 18, color: warna(silver)),
+            ]),
+          ),
+        ),
+      ),
+      content: (_, close) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          for (final (st, sv) in _opsi)
+            InkWell(
+              hoverColor: c.surfaceContainerHighest,
+              onTap: () {
+                onChanged(st, sv);
+                close();
+              },
+              child: Container(
+                color: st == stars && sv == silver
+                    ? c.surfaceContainerHighest
+                    : null,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                child: Row(children: [
+                  SizedBox(
+                    width: 18,
+                    child: Text('$st',
+                        style: t.titleSmall!.copyWith(color: warna(sv))),
+                  ),
+                  StarRow(st, silver: sv, size: 16),
+                  const Spacer(),
+                  if (sv)
+                    Text('perak',
+                        style: t.labelSmall!.copyWith(color: silverStar)),
+                ]),
+              ),
+            ),
+        ]),
+      ),
     );
   }
 }

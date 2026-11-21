@@ -35,8 +35,20 @@ class MockBackend(Backend):
         self._stop = threading.Event()
         self._thr = None
         self._settings = {"speed": 400, "hotkey": True}
+        # cek update otomatis saat boot (seperti app asli)
+        threading.Timer(3.0, self.m_update_check).start()
 
     # -------------------------------------------------------------- rencana
+    # bagian yg mulai <= level kini + JARAK_KUNCI terkunci selama bot jalan
+    JARAK_KUNCI = 2
+
+    def batas_kunci(self):
+        """Level tertinggi yg bagiannya terkunci (None = tak ada kunci)."""
+        if self.snapshot.get("bot")["phase"] not in ("starting", "running",
+                                                       "paused", "stopping"):
+            return None
+        return self.snapshot.get("level")["num"] + self.JARAK_KUNCI
+
     def m_plan_set(self, segments):
         bersih = []
         for sg in segments:
@@ -49,6 +61,15 @@ class MockBackend(Backend):
                                "Bagian harus berurutan dan tidak tumpang tindih.")
             bersih.append({"from": a, "to": b, "stars": st,
                            "silver": bool(sg.get("silver")) and st == 5})
+        batas = self.batas_kunci()
+        if batas is not None:
+            lama = [x for x in self.snapshot.get("plan")["segments"]
+                    if x["from"] <= batas]
+            if bersih[:len(lama)] != lama:
+                raise RpcError("locked", "Bagian yang sedang dikerjakan "
+                               "belum bisa diubah. Stop dulu ya.")
+            self.snapshot.update("plan", segments=bersih)
+            return {"segments": bersih}
         self.snapshot.update("plan", segments=bersih, active=None,
                              done_in_active=0)
         return {"segments": bersih}
@@ -129,7 +150,7 @@ class MockBackend(Backend):
             end = s.get("range")["end"]
             if end and num > end:
                 s.update("bot", phase="done")
-                s.update("plan", active=None)
+                s.update("plan", active=None, lock_until=None)
                 s.update("activity", headline="Selesai!",
                          sub=f"Semua level sampai L{end} beres.")
                 self.log("Selesai. Total: rentang tuntas",
@@ -139,6 +160,7 @@ class MockBackend(Backend):
             if s.get("plan")["segments"] and seg is None:
                 num += 1          # di luar rencana: lewati
                 continue
+            s.update("plan", lock_until=num + self.JARAK_KUNCI)
             if idx != s.get("plan")["active"]:
                 s.update("plan", active=idx, done_in_active=0)
             kind = _KINDS[num % len(_KINDS)]
@@ -176,7 +198,7 @@ class MockBackend(Backend):
                      f"Level {num} selesai, {stars} bintang")
             num += 1
         s.update("bot", phase="idle")
-        s.update("plan", active=None, done_in_active=0)
+        s.update("plan", active=None, done_in_active=0, lock_until=None)
         s.update("level", progress=0.0)
         s.update("activity", headline="Berhenti",
                  sub="Klik Mulai untuk mulai lagi.")

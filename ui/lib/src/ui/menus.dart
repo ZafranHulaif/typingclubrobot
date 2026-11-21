@@ -231,17 +231,6 @@ class _AccountButtonState extends State<AccountButton> {
             _MenuItem(Icons.add_rounded, 'Tambah akun',
                 s.busy ? null : () => run('acct.add')),
             const Divider(height: 13),
-            _MenuItem(Icons.system_update_alt_rounded, 'Cek pembaruan', () async {
-              close();
-              final r = await s.call('update.check');
-              if (r is Map && r['available'] != true) {
-                s.say('Sudah versi terbaru');
-              }
-            }),
-            _MenuItem(Icons.healing_rounded, 'Pulihkan level macet',
-                () => run('bot.recover', null, 'Memulihkan level...')),
-            _MenuItem(Icons.description_outlined, 'Buka catatan bot',
-                () => run('dev.open', {'what': 'log'})),
             _MenuItem(Icons.logout_rounded, 'Keluar dari akun',
                 s.busy ? null : () => run('acct.logout'),
                 color: c.error),

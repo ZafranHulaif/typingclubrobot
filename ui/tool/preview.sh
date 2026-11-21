@@ -10,7 +10,8 @@ if [ "${1:-}" != "--no-build" ]; then
     env DART_VM_OPTIONS=--old_gen_heap_size=1000 \
     flutter build web --release -O1 --no-wasm-dry-run
 fi
-(cd .. && python3 -m sidecar --mock --no-token --port 8766 &)
-PORT=$(python3 -c "import socket;s=socket.socket();s.bind(('127.0.0.1',0));print(s.getsockname()[1])")
-echo "UI: http://127.0.0.1:$PORT/?port=8766"
-cd build/web && exec python3 -m http.server "$PORT" --bind 127.0.0.1
+HOST="${HOST:-127.0.0.1}"   # HOST=100.x (tailscale) supaya bisa dibuka dari HP/laptop
+(cd .. && python3 -m sidecar --mock --no-token --host "$HOST" --port 8766 &)
+PORT=$(python3 -c "import socket;s=socket.socket();s.bind(('$HOST',0));print(s.getsockname()[1])")
+echo "UI: http://$HOST:$PORT/?host=$HOST&port=8766"
+cd build/web && exec python3 -m http.server "$PORT" --bind "$HOST"

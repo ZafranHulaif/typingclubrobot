@@ -84,6 +84,9 @@ class AppStore extends ChangeNotifier {
       .map((e) => Segment.fromJson(e as Map))
       .toList();
   int? get activeSegment => (plan['active'] as num?)?.toInt();
+  /// selama jalan: bagian yg mulai <= ini terkunci (sedang/segera dikerjakan)
+  int? get lockUntil => busy ? (plan['lock_until'] as num?)?.toInt() : null;
+  bool locked(Segment sg) => lockUntil != null && sg.from <= lockUntil!;
   int get doneInActive => (plan['done_in_active'] as num?)?.toInt() ?? 0;
 
   // ---------------------------------------------------------- event
