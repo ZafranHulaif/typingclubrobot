@@ -978,7 +978,19 @@ class Wv2Host(tk.Frame):
             print(f"[PCV] loading bar gagal dibuat: {str(ex)[:80]}")
             return None, None
 
+    def _pcv_log(self, pesan):
+        """Print tahap cover dgn offset ms sejak cover buka - untuk
+        bedah 'hitam panjang' (keluhan user 21 Nov, ganti kedua)."""
+        try:
+            t0 = getattr(self, "_pcv_t0", None)
+            dt = int((time.time() - t0) * 1000) if t0 else 0
+            print(f"[PCV +{dt}ms] {pesan}")
+        except Exception:
+            print(f"[PCV] {pesan}")
+
     def _pcv_buka(self, nama):
+        self._pcv_t0 = time.time()
+        self._pcv_log("cover buka")
         """Cover loading-screen profil: frame UKURAN PERSIS area webview
         (anak host, bukan master - dulu bordernya lebih besar dr
         webview, keluhan user 21 Nov) + LOADING BAR + persen. Warna =
@@ -1090,6 +1102,7 @@ class Wv2Host(tk.Frame):
         self._pcv_ganti = False
 
     def _pcv_tutup(self):
+        self._pcv_log("cover tutup - reveal webview")
         self._pcv_tutup_cepat()
         try:
             user32.ShowWindow(self._chwnd, 1)   # SW_SHOW
@@ -1099,6 +1112,20 @@ class Wv2Host(tk.Frame):
             self._pas_ukuran()   # rapikan posisi/ukuran webview
         except Exception:
             pass
+        # kick komposisi: reveal kedua + layout ulang - kalau frame
+        # pertama renderer kalah balapan, ini memaksa gambar ulang
+        self.after(400, self._reveal_ulang)
+
+    def _reveal_ulang(self):
+        try:
+            user32.ShowWindow(self._chwnd, 1)   # SW_SHOW
+        except Exception:
+            pass
+        try:
+            self._pas_ukuran()
+        except Exception:
+            pass
+        self._pcv_log("reveal ulang OK")
 
     def ganti_profil(self, folder, url, nama=""):
         """Ganti folder data WebView2 (jar per akun). Dijalankan sbg
@@ -1116,6 +1143,7 @@ class Wv2Host(tk.Frame):
         self.after(80, lambda: self._gp_dispose(folder, url, nama))
 
     def _gp_dispose(self, folder, url, nama):
+        self._pcv_log("dispose webview lama")
         self._pcv_info_set("menutup browser lama…")
         self._pcv_target_set(35)
         ec = self._ec
@@ -1145,6 +1173,7 @@ class Wv2Host(tk.Frame):
             hidup = True
         except Exception:
             hidup = False
+        self._pcv_log(f"cek port 9222 (coba {coba})")
         if hidup and coba < 20:
             self.after(400, lambda: self._gp_port(folder, url, nama,
                                                   coba + 1))
@@ -1155,8 +1184,10 @@ class Wv2Host(tk.Frame):
             # cover=True = webview dibuat tersembunyi (jalur boot
             # teruji): selama cover ganti akun TIDAK ADA yang menggambar
             # di atasnya (HWND > Tk) -> tanpa kedip, bar terlihat 100%
+            self._pcv_log("buka webview baru (hidden)")
             self.buka(port, url, cover=True,
                        boot=False)
+            self._pcv_log("buka selesai")
         except Exception as ex:
             print(f"[AKUN] ganti profil gagal: {str(ex)[:80]}")
         self.after(300, lambda: self._gp_nav(folder, url, nama, 0))
@@ -1177,12 +1208,14 @@ class Wv2Host(tk.Frame):
             self._pcv_tutup()
             print("[AKUN] webview tidak siap - coba klik akun lagi.")
             return
+        self._pcv_log(f"nav coba {coba}: src={src[:60]}")
         src = str(getattr(core, "Source", "") or "")
         if "about:blank" in src or src.strip() in ("", "about:blank"):
             try:
                 core.Navigate(url)
-            except Exception:
-                pass
+                self._pcv_log("Navigate OK")
+            except Exception as ex:
+                self._pcv_log(f"Navigate GAGAL: {str(ex)[:80]}")
         self.after(1200, lambda: self._gp_pantau(nama, 0))
 
     def _gp_pantau(self, nama, n):
@@ -1199,6 +1232,8 @@ class Wv2Host(tk.Frame):
             src = str(getattr(core, "Source", "") or "")
             ttl = str(getattr(core, "DocumentTitle", "") or "").strip()
             if "edclub" in src and ttl and "about:blank" not in src:
+                if n % 10 == 0:
+                    self._pcv_log(f"poll {n}: ttl={ttl[:40]}")
                 if ttl == getattr(self, "_gp_ttl", None):
                     self._gp_ct = getattr(self, "_gp_ct", 0) + 1
                     if self._gp_ct >= 3:
@@ -1211,7 +1246,8 @@ class Wv2Host(tk.Frame):
         if siap:
             def tamat():
                 self._pcv_selesai = True
-                self._gp_selesai(nama)
+                self._pcv_log("gate siap - bar gas ke 100%")
+            self._gp_selesai(nama)
             self.after(1000, tamat)
             return
         if n < 80:
