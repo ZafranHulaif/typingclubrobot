@@ -25,10 +25,39 @@ class MockBackend(Backend):
         s.update("range", start=87, end=120, mapped=640, total=685,
                  position=86)
         s.update("level", num=86, label="L86")
+        s.update("plan", segments=[
+            {"from": 87, "to": 100, "stars": 5, "silver": True},
+            {"from": 101, "to": 140, "stars": 5, "silver": False},
+            {"from": 141, "to": 180, "stars": 4, "silver": False},
+            {"from": 181, "to": 0, "stars": 3, "silver": False},
+        ])
         self._run = threading.Event()     # set = jalan
         self._stop = threading.Event()
         self._thr = None
         self._settings = {"speed": 400, "hotkey": True}
+
+    # -------------------------------------------------------------- rencana
+    def m_plan_set(self, segments):
+        bersih = []
+        for sg in segments:
+            a, b = int(sg["from"]), int(sg.get("to") or 0)
+            st = max(1, min(5, int(sg.get("stars", 5))))
+            if a < 1 or (b and b < a):
+                raise RpcError("bad_input", f"Rentang {a}-{b} tidak valid.")
+            if bersih and (bersih[-1]["to"] == 0 or a <= bersih[-1]["to"]):
+                raise RpcError("bad_input",
+                               "Bagian harus berurutan dan tidak tumpang tindih.")
+            bersih.append({"from": a, "to": b, "stars": st,
+                           "silver": bool(sg.get("silver")) and st == 5})
+        self.snapshot.update("plan", segments=bersih, active=None,
+                             done_in_active=0)
+        return {"segments": bersih}
+
+    def _segmen(self, num):
+        for i, sg in enumerate(self.snapshot.get("plan")["segments"]):
+            if num >= sg["from"] and (sg["to"] == 0 or num <= sg["to"]):
+                return i, sg
+        return None, None
 
     # ---------------------------------------------------------------- bot
     def m_bot_start(self, range=None):
@@ -37,6 +66,10 @@ class MockBackend(Backend):
             raise RpcError("busy", "Bot sudah jalan.")
         if s.get("license")["state"] != "ok":
             raise RpcError("license", "Aktifkan lisensi dulu ya.")
+        segs = s.get("plan")["segments"]
+        if range is None and segs:
+            range = {"mode": "custom", "start": segs[0]["from"],
+                     "end": segs[-1]["to"]}
         if range is None:
             r = s.get("range")
             range = self.ask("range.pick", r, timeout=120,
@@ -96,11 +129,18 @@ class MockBackend(Backend):
             end = s.get("range")["end"]
             if end and num > end:
                 s.update("bot", phase="done")
+                s.update("plan", active=None)
                 s.update("activity", headline="Selesai!",
                          sub=f"Semua level sampai L{end} beres.")
                 self.log("Selesai. Total: rentang tuntas",
                          "Rentang selesai")
                 return
+            idx, seg = self._segmen(num)
+            if s.get("plan")["segments"] and seg is None:
+                num += 1          # di luar rencana: lewati
+                continue
+            if idx != s.get("plan")["active"]:
+                s.update("plan", active=idx, done_in_active=0)
             kind = _KINDS[num % len(_KINDS)]
             s.update("level", num=num, label=f"L{num}", kind=kind,
                      url=f"https://www.edclub.com/sportal/program-3/{num}"
@@ -128,13 +168,15 @@ class MockBackend(Backend):
             s.update("stats", levels_done=st["levels_done"] + 1,
                      chars=st["chars"] + chars)
             s.update("range", position=num)
-            stars = random.choice([5, 5, 5, 4])
+            stars = seg["stars"] if seg else random.choice([5, 5, 4])
+            s.update("plan", done_in_active=s.get("plan")["done_in_active"] + 1)
             self.emit("level.result", {"level": num, "wpm": wpm,
                                        "acc": 100.0, "stars": stars})
             self.log(f"[Standard] L{num} selesai {stars} bintang",
                      f"Level {num} selesai, {stars} bintang")
             num += 1
         s.update("bot", phase="idle")
+        s.update("plan", active=None, done_in_active=0)
         s.update("level", progress=0.0)
         s.update("activity", headline="Berhenti",
                  sub="Klik Mulai untuk mulai lagi.")

@@ -60,15 +60,15 @@ class _WebAreaState extends State<WebArea> {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: c.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(Radii.lg),
         border: Border.all(color: c.outlineVariant),
       ),
       child: Stack(fit: StackFit.expand, children: [
         if (!s.embedded) const _Preview(),
         AnimatedSwitcher(
-          duration: Motion.long,
-          switchInCurve: Motion.decelerate,
-          switchOutCurve: Motion.accelerate,
+          duration: Motion.drawer,
+          switchInCurve: Motion.out,
+          switchOutCurve: Motion.out,
           child: cover ? const _Cover(key: ValueKey('cover')) : const SizedBox.shrink(),
         ),
       ]),
@@ -112,6 +112,7 @@ const _teks = [
   'a typing tutor rewards accuracy first and speed second so keep both in mind',
 ];
 
+/// Pengganti halaman edclub di preview (Linux/web). Terang seperti aslinya.
 class _Preview extends StatelessWidget {
   const _Preview();
 
@@ -119,76 +120,32 @@ class _Preview extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = StoreScope.of(context);
     final t = Theme.of(context).textTheme;
-    final c = Theme.of(context).colorScheme;
-    final lvl = (s.level['num'] as num?)?.toInt() ?? 0;
+    const bg = Color(0xFFF7F5F2), ink = Color(0xFF2B2F36), dim = Color(0xFFB9B4AC);
+    final lvl = s.levelNum;
     final prog = s.busy ? ((s.level['progress'] as num?)?.toDouble() ?? 0) : 0.0;
     final teks = _teks[lvl % _teks.length];
     final n = (teks.length * prog).round();
-    final mono = t.headlineSmall!.copyWith(
-        fontFamily: 'Inter', height: 1.7, letterSpacing: 0.4,
+    final gaya = t.headlineSmall!.copyWith(
+        fontFamily: 'Inter', height: 1.7, letterSpacing: 0.3,
         fontVariations: const [FontVariation('wght', 450)]);
-    return Stack(children: [
-      // grid titik halus
-      Positioned.fill(child: CustomPaint(painter: _Dots(c.outlineVariant))),
-      Positioned(
-        left: 16,
-        top: 16,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: c.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(99),
-            border: Border.all(color: c.outlineVariant),
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.visibility_outlined, size: 14, color: c.onSurfaceVariant),
-            const SizedBox(width: 6),
-            Text('Pratinjau. Di Windows, halaman edclub tampil di sini.',
-                style: t.labelSmall!.copyWith(color: c.onSurfaceVariant)),
-          ]),
-        ),
-      ),
-      Center(
+    return ColoredBox(
+      color: bg,
+      child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 620),
+          constraints: const BoxConstraints(maxWidth: 640),
           child: Padding(
             padding: const EdgeInsets.all(40),
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(lvl > 0 ? 'Level $lvl' : 'edclub',
-                  style: t.labelLarge!.copyWith(color: c.onSurfaceVariant)),
-              const SizedBox(height: 14),
-              Text.rich(TextSpan(style: mono, children: [
-                TextSpan(text: teks.substring(0, n), style: TextStyle(color: c.onSurface)),
-                WidgetSpan(
-                  alignment: PlaceholderAlignment.middle,
-                  child: Container(
-                      width: 2.5, height: 26, color: s.busy ? c.primary : c.outline),
-                ),
-                TextSpan(text: teks.substring(n), style: TextStyle(color: c.outline)),
-              ])),
-              const SizedBox(height: 28),
-              SmoothProgress(value: prog, height: 3),
-            ]),
+            child: Text.rich(TextSpan(style: gaya, children: [
+              TextSpan(text: teks.substring(0, n), style: const TextStyle(color: ink)),
+              WidgetSpan(
+                alignment: PlaceholderAlignment.middle,
+                child: Container(width: 2, height: 26, color: const Color(0xFF3B82F6)),
+              ),
+              TextSpan(text: teks.substring(n), style: const TextStyle(color: dim)),
+            ])),
           ),
         ),
       ),
-    ]);
+    );
   }
-}
-
-class _Dots extends CustomPainter {
-  _Dots(this.color);
-  final Color color;
-  @override
-  void paint(Canvas canvas, Size size) {
-    final p = Paint()..color = color;
-    for (double x = 12; x < size.width; x += 24) {
-      for (double y = 12; y < size.height; y += 24) {
-        canvas.drawCircle(Offset(x, y), 1, p);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_Dots old) => old.color != color;
 }

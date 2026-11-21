@@ -115,7 +115,25 @@ def main():
     cek("method tak dikenal -> unsupported",
         not r["ok"] and r["err"]["code"] == "unsupported")
 
-    # bot.start tanpa range -> ask range.pick; UI jawab custom
+    # rencana: tumpang tindih ditolak, valid diterima & dipakai saat mulai
+    r = k.req("plan.set", segments=[{"from": 1, "to": 10, "stars": 5},
+                                    {"from": 5, "to": 20, "stars": 4}])
+    cek("rencana tumpang tindih ditolak", not r["ok"])
+    r = k.req("plan.set", segments=[
+        {"from": 10, "to": 10, "stars": 5, "silver": True},
+        {"from": 11, "to": 11, "stars": 3}])
+    cek("rencana valid diterima", r["ok"] and r["r"]["segments"][0]["silver"])
+    k.req("speed.set", wpm=400)
+    r = k.req("bot.start")
+    cek("mulai pakai rencana (tanpa ask)", r["ok"] and r["r"]["started"])
+    k.tunggu(lambda m: m.get("ev") == "state"
+             and m["d"].get("bot", {}).get("phase") == "done", 30)
+    res = [m["d"]["stars"] for m in k.antre if m.get("ev") == "level.result"]
+    cek("bintang ikut target tiap bagian", res == [5, 3])
+    k.antre.clear()
+    k.req("plan.set", segments=[])
+
+    # tanpa rencana -> ask range.pick; UI jawab custom
     k.n += 1
     sid = k.n
     k.kirim({"id": sid, "m": "bot.start", "p": {}})

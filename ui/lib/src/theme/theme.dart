@@ -10,15 +10,23 @@ abstract final class Brand {
   static const ink = Color(0xFF0B0C10);
 }
 
-/// Token gerak M3 (m3.material.io/styles/motion).
+/// Token gerak (ref: emilkowalski/skills). UI < 300ms, ease-out kuat,
+/// jangan pernah ease-in, jangan muncul dari skala 0.
 abstract final class Motion {
-  static const short = Duration(milliseconds: 150);
-  static const medium = Duration(milliseconds: 300);
-  static const long = Duration(milliseconds: 450);
-  static const standard = Cubic(0.2, 0, 0, 1);
-  static const emphasized = Curves.easeInOutCubicEmphasized;
-  static const decelerate = Cubic(0.05, 0.7, 0.1, 1);
-  static const accelerate = Cubic(0.3, 0, 0.8, 0.15);
+  static const press = Duration(milliseconds: 140);
+  static const short = Duration(milliseconds: 180);
+  static const medium = Duration(milliseconds: 240);
+  static const drawer = Duration(milliseconds: 320);
+  static const out = Cubic(0.23, 1, 0.32, 1);
+  static const inOut = Cubic(0.77, 0, 0.175, 1);
+  static const drawerCurve = Cubic(0.32, 0.72, 0, 1);
+}
+
+/// Sudut: kecil & konsisten (sudut besar = kesan 'AI').
+abstract final class Radii {
+  static const sm = 6.0;
+  static const md = 8.0;
+  static const lg = 10.0;
 }
 
 const _scheme = ColorScheme(
@@ -91,7 +99,7 @@ final _text = TextTheme(
 
 ThemeData buildTheme() {
   final s = _scheme;
-  final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(14));
+  final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.md));
   return ThemeData(
     useMaterial3: true,
     colorScheme: s,
@@ -99,28 +107,28 @@ ThemeData buildTheme() {
     fontFamily: _body,
     textTheme: _text.apply(bodyColor: s.onSurface, displayColor: s.onSurface),
     visualDensity: VisualDensity.standard,
-    splashFactory: InkSparkle.splashFactory,
+    splashFactory: NoSplash.splashFactory,
     dividerTheme: DividerThemeData(color: s.outlineVariant, space: 1),
     tooltipTheme: TooltipThemeData(
       waitDuration: const Duration(milliseconds: 450),
       decoration: BoxDecoration(
           color: s.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(Radii.sm),
           border: Border.all(color: s.outline)),
       textStyle: _text.bodySmall!.copyWith(color: s.onSurface),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        minimumSize: const Size(0, 44),
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+        minimumSize: const Size(0, 38),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         shape: shape,
         textStyle: _text.labelLarge,
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        minimumSize: const Size(0, 44),
-        padding: const EdgeInsets.symmetric(horizontal: 18),
+        minimumSize: const Size(0, 38),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         shape: shape,
         side: BorderSide(color: s.outline),
         foregroundColor: s.onSurface,
@@ -142,13 +150,13 @@ ThemeData buildTheme() {
       fillColor: s.surfaceContainerHigh,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(Radii.md),
           borderSide: BorderSide(color: s.outlineVariant)),
       enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(Radii.md),
           borderSide: BorderSide(color: s.outlineVariant)),
       focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(Radii.md),
           borderSide: BorderSide(color: s.primary, width: 1.5)),
       labelStyle: _text.bodyMedium!.copyWith(color: s.onSurfaceVariant),
       hintStyle: _text.bodyMedium!.copyWith(color: s.onSurfaceVariant),

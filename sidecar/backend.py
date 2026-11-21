@@ -31,6 +31,10 @@ DEFAULT_SNAPSHOT = {
                "phase": "idle", "progress": 0.0, "size": 0},
     "cover": {"visible": False, "phase": "", "text": "", "progress": None},
     "web": {"attached": False, "hwnd": 0},
+    # rencana: daftar bagian level berurutan, masing2 punya target bintang.
+    #   segments: [{"from": 1, "to": 10, "stars": 5, "silver": True}, ...]
+    #   to = 0 -> sampai habis. active = indeks bagian yg sedang dikerjakan.
+    "plan": {"segments": [], "active": None, "done_in_active": 0},
     "stats": {"levels_done": 0, "chars": 0, "started_at": None},
 }
 
@@ -38,7 +42,7 @@ DEFAULT_SNAPSHOT = {
 METHODS = [
     "bot.start", "bot.pause", "bot.resume", "bot.stop", "bot.recover",
     "speed.set", "hotkeys.set",
-    "range.get", "levels.build_map",
+    "range.get", "levels.build_map", "plan.set",
     "login.open",
     "acct.list", "acct.switch", "acct.add", "acct.remove", "acct.logout",
     "license.request", "license.refresh",

@@ -1,11 +1,13 @@
-// Kerangka jendela: bar atas + area web + panel kanan (semua alur di panel,
-// tidak ada yang menimpa area web - jendela WebView2 itu native).
+// Kerangka: bar atas (kontrol langsung) + banner (kalau perlu) +
+// panel Rencana kiri (bisa dilipat) + halaman edclub.
+// Tidak ada yang menimpa halaman: WebView2 di Windows itu jendela native.
 import 'package:material_ui/material_ui.dart';
 
+import '../bridge/bridge.dart';
 import '../state/store.dart';
 import '../theme/theme.dart';
-import 'panel/home.dart';
-import 'panel/pages.dart';
+import 'menus.dart';
+import 'plan.dart';
 import 'web_area.dart';
 import 'widgets/common.dart';
 import 'widgets/logo.dart';
@@ -18,41 +20,36 @@ class Shell extends StatelessWidget {
     final s = StoreScope.of(context);
     return Scaffold(
       body: AnimatedSwitcher(
-        duration: Motion.long,
+        duration: Motion.drawer,
         child: !s.everOnline
             ? const _Connecting(key: ValueKey('conn'))
-            : LayoutBuilder(
-                key: const ValueKey('app'),
-                builder: (context, box) {
-                  final wide = box.maxWidth >= 820;
-                  final panelW = box.maxWidth >= 1180 ? 400.0 : 352.0;
-                  return Column(children: [
-                    const _TopBar(),
-                    Expanded(
-                      child: wide
-                          ? Row(children: [
-                              const Expanded(
-                                child: Padding(
-                                  padding: EdgeInsets.fromLTRB(16, 0, 8, 16),
-                                  child: WebArea(),
-                                ),
-                              ),
-                              SizedBox(width: panelW, child: const _Panel()),
-                            ])
-                          : Column(children: [
-                              SizedBox(
-                                height: box.maxHeight * 0.4,
-                                child: const Padding(
-                                  padding: EdgeInsets.fromLTRB(12, 0, 12, 8),
-                                  child: WebArea(),
-                                ),
-                              ),
-                              const Expanded(child: _Panel()),
-                            ]),
+            : Column(key: const ValueKey('app'), children: [
+                const _TopBar(),
+                const _Banners(),
+                Expanded(
+                  child: Row(children: [
+                    AnimatedContainer(
+                      duration: Motion.drawer,
+                      curve: Motion.drawerCurve,
+                      width: s.planOpen ? 272 : 0,
+                      child: ClipRect(
+                        child: OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 272,
+                          maxWidth: 272,
+                          child: const PlanPanel(),
+                        ),
+                      ),
                     ),
-                  ]);
-                },
-              ),
+                    const Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(4, 0, 12, 12),
+                        child: WebArea(),
+                      ),
+                    ),
+                  ]),
+                ),
+              ]),
       ),
     );
   }
@@ -66,11 +63,9 @@ class _Connecting extends StatelessWidget {
     final c = Theme.of(context).colorScheme;
     return Center(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const KeycapLogo(size: 72, blinking: true),
-        const SizedBox(height: 24),
-        Text('TypingBot', style: t.headlineMedium),
-        const SizedBox(height: 6),
-        Text('Menyiapkan mesin bot...',
+        const KeycapLogo(size: 56, blinking: true),
+        const SizedBox(height: 18),
+        Text('Menyiapkan bot...',
             style: t.bodyMedium!.copyWith(color: c.onSurfaceVariant)),
       ]),
     );
@@ -84,188 +79,344 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = StoreScope.of(context);
-    final t = Theme.of(context).textTheme;
-    final c = Theme.of(context).colorScheme;
-    final look = phaseLook(context, s);
-    final lvl = (s.level['num'] as num?)?.toInt() ?? 0;
-    final aktif = '${s.account['active'] ?? ''}';
     return SizedBox(
-      height: 64,
+      height: 60,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Row(children: [
-          Wordmark(blinking: s.phase == 'running'),
-          const SizedBox(width: 20),
-          // pil status
-          AnimatedContainer(
-            duration: Motion.medium,
-            padding: const EdgeInsets.fromLTRB(8, 6, 12, 6),
-            decoration: BoxDecoration(
-              color: look.color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(99),
-            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: KeycapLogo(size: 22, blinking: s.phase == 'running'),
+          ),
+          const SizedBox(width: 6),
+          BarButton(
+            selected: s.planOpen,
+            onTap: s.togglePlan,
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              StatusDot(color: look.color, pulse: s.phase == 'running'),
-              const SizedBox(width: 6),
-              Text(
-                s.busy && lvl > 0 ? '${look.label}  ·  Level $lvl' : look.label,
-                style: t.labelMedium!.copyWith(color: look.color),
+              Text('Rencana',
+                  style: Theme.of(context).textTheme.labelLarge!.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface)),
+              const SizedBox(width: 2),
+              AnimatedRotation(
+                turns: s.planOpen ? 0.5 : 0,
+                duration: Motion.short,
+                curve: Motion.out,
+                child: const Icon(Icons.chevron_right_rounded),
               ),
             ]),
           ),
-          if (!s.online) ...[
-            const SizedBox(width: 10),
-            Text('Menyambung ulang...',
-                style: t.labelSmall!.copyWith(color: c.onSurfaceVariant)),
-          ],
-          const Spacer(),
-          AnimatedSwitcher(
-            duration: Motion.medium,
-            transitionBuilder: (ch, a) => ScaleTransition(scale: a, child: FadeTransition(opacity: a, child: ch)),
-            child: s.update['available'] == true
-                ? Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilledButton.tonalIcon(
-                      onPressed: () => s.go(PanelPage.update),
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(0, 36),
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        backgroundColor: c.secondaryContainer,
-                        foregroundColor: c.onSecondaryContainer,
-                      ),
-                      icon: const Icon(Icons.arrow_circle_up_rounded, size: 18),
-                      label: Text('Versi ${s.update['version']}'),
-                    ),
-                  )
-                : const SizedBox.shrink(),
-          ),
-          // chip akun
-          Material(
-            color: s.page == PanelPage.accounts ? c.surfaceContainerHigh : Colors.transparent,
-            borderRadius: BorderRadius.circular(99),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(99),
-              onTap: () => s.go(s.page == PanelPage.accounts ? PanelPage.home : PanelPage.accounts),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(6, 6, 12, 6),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  CircleAvatar(
-                    radius: 13,
-                    backgroundColor: s.bot['needs_login'] == true ? c.tertiary : c.primary,
-                    foregroundColor: c.onPrimary,
-                    child: Text(aktif.isEmpty ? '?' : aktif[0].toUpperCase(),
-                        style: t.labelMedium!.copyWith(color: c.onPrimary)),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(aktif.isEmpty ? 'Akun' : aktif, style: t.labelLarge),
-                  const SizedBox(width: 2),
-                  Icon(Icons.expand_more_rounded, size: 18, color: c.onSurfaceVariant),
-                ]),
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          IconButton(
-            tooltip: 'Laporkan masalah',
-            isSelected: s.page == PanelPage.report,
-            onPressed: () => s.go(s.page == PanelPage.report ? PanelPage.home : PanelPage.report),
-            icon: const Icon(Icons.bug_report_outlined),
-          ),
-          IconButton(
-            tooltip: 'Pengaturan',
-            isSelected: s.page == PanelPage.settings,
-            onPressed: () => s.go(s.page == PanelPage.settings ? PanelPage.home : PanelPage.settings),
-            icon: const Icon(Icons.tune_rounded),
-          ),
+          const SizedBox(width: 8),
+          const _RunButton(),
+          const SizedBox(width: 16),
+          const Expanded(child: _Status()),
+          if (s.update['available'] == true) const UpdateButton(),
+          const ReportButton(),
+          const SizedBox(width: 2),
+          const AccountButton(),
         ]),
       ),
     );
   }
 }
 
-// ------------------------------------------------------------- panel
-class _Panel extends StatelessWidget {
-  const _Panel();
-
-  @override
-  Widget build(BuildContext context) {
-    final s = StoreScope.of(context);
-    final Widget page = switch (s.page) {
-      PanelPage.home => const HomePage(),
-      PanelPage.range => const RangePage(),
-      PanelPage.accounts => const AccountsPage(),
-      PanelPage.report => const ReportPage(),
-      PanelPage.settings => const SettingsPage(),
-      PanelPage.update => const UpdatePage(),
-      PanelPage.license => const HomePage(),
-    };
-    final kembali = s.page == PanelPage.home;
-    return Stack(children: [
-      AnimatedSwitcher(
-        duration: Motion.medium,
-        switchInCurve: Motion.decelerate,
-        switchOutCurve: Motion.accelerate,
-        transitionBuilder: (child, a) {
-          // shared-axis X: halaman baru geser dari kanan, beranda dari kiri
-          final masuk = child.key == ValueKey(s.page);
-          final dx = (kembali ? -1 : 1) * (masuk ? 0.06 : -0.06);
-          return FadeTransition(
-            opacity: a,
-            child: SlideTransition(
-              position: Tween(begin: Offset(dx, 0), end: Offset.zero).animate(a),
-              child: child,
-            ),
-          );
-        },
-        layoutBuilder: (cur, prev) => Stack(
-            alignment: Alignment.topCenter, children: [...prev, ?cur]),
-        child: KeyedSubtree(key: ValueKey(s.page), child: page),
-      ),
-      const Positioned(left: 16, right: 16, bottom: 16, child: _ToastHost()),
-    ]);
-  }
-}
-
-class _ToastHost extends StatelessWidget {
-  const _ToastHost();
+/// Satu tombol: Mulai <-> Stop (berubah bentuk, bukan dua tombol).
+class _RunButton extends StatelessWidget {
+  const _RunButton();
 
   @override
   Widget build(BuildContext context) {
     final s = StoreScope.of(context);
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
-    final toast = s.toast;
-    return AnimatedSwitcher(
-      duration: Motion.medium,
-      switchInCurve: Motion.decelerate,
-      switchOutCurve: Motion.accelerate,
-      transitionBuilder: (child, a) => FadeTransition(
-        opacity: a,
-        child: SlideTransition(
-          position: Tween(begin: const Offset(0, 0.4), end: Offset.zero).animate(a),
-          child: child,
+    final stopping = s.phase == 'stopping';
+    final run = s.busy;
+    final enabled = s.online && s.licensed && !stopping;
+    final bg = !enabled
+        ? c.surfaceContainerHigh
+        : run
+            ? c.errorContainer
+            : c.primary;
+    final fg = !enabled
+        ? c.onSurfaceVariant
+        : run
+            ? c.onErrorContainer
+            : c.onPrimary;
+    final Widget isi = stopping
+        ? Row(key: const ValueKey('stopping'), mainAxisSize: MainAxisSize.min, children: [
+            SizedBox.square(
+                dimension: 14,
+                child: CircularProgressIndicator(strokeWidth: 2, color: fg)),
+            const SizedBox(width: 8),
+            Text('Berhenti...', style: t.labelLarge!.copyWith(color: fg)),
+          ])
+        : Row(key: ValueKey(run), mainAxisSize: MainAxisSize.min, children: [
+            Icon(run ? Icons.stop_rounded : Icons.play_arrow_rounded, size: 20, color: fg),
+            const SizedBox(width: 6),
+            Text(run ? 'Stop' : 'Mulai', style: t.labelLarge!.copyWith(color: fg)),
+          ]);
+    return Press(
+      enabled: enabled,
+      child: AnimatedContainer(
+        duration: Motion.short,
+        curve: Motion.out,
+        height: 38,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(Radii.md),
         ),
-      ),
-      child: toast == null
-          ? const SizedBox.shrink()
-          : Material(
-              key: ValueKey(toast.id),
-              color: c.inverseSurface,
-              elevation: 6,
-              borderRadius: BorderRadius.circular(14),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(Radii.md),
+            onTap: enabled ? s.toggleRun : null,
+            child: AnimatedSize(
+              duration: Motion.short,
+              curve: Motion.out,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(children: [
-                  Icon(toast.error ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
-                      size: 18, color: toast.error ? const Color(0xFFC0392B) : const Color(0xFF4F6A12)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(toast.text,
-                        style: t.bodyMedium!.copyWith(color: c.onInverseSurface)),
+                padding: const EdgeInsets.fromLTRB(12, 0, 16, 0),
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: Motion.short,
+                    switchInCurve: Motion.out,
+                    transitionBuilder: (ch, a) => FadeTransition(
+                      opacity: a,
+                      child: ScaleTransition(
+                          scale: Tween(begin: 0.9, end: 1.0).animate(a), child: ch),
+                    ),
+                    child: isi,
                   ),
-                ]),
+                ),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Satu-satunya tempat status: titik + kata + level + target bintang.
+class _Status extends StatelessWidget {
+  const _Status();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final t = Theme.of(context).textTheme;
+    final c = Theme.of(context).colorScheme;
+    final look = phaseLook(context, s);
+    final segs = s.segments;
+    final ai = s.activeSegment;
+    final seg = ai != null && ai < segs.length ? segs[ai] : null;
+
+    final Widget kata = s.flash != null
+        ? Text(s.flash!,
+            key: ValueKey('f${s.flash}'),
+            overflow: TextOverflow.ellipsis,
+            style: t.bodyMedium!.copyWith(
+                color: s.flashError ? c.error : c.onSurface))
+        : Row(key: ValueKey('st${look.label}'), mainAxisSize: MainAxisSize.min, children: [
+            StatusDot(color: look.color, pulse: look.live),
+            const SizedBox(width: 6),
+            Text(look.label, style: t.titleSmall!.copyWith(color: look.color)),
+            if (s.busy && s.levelNum > 0) ...[
+              const SizedBox(width: 10),
+              Text('Level ${s.levelNum}',
+                  style: t.bodyMedium!.copyWith(
+                      color: c.onSurfaceVariant,
+                      fontFeatures: const [FontFeature.tabularFigures()])),
+            ],
+            if (seg != null) ...[
+              const SizedBox(width: 10),
+              StarRow(seg.stars, silver: seg.silver, size: 13),
+            ],
+          ]);
+    return Row(children: [
+      Flexible(
+        child: AnimatedSwitcher(
+          duration: Motion.short,
+          switchInCurve: Motion.out,
+          layoutBuilder: (cur, prev) =>
+              Stack(alignment: Alignment.centerLeft, children: [...prev, ?cur]),
+          child: kata,
+        ),
+      ),
+      const SizedBox(width: 10),
+      const SpeedButton(),
+    ]);
+  }
+}
+
+// ------------------------------------------------------------- banner
+class _Banners extends StatelessWidget {
+  const _Banners();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final items = <Widget>[
+      if (!s.licensed) const _LicenseBanner(key: ValueKey('lic')),
+      for (final a in s.asks) _AskBanner(key: ValueKey(a.id), ask: a),
+    ];
+    return AnimatedSize(
+      duration: Motion.medium,
+      curve: Motion.out,
+      alignment: Alignment.topCenter,
+      child: Column(children: items),
+    );
+  }
+}
+
+class _BannerShell extends StatelessWidget {
+  const _BannerShell({required this.icon, required this.text, required this.actions, this.color});
+  final IconData icon;
+  final String text;
+  final List<Widget> actions;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final c = Theme.of(context).colorScheme;
+    final col = color ?? c.tertiary;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: col.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(Radii.md),
+        border: Border.all(color: col.withValues(alpha: 0.25)),
+      ),
+      child: Row(children: [
+        Icon(icon, size: 18, color: col),
+        const SizedBox(width: 10),
+        Expanded(child: Text(text, style: t.bodyMedium)),
+        ...actions,
+      ]),
+    );
+  }
+}
+
+class _AskBanner extends StatelessWidget {
+  const _AskBanner({super.key, required this.ask});
+  final SidecarAsk ask;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final p = ask.params;
+    final (IconData icon, String text, List<(String, Object?, bool)> acts) =
+        switch (ask.method) {
+      'login.needed' => (
+          Icons.login_rounded,
+          'Sesi edclub habis. Login dulu di halaman sebelah.',
+          [('Akun sekolah', {'kind': 'sekolah'}, false), ('Login', {'kind': 'individu'}, true)]
+        ),
+      'level.locked' => (
+          Icons.lock_outline_rounded,
+          'Level ${p['level']} masih terkunci. Lewati ke level berikutnya?',
+          [('Berhenti', {'skip': false}, false), ('Lewati', {'skip': true}, true)]
+        ),
+      'level.next' => (
+          Icons.hourglass_bottom_rounded,
+          'Level ${p['level']} belum maju 2 menit. Tetap tunggu?',
+          [('Berhenti', {'wait': false}, false), ('Tunggu', {'wait': true}, true)]
+        ),
+      'browser.force_close' => (
+          Icons.warning_amber_rounded,
+          '${p['name']} perlu ditutup supaya bot bisa jalan.',
+          [('Jangan', {'ok': false}, false), ('Tutup', {'ok': true}, true)]
+        ),
+      _ => (Icons.help_outline_rounded, ask.method, [('Oke', <String, dynamic>{}, true)]),
+    };
+    void jawab(Object? r) {
+      if (ask.method == 'login.needed') s.call('login.open', r as Map<String, dynamic>);
+      s.answer(ask, r);
+    }
+
+    return _BannerShell(icon: icon, text: text, actions: [
+      for (final (label, r, primary) in acts)
+        Padding(
+          padding: const EdgeInsets.only(left: 6),
+          child: primary
+              ? Press(child: FilledButton(onPressed: () => jawab(r), child: Text(label)))
+              : TextButton(onPressed: () => jawab(r), child: Text(label)),
+        ),
+    ]);
+  }
+}
+
+class _LicenseBanner extends StatefulWidget {
+  const _LicenseBanner({super.key});
+  @override
+  State<_LicenseBanner> createState() => _LicenseBannerState();
+}
+
+class _LicenseBannerState extends State<_LicenseBanner> {
+  final _nick = TextEditingController();
+  bool _kirim = false;
+
+  @override
+  void dispose() {
+    _nick.dispose();
+    super.dispose();
+  }
+
+  Future<void> _go(AppStore s) async {
+    setState(() => _kirim = true);
+    await s.call('license.request', {'nickname': _nick.text});
+    if (mounted) setState(() => _kirim = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final t = Theme.of(context).textTheme;
+    final c = Theme.of(context).colorScheme;
+    final st = s.license['state'];
+    if (st == 'pending') {
+      return _BannerShell(
+        icon: Icons.key_rounded,
+        color: c.secondary,
+        text: 'Permintaan terkirim. Bot aktif begitu pemilik menyetujui.',
+        actions: const [
+          Padding(
+            padding: EdgeInsets.all(10),
+            child: SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+          ),
+        ],
+      );
+    }
+    if (st == 'revoked') {
+      return _BannerShell(
+        icon: Icons.block_rounded,
+        color: c.error,
+        text: 'Akses perangkat ini dicabut. Hubungi pemilik kalau ini keliru.',
+        actions: const [],
+      );
+    }
+    return _BannerShell(
+      icon: Icons.key_rounded,
+      color: c.secondary,
+      text: 'Aktifkan TypingBot: tulis nama panggilanmu.',
+      actions: [
+        SizedBox(
+          width: 180,
+          child: TextField(
+            controller: _nick,
+            style: t.bodyMedium,
+            onSubmitted: (_) => _go(s),
+            decoration: const InputDecoration(hintText: 'Nama panggilan', isDense: true),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Press(
+          child: FilledButton(
+            onPressed: _kirim ? null : () => _go(s),
+            child: Text(_kirim ? 'Mengirim...' : 'Kirim'),
+          ),
+        ),
+      ],
     );
   }
 }
