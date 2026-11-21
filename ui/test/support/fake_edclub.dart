@@ -79,14 +79,13 @@ class FakeLesson {
 }
 
 class FakeEdclub {
-  FakeEdclub({String url = 'https://www.edclub.com/student/course/3/lesson/116', this.keyCostMs = 0})
+  FakeEdclub({this.url = 'https://www.edclub.com/student/course/3/lesson/116', this.keyCostMs = 0})
       : bridge = FakeBridge(),
         clock = FakeClock() {
-    this.url = url;
     final b = bridge;
     b.handlers['Page.getFrameTree'] = (p, s) => {
           'frameTree': {
-            'frame': {'id': 'MAIN', 'url': this.url}
+            'frame': {'id': 'MAIN', 'url': url}
           }
         };
     b.handlers['Runtime.evaluate'] = (p, s) => _eval('${p['expression']}');
@@ -107,7 +106,7 @@ class FakeEdclub {
     };
     b.handlers['Page.reload'] = (p, s) {
       reloads++;
-      _go(this.url);
+      _go(url);
       return {};
     };
   }
@@ -115,7 +114,7 @@ class FakeEdclub {
   final FakeBridge bridge;
   final FakeClock clock;
   final double keyCostMs;
-  late String url;
+  String url;
   FakeLesson? lesson;
   final keyEvents = <Map<String, dynamic>>[];
   final clicks = <Point>[];

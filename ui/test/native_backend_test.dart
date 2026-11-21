@@ -219,7 +219,7 @@ void main() {
     test('fitur yang belum diport menjawab ramah', () async {
       await be.connect();
       await _flush();
-      expect(() => be.request('bot.start'), throwsA(isA<RpcException>()));
+      expect(() => be.request('update.check'), throwsA(isA<RpcException>()));
     });
   });
 
