@@ -27,6 +27,7 @@ import threading
 import time
 import tkinter as tk
 from tkinter import ttk
+from .theme import ACCENT
 
 user32 = ctypes.windll.user32
 GWL_STYLE = -16
@@ -949,14 +950,18 @@ class Wv2Host(tk.Frame):
 
     def _pcv_buka(self, nama):
         """Cover loading-screen profil: frame dedikasi di bawah header +
-        spinner + LOADING BAR bertahap (permintaan user 19 Nov: 'actual
-        loading bar, so they feel the progress'). Webview lama
+        LOADING BAR bertahap dgn persen (permintaan user 21 Nov: cover
+        beda warna dr latar app + ada outline biar terasa webview
+        masih terbuka; spinner generik dihapus, bar saja). Webview lama
         disembunyikan biar cover bersih. Cover ditutup oleh
         _pcv_selesai (halaman tujuan siap) - target via _pcv_target."""
         try:
             self._pcv_tutup_cepat()
-            warna = "#141519"
-            self._pcv_frame = tk.Frame(self.master, bg=warna)
+            warna = "#1b2130"    # beda jelas dr latar app (#141519)
+            tepi = "#33405e"     # outline: tanda webview masih hidup
+            self._pcv_frame = tk.Frame(self.master, bg=warna,
+                                       highlightthickness=1,
+                                       highlightbackground=tepi)
             # mulai DI BAWAH header (header tetap terlihat saat memuat)
             y = self.winfo_rooty() - self.master.winfo_rooty()
             sisa = max(80, self.master.winfo_height() - y)
@@ -964,21 +969,21 @@ class Wv2Host(tk.Frame):
                                   width=self.master.winfo_width(),
                                   height=sisa)
             self._pcv_frame.lift()
-            cv = tk.Canvas(self._pcv_frame, width=96, height=96,
-                           bg=warna, highlightthickness=0)
-            cv.place(relx=0.5, rely=0.30, anchor="center")
             lbl = tk.Label(self._pcv_frame, text="Memuat profil akun…",
                            font=("Segoe UI", 13, "bold"), fg="#e8eaf0",
                            bg=warna)
-            lbl.place(relx=0.5, rely=0.44, anchor="center")
-            nm = tk.Label(self._pcv_frame, text=nama, font=("Segoe UI", 11),
-                          fg="#3b82f6", bg=warna)
-            nm.place(relx=0.5, rely=0.50, anchor="center")
+            lbl.place(relx=0.5, rely=0.36, anchor="center")
+            nm = tk.Label(self._pcv_frame, text=nama,
+                          font=("Segoe UI", 11),
+                          fg="#4f8cff", bg=warna)
+            nm.place(relx=0.5, rely=0.42, anchor="center")
             info = tk.Label(self._pcv_frame,
                             text="menyiapkan folder data…",
-                            font=("Segoe UI", 10), fg="#9aa6b8", bg=warna)
-            info.place(relx=0.5, rely=0.58, anchor="center")
+                            font=("Segoe UI", 10), fg="#9aa6b8",
+                            bg=warna)
+            info.place(relx=0.5, rely=0.48, anchor="center")
             bar = None
+            pct = None
             try:
                 stl = ttk.Style(self._pcv_frame)
                 try:
@@ -986,50 +991,40 @@ class Wv2Host(tk.Frame):
                 except Exception:
                     pass
                 stl.configure("pcv.Horizontal.TProgressbar",
-                              troughcolor="#202636", background=ACCENT,
+                              troughcolor="#232c42", background=ACCENT,
                               bordercolor=warna, lightcolor=ACCENT,
-                              darkcolor=ACCENT)
+                              darkcolor=ACCENT, thickness=10)
                 bar = ttk.Progressbar(self._pcv_frame, maximum=100,
                                       value=6,
                                       style="pcv.Horizontal.TProgressbar",
-                                      length=320)
-                bar.place(relx=0.5, rely=0.66, anchor="center")
+                                      length=380)
+                bar.place(relx=0.5, rely=0.565, anchor="center")
+                pct = tk.Label(self._pcv_frame, text="6%",
+                               font=("Segoe UI", 10, "bold"),
+                               fg="#c7d2e8", bg=warna)
+                pct.place(relx=0.5, rely=0.625, anchor="center")
             except Exception as ex:
                 print(f"[PCV] loading bar gagal dibuat: {str(ex)[:80]}")
             self._pcv_aktif = True
-            self._pcv_widgets = (cv, lbl, nm, info, bar)
+            self._pcv_widgets = (lbl, nm, info, bar, pct)
             self._pcv_val = 6.0
             self._pcv_target = 30.0
             self._pcv_selesai = False
-            N, C = 8, 40
-            dots = []
-            for i in range(N):
-                a = 2.0 * math.pi * i / N
-                dots.append(cv.create_oval(
-                    C + 28.0 * math.cos(a) - 4,
-                    C + 28.0 * math.sin(a) - 4,
-                    C + 28.0 * math.cos(a) + 4,
-                    C + 28.0 * math.sin(a) + 4,
-                    fill="#26314a", width=0))
-            palet = ["#3b82f6", "#1d4ed8", "#24365c", "#1e2c4d",
-                     "#19253f", "#16203a", "#141b30", "#131a2b"]
-            fase = {"i": 0}
 
             def tik():
                 if self._pcv_job is None:
                     return
-                fase["i"] = (fase["i"] + 1) % N
-                for j, item in enumerate(dots):
-                    cv.itemconfigure(item, fill=palet[(j - fase["i"]) % N])
                 # loading bar: merayap halus ke target tahap berikut
                 if self._pcv_val < self._pcv_target and bar is not None:
                     self._pcv_val = min(self._pcv_target,
-                                        self._pcv_val + 0.9)
+                                        self._pcv_val + 1.1)
+                    v = int(self._pcv_val)
                     try:
                         bar.configure(value=self._pcv_val)
+                        pct.configure(text=f"{v}%")
                     except Exception:
                         pass
-                # halaman tujuan siap (di-set watcher) = rayap ke 100
+                # halaman tujuan siap (di-set watcher/pantau) = rayap 100
                 if self._pcv_selesai:
                     self._pcv_target = 100.0
                     if self._pcv_val >= 99.4:
@@ -1043,23 +1038,22 @@ class Wv2Host(tk.Frame):
                 user32.ShowWindow(self._chwnd, 0)
             except Exception:
                 pass
-            # WATCHDOG 60 dtk: apa pun yang terjadi (watcher reconnect
+            # WATCHDOG 45 dtk: apa pun yang terjadi (watcher reconnect
             # setelah webview dibuat ulang, dll), cover SELALU menutup
-            # dalam 1 menit - tidak ada stuck tanpa akhir (live 19 Nov:
-            # cover menggantung 'hampir selesai' selamanya)
+            # dalam 45 dtk - tidak ada stuck tanpa akhir
             def _pcv_watchdog():
                 if getattr(self, "_pcv_aktif", False):
-                    print("[PCV] cover >60 dtk - tutup paksa")
+                    print("[PCV] cover >45 dtk - tutup paksa")
                     self._pcv_selesai = True
-            self.after(60000, _pcv_watchdog)
+            self.after(45000, _pcv_watchdog)
         except Exception:
             pass
 
     def _pcv_info_set(self, teks):
         w = getattr(self, "_pcv_widgets", ())
-        if len(w) >= 4 and w[3] is not None:
+        if len(w) >= 3 and w[2] is not None:
             try:
-                w[3].configure(text=teks)
+                w[2].configure(text=teks)
             except Exception:
                 pass
 
@@ -1098,6 +1092,7 @@ class Wv2Host(tk.Frame):
         tetap hidup & menutup halaman-perantara sampai tujuan siap
         (permintaan user 19 Nov). WAJIB thread UI (CLR STA)."""
         self._pcv_buka(nama or os.path.basename(folder))
+        self._gp_ttl = ""
         self._profil = folder
         try:
             os.makedirs(folder, exist_ok=True)
@@ -1169,7 +1164,32 @@ class Wv2Host(tk.Frame):
                 core.Navigate(url)
             except Exception:
                 pass
-        self.after(2500, lambda: self._gp_selesai(nama))
+        self.after(1200, lambda: self._gp_pantau(nama, 0))
+
+    def _gp_pantau(self, nama, n):
+        """Pantau langsung webview (.NET, bukan CDP watcher): judul
+        halaman stabil 2x berturut = halaman hidup = cover selesai.
+        Habis dispose, koneksi CDP watcher bisa mati diam - itu yang
+        bikin cover dulu selalu nunggu watchdog tiap ganti akun."""
+        siap = False
+        try:
+            core = self._ec.webview.CoreWebView2
+            src = str(getattr(core, "Source", "") or "")
+            ttl = str(getattr(core, "DocumentTitle", "") or "").strip()
+            if "edclub" in src and ttl and "about:blank" not in src:
+                if ttl == getattr(self, "_gp_ttl", None):
+                    siap = True
+                self._gp_ttl = ttl
+        except Exception:
+            pass
+        if siap:
+            self._pcv_selesai = True
+            self.after(1500, lambda: self._gp_selesai(nama))
+            return
+        if n < 80:
+            self.after(500, lambda: self._gp_pantau(nama, n + 1))
+            return
+        self.after(1500, lambda: self._gp_selesai(nama))
 
     def _gp_selesai(self, nama):
         # cover ditutup oleh _pcv_selesai (pill/login page terdeteksi

@@ -205,7 +205,7 @@ function chunkKey(ver, i) {
   return `exe:${ver}:${i}`;
 }
 
-async function handle(request) {
+async function handle(request, ctx) {
   const u = new URL(request.url);
   const q = u.searchParams;
 
@@ -251,6 +251,7 @@ async function handle(request) {
     // simpan ke KV tetap sukses, notifikasi bukan bagian kontrak API
     if (env.LAPOR_HOOK) {
       try {
+        console.log("[LAPOR-HOOK] menembak relay");
         ctx.waitUntil(fetch(env.LAPOR_HOOK, {
           method: "POST",
           headers: {
@@ -261,8 +262,15 @@ async function handle(request) {
             ts, versi: String(body.versi || "?").slice(0, 40),
             akun: String(body.akun || "?").slice(0, 60),
           }),
-        }).catch(() => {}));
-      } catch (e) {}
+        }).then((r) => console.log("[LAPOR-HOOK] relay balas",
+              r.status))
+          .catch((e) => console.log("[LAPOR-HOOK] relay gagal",
+              String(e).slice(0, 120))));
+      } catch (e) {
+        console.log("[LAPOR-HOOK] exc", String(e).slice(0, 120));
+      }
+    } else {
+      console.log("[LAPOR-HOOK] LAPOR_HOOK kosong");
     }
     return json({ ok: true, ts });
   }
@@ -442,7 +450,7 @@ export default {
   async fetch(request, environment, ctx) {
     env = environment;
     try {
-      return await handle(request);
+      return await handle(request, ctx);
     } catch (e) {
       return json({ error: String(e) }, 500);
     }
