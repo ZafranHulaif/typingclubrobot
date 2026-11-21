@@ -55,9 +55,12 @@ Licensing + updates + bug reports run through a Cloudflare Worker backend.
 ## Hard-won constraints (each line below = a crash/regression we already paid for)
 - **NEVER add .NET→Python event callbacks** (GIL crash, PyEval_RestoreThread).
   Poll from the Tk thread or read .NET properties directly. Playwright
-  evaluate is the only injection path proven to work reliably. The same ban
-  applies to any future Dart/Flutter↔Python bridge: request/response only,
-  never callbacks across the boundary.
+  evaluate is the only injection path proven to work reliably. For the
+  Flutter↔Python sidecar bridge (see `docs/architecture/M0-decision.md`):
+  socket messages are data, not callbacks, so the sidecar MAY push events,
+  but all IPC runs on one asyncio/socket thread and anything touching
+  .NET/WebView2/Tk is queued to the Tk/STA thread (drained by its own
+  `after()` loop). Asks from engine to UI need a timeout + safe default.
 - Google pages enforce Trusted Types CSP: `innerHTML` blocked — use
   `textContent` / `createElementNS`.
 - Google OAuth is intercepted **in-app**: `window.open` must be stubbed BEFORE
@@ -80,7 +83,7 @@ Licensing + updates + bug reports run through a Cloudflare Worker backend.
 ## Conventions
 - Identifiers English; comments casual short Indonesian; user-facing strings
   plain friendly Indonesian.
-- Commits: Indonesian summary + trailer `Assisted-by: Crush (AI agents)`.
+- Commits: Indonesian summary, NO AI attribution trailer (owner decision 2026-11-21).
 - Dev workflow: bump `APP_VERSION` (`"3.5.5-devN"`) in `gui/theme.py` per
   build on `qol-edge`; on merge → `main`, version becomes clean `3.5.5`,
   GitHub release + `server/publish.py` to the worker.
