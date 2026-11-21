@@ -53,23 +53,17 @@ class _StatusCard extends StatelessWidget {
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
     final look = phaseLook(context, s);
-    final running = s.phase == 'running';
     final prog = (s.level['progress'] as num?)?.toDouble() ?? 0;
     final err = '${s.bot['error'] ?? ''}';
     return SurfaceCard(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          StatusDot(color: look.color, pulse: running),
-          const SizedBox(width: 8),
-          Text(look.label,
-              style: t.labelMedium!.copyWith(color: look.color)),
-          const Spacer(),
-          if (s.stats['levels_done'] != null && s.stats['levels_done'] != 0)
-            Text('${s.stats['levels_done']} level sesi ini',
-                style: t.labelSmall!.copyWith(color: c.onSurfaceVariant)),
-        ]),
-        const SizedBox(height: 14),
+        // label status sudah ada di bar atas: di sini cuma hitungan sesi
+        if ((s.stats['levels_done'] ?? 0) != 0) ...[
+          Text('${s.stats['levels_done']} level selesai sesi ini',
+              style: t.labelSmall!.copyWith(color: look.color)),
+          const SizedBox(height: 8),
+        ],
         AnimatedSwitcher(
           duration: Motion.medium,
           switchInCurve: Motion.decelerate,
@@ -284,6 +278,11 @@ class _SpeedCardState extends State<_SpeedCard> {
 
 // ------------------------------------------------------------ rentang
 String rangeSummary(AppStore s) {
+  if (s.busy) {
+    // saat jalan: tampilkan rentang yg BENAR2 dipakai engine
+    final a = s.range['start'], b = s.range['end'];
+    return (b == null || b == 0) ? 'Dari level $a sampai habis' : 'Level $a sampai $b';
+  }
   final ch = s.rangeChoice;
   final pos = (s.range['position'] as num?)?.toInt() ?? 0;
   switch (ch['mode']) {
