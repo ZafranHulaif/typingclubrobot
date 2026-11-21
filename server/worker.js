@@ -247,6 +247,23 @@ async function handle(request) {
     idx.unshift({ ts, versi: String(body.versi || "?").slice(0, 20),
                   akun: String(body.akun || "?").slice(0, 40) });
     await env.MACHINES.put("laporan:idx", JSON.stringify(idx.slice(0, 30)));
+    // dorong realtime ke webhook pemilik (T3 thread) - gagal = diam:
+    // simpan ke KV tetap sukses, notifikasi bukan bagian kontrak API
+    if (env.LAPOR_HOOK) {
+      try {
+        ctx.waitUntil(fetch(env.LAPOR_HOOK, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-lapor-token": env.LAPOR_HOOK_TOKEN || "",
+          },
+          body: JSON.stringify({
+            ts, versi: String(body.versi || "?").slice(0, 40),
+            akun: String(body.akun || "?").slice(0, 60),
+          }),
+        }).catch(() => {}));
+      } catch (e) {}
+    }
     return json({ ok: true, ts });
   }
   if (u.pathname === "/api/lapor-list") {

@@ -1,0 +1,12 @@
+name = "typingbot-api"
+main = "worker.js"
+compatibility_date = "2026-09-05"
+keep_vars = true
+
+[[kv_namespaces]]
+binding = "MACHINES"
+id = "d83de10e2dc8448fa28e2297b944a50d"
+
+[[kv_namespaces]]
+binding = "META"
+id = "c04ca8a19fc8465caff68411ce72cfba"
