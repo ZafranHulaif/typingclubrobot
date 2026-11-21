@@ -51,3 +51,44 @@ jobs:
         with:
           name: typingbot-ui-windows
           path: ui/build/windows/x64/runner/Release
+      # Uji mandiri: jalankan app (TB_SELFTEST), app melakukan langkah UI
+      # sendiri, skrip ini memotret layar tiap langkah. Hasil (png +
+      # bot.log) = artifact 'selftest'. Tidak menggagalkan build.
+      - name: Uji mandiri (screenshot)
+        working-directory: ui
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'selftest'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $env:TB_SELFTEST = $dir
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          function Shot($path) {
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+            $g.Dispose(); $bmp.Dispose()
+          }
+          $p = Start-Process -FilePath 'build\windows\x64\runner\Release\typingbot.exe' -PassThru
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          while ($sw.Elapsed.TotalSeconds -lt 300 -and -not (Test-Path (Join-Path $dir 'selesai'))) {
+            Get-ChildItem $dir -Filter *.ready | ForEach-Object {
+              $done = Join-Path $dir ($_.BaseName + '.done')
+              if (-not (Test-Path $done)) {
+                Shot (Join-Path $dir ($_.BaseName + '.png'))
+                Set-Content $done 'ok'
+              }
+            }
+            Start-Sleep -Milliseconds 300
+          }
+          if (-not (Test-Path (Join-Path $dir 'selesai'))) { Shot (Join-Path $dir 'zz-timeout.png') }
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          Copy-Item (Join-Path $env:LOCALAPPDATA 'TypingBot\bot.log') $dir -ErrorAction SilentlyContinue
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selftest
+          path: ${{ runner.temp }}/selftest
+          if-no-files-found: ignore

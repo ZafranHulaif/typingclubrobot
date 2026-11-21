@@ -20,6 +20,7 @@ void main() {
   final store = AppStore(backend, embedded: lp.embedded);
   backend.connect();
   runApp(TypingBotApp(store: store));
+  if (lp.embedded) maybeSelfTest(store);
 }
 
 class TypingBotApp extends StatelessWidget {
