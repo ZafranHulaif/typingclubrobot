@@ -121,6 +121,35 @@ injectable (tests run instantly with a fake clock).
   -> score -> next level, range end, return to range start, renderer dead, Stripe hijack,
   premium modal), strict list order, URL rules, level map, backend start/stop/lock/asks.
 
+**N4 (code done 2026-11-22, tests green here; waiting for CI + owner run).** `ui/lib/src/net/`:
+- `ed25519.dart`: hand-written RFC 8032 verify (BigInt + `package:crypto` sha512; `crypto` was
+  already in the lockfile, now a direct dependency). Checked against RFC vectors and tokens signed
+  by node's Ed25519.
+- `license.dart`: same contract as 3.5.x: token `{mc, exp, sig}` over `v1|mc|exp`, `license.dat`
+  one-line JSON or legacy HMAC key text, `request`/`status` calls, download param. Legacy HMAC
+  needs the real secret (gitignored `_license_secret.py`): pass it at build time with
+  `--dart-define=TB_LICENSE_SECRET=...`. CI reads repo secret `TB_LICENSE_SECRET` if the owner
+  adds it; without it old manual keys are not recognised (online tokens are unaffected).
+- `machine.dart`: machine code identical to `gui/licensing.py` (`mac` from
+  UuidCreateSequential like Python's `uuid.getnode()`, `COMPUTERNAME`, system volume serial) via
+  `dart:ffi` + kernel32 `LocalAlloc` (no extra package). Hash/base32 part verified against Python
+  output; the Windows FFI part is **unverified until the owner runs it**.
+- Decision: if a valid local token carries a different `mc` than v4 computes, the backend asks
+  the server with the token's `mc` (and logs the mismatch) instead of showing "dicabut". Protects
+  3.5.x users if the fingerprint ever differs; server contract unchanged.
+- `api.dart`: `TYPINGBOT_SERVER_URL` / `server_url.txt` / default URL (same order as 3.5.x),
+  browser-like UA `Mozilla/5.0 (Windows NT 10.0; Win64; x64) TypingBot/<ver> (+github...)`,
+  JSON calls, streamed download with sha256.
+- `updater.dart`: `parse_version`/`is_newer`/check. Download + install wait for N6 (v4 is a
+  folder; `update.download`/`install` answer a friendly "menyusul").
+- `report.dart`: `/api/lapor {versi, akun, isi}` with the same report text; failure saves the
+  report to the Desktop.
+- Backend: boot does the fast local check first (valid token = `ok` at once), then the 3.5.x
+  online flow (`_net_boot`): token -> status, legacy key -> request token in background, new
+  machine -> need/pending with 5 s polling up to 30 min, quick status gate before Mulai.
+  New license state `checking` shows "Memeriksa lisensi..." in the existing banner.
+- Tests: `ui/test/net_test.dart`, `ui/test/native_license_test.dart` (local fake worker).
+
 ## Open questions
 - **Update path from 3.5.x.** The old updater replaces one `TypingBot.exe`. v4 is a folder
   (exe + DLLs + data). Likely answer: v4's `TypingBot.exe` download is a self-extracting

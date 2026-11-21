@@ -42,7 +42,11 @@ jobs:
         run: flutter test
       - name: Build windows
         working-directory: ui
-        run: flutter build windows --release
+        # TB_LICENSE_SECRET (secret repo, opsional) = rahasia kunci manual
+        # lama; tanpa itu kunci HMAC lama tidak dikenali (token online aman)
+        env:
+          TB_LICENSE_SECRET: ${{ secrets.TB_LICENSE_SECRET }}
+        run: flutter build windows --release "--dart-define=TB_LICENSE_SECRET=$env:TB_LICENSE_SECRET"
       - uses: actions/upload-artifact@v4
         with:
           name: typingbot-ui-windows

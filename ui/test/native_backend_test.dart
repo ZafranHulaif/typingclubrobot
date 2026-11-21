@@ -104,6 +104,7 @@ void main() {
       fake = FakeNative();
       be = NativeBackend(
         version: 'test',
+      checkLicense: false,
         host: WebHost(),
         accounts: AccountStore(tmp.path),
         revealTimeout: const Duration(seconds: 5),
@@ -219,7 +220,7 @@ void main() {
     test('fitur yang belum diport menjawab ramah', () async {
       await be.connect();
       await _flush();
-      expect(() => be.request('update.check'), throwsA(isA<RpcException>()));
+      expect(() => be.request('dev.simulate'), throwsA(isA<RpcException>()));
     });
   });
 

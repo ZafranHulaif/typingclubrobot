@@ -432,6 +432,19 @@ class _LicenseBannerState extends State<_LicenseBanner> {
         ],
       );
     }
+    if (st == 'checking') {
+      return _BannerShell(
+        icon: Icons.key_rounded,
+        color: c.secondary,
+        text: 'Memeriksa lisensi...',
+        actions: const [
+          Padding(
+            padding: EdgeInsets.all(10),
+            child: SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+          ),
+        ],
+      );
+    }
     if (st == 'revoked') {
       return _BannerShell(
         icon: Icons.block_rounded,

@@ -15,6 +15,11 @@ import '../engine/clock.dart';
 import '../engine/engine.dart';
 import '../engine/level_map.dart';
 import '../engine/page.dart';
+import '../net/api.dart';
+import '../net/license.dart' as lic;
+import '../net/machine.dart' as machine;
+import '../net/report.dart';
+import '../net/updater.dart';
 import '../web/js_init.dart';
 import '../web/web_host.dart';
 import 'accounts.dart';
@@ -44,7 +49,13 @@ class NativeBackend implements Backend {
     this.pollInterval = const Duration(milliseconds: 100),
     CdpBridge Function(WebView view)? bridgeFor,
     this.clock,
+    this.checkLicense = true,
+    Api? api,
+    String Function()? machineCode,
   })  : host = host ?? webHost,
+        _version = version,
+        _apiOverride = api,
+        _machineCode = machineCode ?? machine.machineCode,
         accounts = accounts ?? AccountStore(AccountStore.defaultBase()),
         _bridgeFor = bridgeFor ?? WebViewBridge.new {
     _settings = _loadSettings();
@@ -56,8 +67,8 @@ class NativeBackend implements Backend {
       'range': <String, dynamic>{},
       'speed': {'wpm': wpm},
       'account': {'active': '', 'list': <Map<String, dynamic>>[]},
-      // lisensi asli menyusul (N4); versi uji tidak dikunci
-      'license': {'state': 'ok'},
+      // N4: diisi _netBoot; checkLicense=false (tes) = tidak dikunci
+      'license': {'state': checkLicense ? 'checking' : 'ok'},
       'update': <String, dynamic>{},
       'cover': {'visible': true, 'text': 'Menyiapkan edclub...'},
       'plan': {
@@ -78,6 +89,17 @@ class NativeBackend implements Backend {
 
   /// jam mesin (tes: jam palsu); null = jam sistem
   final Clock? clock;
+
+  /// false = lewati lisensi & jaringan (tes)
+  final bool checkLicense;
+  final String _version;
+  final Api? _apiOverride;
+  final String Function() _machineCode;
+  Api? _apiCache;
+  Map<String, dynamic>? _tok;
+  Map<String, dynamic>? _updateInfo;
+  int _approvalRun = 0;
+  bool _closed = false;
 
   late final Map<String, Map<String, dynamic>> _snap;
   late Map<String, dynamic> _settings;
@@ -227,6 +249,17 @@ class NativeBackend implements Backend {
       'total': _levels!.map.length,
       'mapped': _levels!.map.length,
     });
+    if (checkLicense) {
+      // cek lokal dulu (cepat): token/kunci sah = langsung ok tanpa
+      // menunggu jaringan; server memastikan di latar
+      final tok = lic.loadToken(_licPath);
+      if (tok != null && lic.verifyToken(tok)) {
+        _licOk(tok);
+      } else if (lic.licenseValid(_licPath, _mc())) {
+        _set('license', {'state': 'ok'});
+      }
+      unawaited(_netBoot());
+    }
     final ver = await host.version().catchError((_) => '');
     if (ver.isEmpty) {
       _cover('WebView2 belum terpasang di komputer ini. Pasang dulu '
@@ -357,6 +390,24 @@ class NativeBackend implements Backend {
         return _snap['range'];
       case 'log.tail':
         return {'lines': _tail(((p['n'] as num?) ?? 100).toInt())};
+      case 'license.request':
+        return _licenseRequest('${p['nickname'] ?? ''}');
+      case 'license.refresh':
+        if (checkLicense) unawaited(_netBoot());
+        return _snap['license'];
+      case 'update.check':
+        return _updateCheck();
+      case 'update.download':
+      case 'update.install':
+        throw RpcException('later',
+            'Pasang pembaruan otomatis menyusul di versi berikutnya. '
+            'Untuk sekarang unduh manual dari halaman rilis ya.');
+      case 'update.cancel':
+        return {};
+      case 'report.send':
+        return _report('${p['category'] ?? ''}', '${p['text'] ?? ''}');
+      case 'dev.info':
+        return {'version': _version, 'data_dir': _base, 'mc': _mc()};
       default:
         throw RpcException('later', 'Bagian ini belum ada di versi uji ini.');
     }
@@ -465,6 +516,7 @@ class NativeBackend implements Backend {
     if (_snap['license']!['state'] != 'ok') {
       throw RpcException('license', 'Aktifkan TypingBot dulu ya.');
     }
+    if (checkLicense) await _licenseGate();
     final v = _view;
     if (v == null || v.disposed) {
       throw RpcException('not_ready', 'Halaman edclub belum siap.');
@@ -669,8 +721,223 @@ class NativeBackend implements Backend {
     }
   }
 
+  // ------------------------------------------------------------ lisensi (N4)
+  // Port alur sidecar/engine_backend.py (_net_boot dst). Kontrak server
+  // sama persis (server/API.md).
+  String get _licPath => '$_base${Platform.pathSeparator}license.dat';
+  Api get _api => _apiOverride ?? (_apiCache ??= Api.resolve(dataDir: _base, version: _version));
+
+  String? _mcCache;
+  String _mc() => _mcCache ??= _machineCode();
+
+  /// mc utk tanya server: token sah membawa mc yang disetujui. Kalau sidik
+  /// jari v4 ternyata beda dgn 3.5.x, pakai mc token supaya lisensi lama
+  /// tidak dianggap dicabut (dicatat di log utk diperiksa).
+  String _mcFor(Map<String, dynamic>? tok) {
+    final mine = _mc();
+    final t = tok == null ? '' : '${tok['mc'] ?? ''}';
+    if (t.isNotEmpty && t != mine) {
+      _log('[LISENSI] kode mesin v4 ($mine) beda dgn token ($t) - pakai kode token');
+      return t;
+    }
+    return mine;
+  }
+
+  void _licOk(Map<String, dynamic> tok) {
+    _tok = tok;
+    _set('license', {'state': 'ok', 'days_left': lic.daysLeft(tok), 'message': ''});
+  }
+
+  void _saveTok(Map<String, dynamic> tok) {
+    try {
+      Directory(_base).createSync(recursive: true);
+      lic.saveToken(_licPath, tok);
+    } catch (_) {}
+  }
+
+  Future<void> _netBoot() async {
+    try {
+      await _licenseOnline();
+    } catch (e) {
+      _log('[net] lisensi online gagal: $e');
+      _licenseLocal();
+    }
+    try {
+      await _updateCheck();
+    } catch (e) {
+      _log('[net] cek pembaruan gagal: $e');
+    }
+  }
+
+  void _licenseLocal() {
+    final tok = lic.loadToken(_licPath);
+    if (tok != null && lic.verifyToken(tok)) {
+      _licOk(tok);
+      return;
+    }
+    _set('license', {'state': lic.licenseValid(_licPath, _mc()) ? 'ok' : 'need'});
+  }
+
+  Future<void> _licenseOnline() async {
+    final tok = lic.loadToken(_licPath);
+    final lokalOk = lic.licenseValid(_licPath, _mc());
+    if (tok != null && lic.verifyToken(tok)) {
+      final data = await lic.fetchStatus(_api, _mcFor(tok));
+      if (data['status'] == 'approved') {
+        var t = tok;
+        if (data['token'] is Map) {
+          t = Map<String, dynamic>.from(data['token'] as Map);
+          _saveTok(t);
+        }
+        _licOk(t);
+      } else {
+        _set('license', {'state': 'revoked'});
+      }
+      return;
+    }
+    if (lokalOk) {
+      // kunci manual lama masih sah: tetap jalan, minta token di latar
+      _set('license', {'state': 'ok'});
+      final nick = '${_settings['nickname'] ?? ''}'.isNotEmpty ? '${_settings['nickname']}' : 'pemilik-lama';
+      final data = await lic.requestApproval(_api, _mc(), nick, _version);
+      if (data['status'] == 'approved' && data['token'] is Map) {
+        final t = Map<String, dynamic>.from(data['token'] as Map);
+        _saveTok(t);
+        _tok = t;
+      }
+      return;
+    }
+    final awal = await lic.fetchStatus(_api, _mc());
+    if (awal['status'] == 'approved' && awal['token'] is Map) {
+      final t = Map<String, dynamic>.from(awal['token'] as Map);
+      _saveTok(t);
+      _licOk(t);
+      return;
+    }
+    final nick = '${_settings['nickname'] ?? ''}';
+    if (awal['status'] == 'pending') {
+      _set('license', {'state': 'pending', 'nickname': nick});
+      unawaited(_waitApproval());
+      return;
+    }
+    _set('license', {'state': 'need', 'nickname': nick});
+  }
+
+  Future<dynamic> _licenseRequest(String nickname) async {
+    final nick = nickname.trim();
+    if (nick.length < 2) {
+      throw RpcException('bad_input', 'Nama panggilan minimal 2 huruf.');
+    }
+    _saveSettings({'nickname': nick});
+    Map<String, dynamic> data;
+    try {
+      data = await lic.requestApproval(_api, _mc(), nick, _version);
+    } on Unreachable {
+      throw RpcException('offline', 'Server tidak terjangkau. Cek internet lalu coba lagi ya.');
+    }
+    if (data['status'] == 'approved' && data['token'] is Map) {
+      final t = Map<String, dynamic>.from(data['token'] as Map);
+      _saveTok(t);
+      _licOk(t);
+      _set('license', {'nickname': nick});
+      return {};
+    }
+    _set('license', {'state': 'pending', 'nickname': nick});
+    unawaited(_waitApproval());
+    return {};
+  }
+
+  /// Tunggu pemilik menyetujui (poll 5 dtk, maks 30 menit).
+  Future<void> _waitApproval() async {
+    final run = ++_approvalRun;
+    final batas = DateTime.now().add(const Duration(minutes: 30));
+    while (DateTime.now().isBefore(batas)) {
+      await Future<void>.delayed(const Duration(seconds: 5));
+      if (_closed || run != _approvalRun) return;
+      Map<String, dynamic> data;
+      try {
+        data = await lic.fetchStatus(_api, _mc());
+      } catch (_) {
+        continue;
+      }
+      final st = data['status'];
+      if (st == 'approved' && data['token'] is Map) {
+        final t = Map<String, dynamic>.from(data['token'] as Map);
+        _saveTok(t);
+        _licOk(t);
+        return;
+      }
+      if (st == 'rejected' || st == 'revoked' || st == 'denied') {
+        _set('license', {'state': 'revoked'});
+        return;
+      }
+    }
+    _set('license', {'state': 'need'});
+  }
+
+  /// Cek cepat (maks 1.2 dtk) sebelum Mulai: dicabut = tolak.
+  Future<void> _licenseGate() async {
+    String? st;
+    try {
+      final (_, data) = await _api
+          .json('GET', '/api/license/status?mc=${_mcFor(_tok ?? lic.loadToken(_licPath))}',
+              timeout: const Duration(seconds: 3))
+          .timeout(const Duration(milliseconds: 1200));
+      st = data['status'] as String?;
+    } catch (_) {}
+    if (st != null && st != 'approved') {
+      _set('license', {'state': 'revoked'});
+      throw RpcException('license', 'Akses perangkat ini dicabut.');
+    }
+  }
+
+  Future<dynamic> _updateCheck() async {
+    final info = await checkUpdate(_api, _version);
+    if (info == null) {
+      _set('update', {'available': false});
+      return _snap['update'];
+    }
+    final tok = _tok ?? lic.loadToken(_licPath);
+    if (tok == null || !lic.verifyToken(tok)) {
+      _log('[net] pembaruan ada tapi mesin belum disetujui server');
+      return _snap['update'];
+    }
+    _updateInfo = info;
+    _set('update', {
+      'available': true,
+      'version': '${info['version'] ?? ''}',
+      'notes': '${info['notes'] ?? ''}',
+      'size': (info['size'] as num?)?.toInt() ?? 0,
+    });
+    return _snap['update'];
+  }
+
+  /// Info rilis terakhir yang ditawarkan (N6 memakainya utk unduh).
+  Map<String, dynamic>? get updateInfo => _updateInfo;
+
+  Future<dynamic> _report(String category, String text) async {
+    final akun = '${_snap['account']!['active'] ?? ''}';
+    final isi = buildReport(
+      version: _version,
+      account: akun.isEmpty ? '?' : akun,
+      category: category,
+      text: text,
+      logTail: _tail(400),
+    );
+    final r = await sendReport(_api, version: _version, account: akun.isEmpty ? '?' : akun, isi: isi);
+    if (r.sent) {
+      _log('[LAPOR] terkirim otomatis.');
+      return {'sent': true};
+    }
+    _log('[LAPOR] kirim otomatis gagal${r.savedTo != null ? ', disimpan: ${r.savedTo}' : ''}');
+    throw RpcException('offline', r.savedTo != null
+        ? 'Gagal terkirim. Laporan disimpan di Desktop, kirim manual ya.'
+        : 'Gagal terkirim. Coba lagi nanti ya.');
+  }
+
   @override
   void close() {
+    _closed = true;
     _engine?.st.stop = true;
     _poll?.cancel();
     _revealT?.cancel();

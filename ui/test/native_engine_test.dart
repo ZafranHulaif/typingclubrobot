@@ -40,6 +40,7 @@ void main() {
     fake = FakeEdclub(url: _l1);
     be = NativeBackend(
       version: 'test',
+      checkLicense: false,
       host: WebHost(),
       accounts: AccountStore(tmp.path),
       bridgeFor: (_) => fake.bridge,
@@ -174,7 +175,7 @@ void main() {
     File('${tmp.path}/typingbot_settings.json').writeAsStringSync(
         '{"speed": 225, "plan": [{"from": 4, "to": 9, "stars": 5, "silver": true}]}');
     final b2 = NativeBackend(
-        version: 't', host: WebHost(), accounts: AccountStore(tmp.path));
+        version: 't', host: WebHost(), accounts: AccountStore(tmp.path), checkLicense: false);
     final got = <String, dynamic>{};
     b2.events.listen((e) {
       if (e.name == 'snapshot') got.addAll(Map<String, dynamic>.from(e.data as Map));
