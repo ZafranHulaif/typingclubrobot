@@ -609,10 +609,11 @@ class LaunchMixin:
             pop.attributes("-topmost", True)
         except Exception:
             pass
-        try:
-            pop.grab_set()
-        except Exception:
-            pass
+        # TANPA grab_set (v44, keluhan user 21 Nov): grab Tk makan
+        # SEMUA klik di luar popover - klik tombol lain cuma menutup
+        # popover, tombolnya tidak jalan + app terasa kehilangan fokus.
+        # Klik-luar ditangani _pop_klik_global (poll global, tembus ke
+        # tombol Tk maupun webview HWND).
 
     def on_update(self):
         """POPOVER pembaruan (Nov 2026, permintaan user): TANPA overlay

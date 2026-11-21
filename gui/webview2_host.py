@@ -1053,8 +1053,8 @@ class Wv2Host(tk.Frame):
                 # geser webview OFFSCREEN (bukan ShowWindow 0): tetap
                 # merender -> PrintWindow dapat gambar nyata utk
                 # gerbang piksel (v40: window tersembunyi = hitam palsu)
-                user32.SetWindowPos(self._chwnd, 0, -32000, -32000,
-                                    0, 0, 0x0013)  # NOSIZE|NOZORDER|NOACT
+                self._pcv_offscreen = True
+                self._webview_offscreen_paksa()
             except Exception:
                 user32.ShowWindow(self._chwnd, 0)
             # WATCHDOG 45 dtk: apa pun yang terjadi (watcher reconnect
@@ -1097,6 +1097,7 @@ class Wv2Host(tk.Frame):
                 pass
         self._pcv_frame = None
         self._pcv_aktif = False
+        self._pcv_offscreen = False
 
     def _pcv_tutup(self):
         self._pcv_tutup_cepat()
@@ -1166,11 +1167,13 @@ class Wv2Host(tk.Frame):
             self.buka(port, url, cover=False)
         except Exception as ex:
             print(f"[AKUN] ganti profil gagal: {str(ex)[:80]}")
+        self._webview_offscreen_paksa()
         self.after(300, lambda: self._gp_nav(folder, url, nama, 0))
 
     def _gp_nav(self, folder, url, nama, coba):
         self._pcv_info_set("hampir selesai…")
         self._pcv_target_set(85)
+        self._webview_offscreen_paksa()   # webview baru jangan bocor
         core = None
         try:
             core = self._ec.webview.CoreWebView2
@@ -1191,6 +1194,22 @@ class Wv2Host(tk.Frame):
             except Exception:
                 pass
         self.after(1200, lambda: self._gp_pantau(nama, 0))
+
+    def _webview_offscreen_paksa(self):
+        """Saat cover ganti akun aktif, webview APA PUN (lama maupun
+        baru hasil buka-ulang) ditahan di luar layar: HWND native
+        menutupi cover Tk (airspace) - dulu webview baru muncul normal
+        = kedip putih/hitam terlihat di atas cover (keluhan user 21
+        Nov). Ditarik balik oleh _pas_ukuran saat cover menutup."""
+        if not getattr(self, "_pcv_offscreen", False):
+            return
+        hwnd = getattr(self, "_chwnd", None)
+        if hwnd:
+            try:
+                user32.SetWindowPos(hwnd, 0, -32000, -32000,
+                                    0, 0, 0x0013)  # NOSIZE|NOZORDER|NOACT
+            except Exception:
+                pass
 
     def _webview_isi_ada(self):
         """True kalau webview SUDAH menggambar konten nyata - sampling
@@ -1239,6 +1258,7 @@ class Wv2Host(tk.Frame):
         piksel dipulihkan dgn webview offscreen; v40 bocor karena
         webview disembunyikan = capture hitam palsu). 'siap' HANYA
         menandai - bar merayap ke 100% lalu menutup cover."""
+        self._webview_offscreen_paksa()   # tahan ulang (hwnd baru?)
         siap = False
         try:
             core = self._ec.webview.CoreWebView2
@@ -1768,10 +1788,15 @@ class Wv2Host(tk.Frame):
                         # simpanan lain = akun tampil 'tidak aktif'
                         # padahal sesinya sama - keluhan user 12 Nov)
                         nm = re.sub(r"\s+", " ", (nm or "")).strip()
-                        if getattr(self, "_pcv_aktif", False):
+                        if (getattr(self, "_pcv_aktif", False)
+                                and not getattr(self, "_pcv_offscreen",
+                                                False)):
                             # cover profil: tandai halaman tujuan siap
                             # (pill profil = sudah login; /signin dgn
                             # form terender = halaman login siap)
+                            # v44: TIDAK berlaku saat cover ganti akun -
+                            # watcher bisa membaca HALAMAN LAMA (punya
+                            # pill) sebelum dispose = cover nutup di 9%
                             if nm:
                                 self._pcv_selesai = True
                             elif "/signin" in u:
