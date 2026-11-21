@@ -1017,15 +1017,18 @@ class Wv2Host(tk.Frame):
             def tik():
                 if self._pcv_job is None:
                     return
-                # merayap halus ke target tahap; saat halaman siap,
-                # gas habis sampai 100% (user: 'we need that 100%
-                # before it disappears so they can feel the progress')
-                langkah = 3.5 if self._pcv_selesai else 1.1
                 if bar is not None:
+                    # halaman ditandai siap tapi PIKSEL belum nyata
+                    # (kedip putih/hitam SPA) = TAHAN: rayap pelan cap
+                    # 90 - jangan gas & tutup di tengah kedip
+                    boleh_gas = self._pcv_selesai and self._webview_isi_ada()
+                    if self._pcv_selesai and not boleh_gas:
+                        self._pcv_target = min(self._pcv_target, 90.0)
+                    langkah = 3.5 if boleh_gas else 1.1
                     if self._pcv_val < self._pcv_target:
                         self._pcv_val = min(self._pcv_target,
                                             self._pcv_val + langkah)
-                    if self._pcv_selesai:
+                    if boleh_gas:
                         self._pcv_target = 100.0
                         self._pcv_val = min(100.0, self._pcv_val
                                             + langkah)
@@ -1035,7 +1038,7 @@ class Wv2Host(tk.Frame):
                         pct.configure(text=f"{v}%")
                     except Exception:
                         pass
-                    if self._pcv_selesai and self._pcv_val >= 99.4:
+                    if boleh_gas and self._pcv_val >= 99.4:
                         self._pcv_tutup()
                         return
                 elif self._pcv_selesai:
@@ -1223,14 +1226,10 @@ class Wv2Host(tk.Frame):
             gdi.DeleteDC(mem)
             u32.ReleaseDC(hwnd, hdc)
             if not ok:
-                return True
-            unik = set(warna)
-            if len(unik) <= 2:
-                terang = max(warna)
-                if terang < 0x202020:
-                    return True    # hitam total = capture gagal
-                return False       # putih polos = belum render
-            return len(unik) >= 6
+                return True        # PrintWindow gagal = tak bisa cek
+            # putih/hitam polos sama-sama = belum render (cover tahan).
+            # Window kini offscreen-HIDUP: PrintWindow dipercaya.
+            return len(set(warna)) >= 6
         except Exception:
             return True
 

@@ -509,12 +509,12 @@ class LaunchMixin:
             pop.after(1000, jaga)
         pop.after(1000, jaga)
 
-    def _pop_jaga_fokus(self, pop, attr, tutup, batas=0.8):
+    def _pop_jaga_fokus(self, pop, attr, tutup, batas=0.15):
         """Tutup popover saat app KEHILANGAN fokus OS >= batas dtk
-        (alt-tab ke app lain). Polling GetForegroundWindow: FocusOut Tk
-        tidak andal utk popover overrideredirect - dulu popover akun
-        tak nutup sama sekali saat alt-tab, popover lapor lambat 2
-        dtk (keluhan user 21 Nov). Sekarang 0.8 dtk, poll 200ms."""
+        (alt-tab ke app lain) NYARIS INSTAN: threshold 0.15 dtk +
+        poll 100ms (dulu 0.8/2 dtk = terasa delay, keluhan user 21
+        Nov). Polling GetForegroundWindow - FocusOut Tk tidak andal
+        utk popover overrideredirect."""
         import ctypes
         _u32 = ctypes.windll.user32
         _pid_saya = os.getpid()
@@ -544,9 +544,9 @@ class LaunchMixin:
                 except Exception:
                     pass
                 return
-            pop.after(200, jaga)
+            pop.after(100, jaga)
 
-        pop.after(400, jaga)
+        pop.after(150, jaga)
 
     def _pop_klik_global(self, pop, attr, tutup, jangkar):
         """Tutup popover saat KLIK SELESAI di luar popover & tombol
