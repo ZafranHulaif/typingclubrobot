@@ -2376,6 +2376,13 @@ class Wv2Host(tk.Frame):
             os.makedirs(self._profil, exist_ok=True)
             ec = EdgeChrome(control, window, self._profil)
             self._ec = ec
+            # webview baru = handler popup pywebview TERPASANG LAGI di
+            # core baru. Reset penanda supaya _jaga mencabut ulang +
+            # menyuntik anti-popup (dulu cuma dicabut di webview
+            # pertama: klik Google setelah ganti akun lolos ke Edge
+            # eksternal - keluhan user 21 Nov).
+            self._popup_unsub = False
+            self._anti_ct = 0
             try:
                 # latar kontrol = warna app: masa warm-up renderer
                 # (setelah reveal) menyatu, tidak tampak hitam
