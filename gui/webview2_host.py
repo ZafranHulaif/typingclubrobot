@@ -1155,7 +1155,8 @@ class Wv2Host(tk.Frame):
             # cover=True = webview dibuat tersembunyi (jalur boot
             # teruji): selama cover ganti akun TIDAK ADA yang menggambar
             # di atasnya (HWND > Tk) -> tanpa kedip, bar terlihat 100%
-            self.buka(port, url, cover=True)
+            self.buka(port, url, cover=True,
+                       boot=False)
         except Exception as ex:
             print(f"[AKUN] ganti profil gagal: {str(ex)[:80]}")
         self.after(300, lambda: self._gp_nav(folder, url, nama, 0))
@@ -2305,7 +2306,8 @@ class Wv2Host(tk.Frame):
     def set_on_ready(self, cb):
         self._on_ready = cb
 
-    def buka(self, port, url, warna="#141519", cover=True):
+    def buka(self, port, url, warna="#141519", cover=True,
+             boot=True):
         """cover=False = jangan sembunyikan webview saat boot
         (dipakai ganti akun: user HARUS melihat halaman login
         kalau profil akunnya masih kosong)."""
@@ -2357,7 +2359,8 @@ class Wv2Host(tk.Frame):
                                         for c in _c)
                 except Exception:
                     ada_identitas = os.path.exists(_sesi_path())
-            if cover and os.path.exists(_sesi_path()) and ada_identitas:
+            if (cover and boot and os.path.exists(_sesi_path())
+                    and ada_identitas):
                 _cover_log("boot naik (sesi ada cookie identitas)")
                 self._boot_cover = time.time()
                 self._boot_selesai = False
@@ -2376,9 +2379,20 @@ class Wv2Host(tk.Frame):
                     self._boot_anim()
                 except Exception:
                     pass
-            else:
-                if cover:
-                    self._overlay.place_forget()
+            elif cover and not boot:
+                # HANYA ganti akun; startup tanpa sesi
+                # (boot=True) harus tetap tampil utk
+                # login manual
+                # ganti akun (boot=False): sembunyikan webview saat
+                # lahir SAJA - PCV cover yang mengurus reveal, tanpa
+                # mesin boot-cover (dulu cabang boot ikut menyala saat
+                # ganti akun: webview disembunyikan ulang + reveal
+                # nunggu watcher boot yang lambat = hitam panjang)
+                try:
+                    user32.ShowWindow(self._chwnd, 0)   # SW_HIDE
+                except Exception:
+                    pass
+                self._overlay.place_forget()
             # PENTING (stabilitas): lepas SEMUA handler event pywebview.
             # Handler itu callback Python dari thread .NET - kombinasi dgn
             # mainloop Tk memicu crash GIL (PyEval_RestoreThread) saat init
