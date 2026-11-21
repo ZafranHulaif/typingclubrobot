@@ -928,6 +928,7 @@ class Wv2Host(tk.Frame):
         ulang di folder akun)."""
         def kerja():
             folder, baru = _folder_profil_akun(nama)
+            self._akun_pertama = bool(baru)
             cookies = _akun_cookies(nama) or []
             _akun_aktif_set(nama)
             self._nama_profil = None
@@ -948,26 +949,50 @@ class Wv2Host(tk.Frame):
                     args=(cookies,), daemon=True).start()
         threading.Thread(target=kerja, daemon=True).start()
 
+    def _bar_dan_persen(self, induk, warna, putih=False):
+        """Bar maju + persen: dipakai cover boot & cover ganti akun -
+        satu wajah, permintaan user 21 Nov ('loading bar that has
+        progress, so they feel the progress')."""
+        try:
+            stl = ttk.Style(induk)
+            try:
+                stl.theme_use("clam")
+            except Exception:
+                pass
+            trough = "#d7dade" if putih else "#232c42"
+            fg_pct = "#3a4149" if putih else "#c7d2e8"
+            stl.configure("pcv.Horizontal.TProgressbar",
+                          troughcolor=trough, background=ACCENT,
+                          bordercolor=warna, lightcolor=ACCENT,
+                          darkcolor=ACCENT, thickness=10)
+            bar = ttk.Progressbar(induk, maximum=100, value=6,
+                                  style="pcv.Horizontal.TProgressbar",
+                                  length=380)
+            bar.place(relx=0.5, rely=0.565, anchor="center")
+            pct = tk.Label(induk, text="6%",
+                           font=("Segoe UI", 10, "bold"),
+                           fg=fg_pct, bg=warna)
+            pct.place(relx=0.5, rely=0.625, anchor="center")
+            return bar, pct
+        except Exception as ex:
+            print(f"[PCV] loading bar gagal dibuat: {str(ex)[:80]}")
+            return None, None
+
     def _pcv_buka(self, nama):
-        """Cover loading-screen profil: frame dedikasi di bawah header +
-        LOADING BAR bertahap dgn persen (permintaan user 21 Nov: cover
-        beda warna dr latar app + ada outline biar terasa webview
-        masih terbuka; spinner generik dihapus, bar saja). Webview lama
-        disembunyikan biar cover bersih. Cover ditutup oleh
+        """Cover loading-screen profil: frame UKURAN PERSIS area webview
+        (anak host, bukan master - dulu bordernya lebih besar dr
+        webview, keluhan user 21 Nov) + LOADING BAR + persen. Warna =
+        persis overlay boot (user suka; dulu #1b2130 kebiruan ditolak).
+        Webview lama disembunyikan biar cover bersih. Cover ditutup
         _pcv_selesai (halaman tujuan siap) - target via _pcv_target."""
         try:
             self._pcv_tutup_cepat()
-            warna = "#1b2130"    # beda jelas dr latar app (#141519)
-            tepi = "#33405e"     # outline: tanda webview masih hidup
-            self._pcv_frame = tk.Frame(self.master, bg=warna,
+            warna = self._overlay.cget("bg")
+            self._pcv_frame = tk.Frame(self, bg=warna,
                                        highlightthickness=1,
-                                       highlightbackground=tepi)
-            # mulai DI BAWAH header (header tetap terlihat saat memuat)
-            y = self.winfo_rooty() - self.master.winfo_rooty()
-            sisa = max(80, self.master.winfo_height() - y)
-            self._pcv_frame.place(x=0, y=y,
-                                  width=self.master.winfo_width(),
-                                  height=sisa)
+                                       highlightbackground="#2a2c33")
+            self._pcv_frame.place(relx=0, rely=0,
+                                  relwidth=1, relheight=1)
             self._pcv_frame.lift()
             lbl = tk.Label(self._pcv_frame, text="Memuat profil akun…",
                            font=("Segoe UI", 13, "bold"), fg="#e8eaf0",
@@ -982,29 +1007,7 @@ class Wv2Host(tk.Frame):
                             font=("Segoe UI", 10), fg="#9aa6b8",
                             bg=warna)
             info.place(relx=0.5, rely=0.48, anchor="center")
-            bar = None
-            pct = None
-            try:
-                stl = ttk.Style(self._pcv_frame)
-                try:
-                    stl.theme_use("clam")
-                except Exception:
-                    pass
-                stl.configure("pcv.Horizontal.TProgressbar",
-                              troughcolor="#232c42", background=ACCENT,
-                              bordercolor=warna, lightcolor=ACCENT,
-                              darkcolor=ACCENT, thickness=10)
-                bar = ttk.Progressbar(self._pcv_frame, maximum=100,
-                                      value=6,
-                                      style="pcv.Horizontal.TProgressbar",
-                                      length=380)
-                bar.place(relx=0.5, rely=0.565, anchor="center")
-                pct = tk.Label(self._pcv_frame, text="6%",
-                               font=("Segoe UI", 10, "bold"),
-                               fg="#c7d2e8", bg=warna)
-                pct.place(relx=0.5, rely=0.625, anchor="center")
-            except Exception as ex:
-                print(f"[PCV] loading bar gagal dibuat: {str(ex)[:80]}")
+            bar, pct = self._bar_dan_persen(self._pcv_frame, warna)
             self._pcv_aktif = True
             self._pcv_widgets = (lbl, nm, info, bar, pct)
             self._pcv_val = 6.0
@@ -1183,6 +1186,19 @@ class Wv2Host(tk.Frame):
         except Exception:
             pass
         if siap:
+            # profil pertama kali: SPA edclub boot lambat - judul sudah
+            # muncul tapi halaman masih putih beberapa detik (keluhan
+            # user 21 Nov). Tahan cover sampai render selesai.
+            if getattr(self, "_akun_pertama", False):
+                self._akun_pertama = False
+                self._pcv_info_set("menyiapkan halaman…")
+                self._pcv_target_set(96)
+
+                def tamat():
+                    self._pcv_selesai = True
+                    self._gp_selesai(nama)
+                self.after(6000, tamat)
+                return
             self._pcv_selesai = True
             self.after(1500, lambda: self._gp_selesai(nama))
             return
@@ -2210,48 +2226,42 @@ class Wv2Host(tk.Frame):
         self._stage_widget = widget
 
     def _boot_anim(self):
-        """Spinner + teks 'Menyiapkan edclub...' di overlay tutup boot.
-        after() murni Tk (thread UI) - dibatalkan saat tutup dibuka."""
+        """LOADING BAR + persen 'Menyiapkan edclub…' di overlay tutup
+        boot (permintaan user 21 Nov: spinner generik diganti bar yg
+        merayap - satu wajah dgn cover ganti akun). after() murni Tk
+        (thread UI) - dibatalkan saat overlay dibuka."""
         try:
             warna = self._overlay.cget("bg")
-            # cover putih (transisi login) = spinner & teks versi gelap
-            putih = warna.lower() in ("#ffffff", "white", "systembuttonface")
-            cv = tk.Canvas(self._overlay, width=84, height=84, bg=warna,
-                           highlightthickness=0)
-            lbl = tk.Label(self._overlay, text="Menyiapkan edclub\u2026",
+            # cover putih (transisi login) = teks & persen gelap
+            putih = warna.lower() in ("#ffffff", "white",
+                                      "systembuttonface")
+            # bersihkan spinner/bar sisa panggilan sebelumnya
+            for w in list(self._overlay.winfo_children()):
+                if isinstance(w, (tk.Label, ttk.Progressbar)):
+                    w.destroy()
+            lbl = tk.Label(self._overlay, text="Menyiapkan edclub…",
                            font=("Segoe UI", 12),
-                           fg="#5b6570" if putih else "#9aa6b8", bg=warna)
-            cv.place(relx=0.5, rely=0.44, anchor="center")
-            lbl.place(relx=0.5, rely=0.56, anchor="center")
-            N, C = 8, 42
-            dots = []
-            for i in range(N):
-                a = 2.0 * math.pi * i / N
-                x = C + 30.0 * math.cos(a)
-                y = C + 30.0 * math.sin(a)
-                dots.append(cv.create_oval(x - 4, y - 4, x + 4, y + 4,
-                                           fill="#26314a", width=0))
-            fase = {"i": 0}
+                           fg="#5b6570" if putih else "#9aa6b8",
+                           bg=warna)
+            lbl.place(relx=0.5, rely=0.44, anchor="center")
+            bar, pct = self._bar_dan_persen(self._overlay, warna, putih)
+            val = {"v": 8.0}
 
             def tik():
                 if self._boot_anim_job is None:
                     return      # sudah dibatalkan/dibuka
-                fase["i"] = (fase["i"] + 1) % N
-                for j, item in enumerate(dots):
-                    langkah = (j - fase["i"]) % N
-                    if langkah == 0:
-                        wrn = "#3b82f6"      # titik aktif terang
-                    elif langkah == 1:
-                        wrn = "#1d4ed8" if not putih else "#93c5fd"
-                    else:
-                        g = 38 + max(0, 20 - 3 * langkah)
-                        wrn = (f"#{g:02x}{g:02x}{g:02x}" if not putih
-                               else f"#{255-g//2:02x}{255-g//2:02x}"
-                                    f"{255-g//2:02x}")
-                    cv.itemconfigure(item, fill=wrn)
-                self._boot_anim_job = self.after(90, tik)
+                # merayap ke 88% - 100% ditempuh saat halaman siap
+                # (overlay ditutup watcher; widget ikut dihancurkan)
+                if val["v"] < 88.0 and bar is not None:
+                    val["v"] = min(88.0, val["v"] + 1.0)
+                    try:
+                        bar.configure(value=val["v"])
+                        pct.configure(text=f"{int(val['v'])}%")
+                    except Exception:
+                        pass
+                self._boot_anim_job = self.after(80, tik)
 
-            self._boot_anim_job = self.after(90, tik)
+            self._boot_anim_job = self.after(100, tik)
         except Exception:
             pass
 
