@@ -1017,30 +1017,43 @@ class Wv2Host(tk.Frame):
             def tik():
                 if self._pcv_job is None:
                     return
-                # loading bar: merayap halus ke target tahap berikut
-                if self._pcv_val < self._pcv_target and bar is not None:
-                    self._pcv_val = min(self._pcv_target,
-                                        self._pcv_val + 1.1)
+                # merayap halus ke target tahap; saat halaman siap,
+                # gas habis sampai 100% (user: 'we need that 100%
+                # before it disappears so they can feel the progress')
+                langkah = 3.5 if self._pcv_selesai else 1.1
+                if bar is not None:
+                    if self._pcv_val < self._pcv_target:
+                        self._pcv_val = min(self._pcv_target,
+                                            self._pcv_val + langkah)
+                    if self._pcv_selesai:
+                        self._pcv_target = 100.0
+                        self._pcv_val = min(100.0, self._pcv_val
+                                            + langkah)
                     v = int(self._pcv_val)
                     try:
                         bar.configure(value=self._pcv_val)
                         pct.configure(text=f"{v}%")
                     except Exception:
                         pass
-                # halaman tujuan siap (di-set watcher/pantau) = rayap 100
-                if self._pcv_selesai:
-                    self._pcv_target = 100.0
-                    if self._pcv_val >= 99.4:
+                    if self._pcv_selesai and self._pcv_val >= 99.4:
                         self._pcv_tutup()
                         return
+                elif self._pcv_selesai:
+                    # bar gagal dibuat - jangan sampai cover nyangkut
+                    self._pcv_tutup()
+                    return
                 self._pcv_job = self.after(70, tik)
 
             self._pcv_job = self.after(90, tik)
             self._pcv_info_set("menyiapkan folder data…")
             try:
-                user32.ShowWindow(self._chwnd, 0)
+                # geser webview OFFSCREEN (bukan ShowWindow 0): tetap
+                # merender -> PrintWindow dapat gambar nyata utk
+                # gerbang piksel (v40: window tersembunyi = hitam palsu)
+                user32.SetWindowPos(self._chwnd, 0, -32000, -32000,
+                                    0, 0, 0x0013)  # NOSIZE|NOZORDER|NOACT
             except Exception:
-                pass
+                user32.ShowWindow(self._chwnd, 0)
             # WATCHDOG 45 dtk: apa pun yang terjadi (watcher reconnect
             # setelah webview dibuat ulang, dll), cover SELALU menutup
             # dalam 45 dtk - tidak ada stuck tanpa akhir
@@ -1084,6 +1097,12 @@ class Wv2Host(tk.Frame):
 
     def _pcv_tutup(self):
         self._pcv_tutup_cepat()
+        try:
+            # webview tadi digeser offscreen - tarik balik ke layout
+            # normal (metode layout host menghitung posisi persis)
+            self._pas_ukuran()
+        except Exception:
+            pass
         try:
             user32.ShowWindow(self._chwnd, 1)   # SW_SHOW
         except Exception:
@@ -1170,14 +1189,57 @@ class Wv2Host(tk.Frame):
                 pass
         self.after(1200, lambda: self._gp_pantau(nama, 0))
 
+    def _webview_isi_ada(self):
+        """True kalau webview SUDAH menggambar konten nyata - sampling
+        PrintWindow + GetPixel. Putih polos = SPA belum render (cover
+        tahan); hitam polos total = capture gagal (anggap siap, jangan
+        sampai nyangkut - pelajaran v40). Webview digeser offscreen
+        pasang cover, jadi PrintWindow dapat gambar asli."""
+        hwnd = getattr(self, "_chwnd", None)
+        if not hwnd:
+            return True
+        try:
+            u32 = ctypes.windll.user32
+            gdi = ctypes.windll.gdi32
+            rc = wintypes.RECT()
+            if not u32.GetWindowRect(hwnd, ctypes.byref(rc)):
+                return True
+            w, h = rc.right - rc.left, rc.bottom - rc.top
+            if w < 50 or h < 50:
+                return True
+            hdc = u32.GetWindowDC(hwnd)
+            mem = gdi.CreateCompatibleDC(hdc)
+            bmp = gdi.CreateCompatibleBitmap(hdc, w, h)
+            gdi.SelectObject(mem, bmp)
+            ok = u32.PrintWindow(hwnd, mem, 2)   # 2 = RENDERFULLCONTENT
+            warna = []
+            for i in range(6):
+                for j in range(4):
+                    c = gdi.GetPixel(mem,
+                                     8 + i * (w - 16) // 5,
+                                     8 + j * (h - 16) // 3)
+                    warna.append(int(c) & 0xFFFFFF)
+            gdi.DeleteObject(bmp)
+            gdi.DeleteDC(mem)
+            u32.ReleaseDC(hwnd, hdc)
+            if not ok:
+                return True
+            unik = set(warna)
+            if len(unik) <= 2:
+                terang = max(warna)
+                if terang < 0x202020:
+                    return True    # hitam total = capture gagal
+                return False       # putih polos = belum render
+            return len(unik) >= 6
+        except Exception:
+            return True
+
     def _gp_pantau(self, nama, n):
-        """Pantau langsung webview (.NET, bukan CDP watcher): judul
-        stabil 3x berturut = halaman hidup, lalu tahan cover ±1 dtk
-        lagi biar SPA selesai render (dulu kedip putih-hitam-putih
-        sempat terlihat, keluhan user 21 Nov). Habis dispose, koneksi
-        CDP watcher bisa mati diam - pantauan .NET ini yang dipakai.
-        Gerbang piksel (PrintWindow) sudah dicoba (v40) = rapuh di
-        webview tersembunyi: 45 dtk watchdog + layar hitam."""
+        """Pantau langsung webview (.NET): judul stabil 3x berturut +
+        PIKSEL konten nyata (putih/hitam polos = belum render - gerbang
+        piksel dipulihkan dgn webview offscreen; v40 bocor karena
+        webview disembunyikan = capture hitam palsu). 'siap' HANYA
+        menandai - bar merayap ke 100% lalu menutup cover."""
         siap = False
         try:
             core = self._ec.webview.CoreWebView2
@@ -1186,7 +1248,7 @@ class Wv2Host(tk.Frame):
             if "edclub" in src and ttl and "about:blank" not in src:
                 if ttl == getattr(self, "_gp_ttl", None):
                     self._gp_ct = getattr(self, "_gp_ct", 0) + 1
-                    if self._gp_ct >= 3:
+                    if self._gp_ct >= 3 and self._webview_isi_ada():
                         siap = True
                 else:
                     self._gp_ct = 0
@@ -1194,15 +1256,13 @@ class Wv2Host(tk.Frame):
         except Exception:
             pass
         if siap:
-            def tamat():
-                self._pcv_selesai = True
-                self._gp_selesai(nama)
-            self.after(1000, tamat)
+            self._pcv_selesai = True     # bar yang menutup, bukan ini
+            self.after(1500, lambda: self._gp_selesai(nama))
             return
-        if n < 80:
+        if n < 120:
             self.after(500, lambda: self._gp_pantau(nama, n + 1))
             return
-        self.after(1500, lambda: self._gp_selesai(nama))
+        self._pcv_selesai = True         # lewat batas - bar yang tutup
 
     def _gp_selesai(self, nama):
         # cover ditutup oleh _pcv_selesai (pill/login page terdeteksi

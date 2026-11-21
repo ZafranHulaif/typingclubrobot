@@ -868,9 +868,6 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
 
         # posisi: menempel di bawah tombol 🪲 (ala popover akun)
         self._pop_tempatkan(pop, self.btn_bug)
-        pop.after(1000, jaga)
-
-        self._pop_tempatkan(pop, self.btn_bug)
         self._pop_angkat(pop)
         self._pop_jaga_diam(pop, "_bug_pop", tutup, 60)
         self._pop_klik_global(pop, "_bug_pop", tutup, self.btn_bug)
