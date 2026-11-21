@@ -1,14 +1,100 @@
-# Notes for AI agents working in this repo
+# TypingBot — context for AI coding agents (canonical)
 
-## Toolchain (IMPORTANT)
+This is THE context file. T3 Code (pi) loads it automatically from the repo
+root in every thread; Claude Code loads `CLAUDE.md`, which just points here.
+Read it first — everything below is settled knowledge from months of live
+debugging. Do not re-derive it, do not violate it.
+
+## What this project is
+TypingBot is a Windows desktop app that automates typing practice on
+edclub.com (TypingClub) — types lessons/games at up to 400 WPM, farms stars,
+multi-account, distributed as a single exe to a small group of users.
+Licensing + updates + bug reports run through a Cloudflare Worker backend.
+
+- Current line: `3.5.5-dev21`, branch `qol-edge` (pending merge → `main` = 3.5.5 final).
+- Owner is not a professional developer. Explain decisions simply. UI text for
+  end users: plain friendly Indonesian, NO em dashes, no technical jargon.
+
+## Tech stack (and what it is NOT)
+- Python 3.14, **Tkinter** UI (`gui/`), **pywebview EdgeChrome** embedding a
+  WebView2 browser in-app (edclub renders inside the window).
+- Automation = **CDP** (Chrome DevTools Protocol): playwright connects to the
+  embedded WebView2 debug port and drives/injects JS.
+- **PyInstaller is only the packager** (python → exe). There is no app
+  framework; the UI is raw Tkinter — this is THE main UX limitation.
+- **Windows-only** (current app): WebView2, pythonnet, Win32 calls. Cannot
+  build or run on Linux. NOTE: `bot_web.py` is an existing CROSS-PLATFORM
+  web edition (headless/system Chromium via playwright, web panel on
+  localhost:8765, macOS/Linux/Windows/Termux) — platform-independent
+  automation already exists in-repo.
+
+## Repo map (battle-tested — do not rewrite blindly)
+- `engine/` — automation core (framework-independent, KEEP): `browser.py`
+  (playwright session, typing w/ per-letter delays), `jstemplates.py`,
+  `lessons/` (standard/games/ocr/video), `levels.py`, `session.py`,
+  `supervisor.py`, `state.py`, `typing_core.py`, `hotkeys.py`, `recovery.py`.
+- `gui/` — Tkinter shell (THE REWRITE TARGET, full of accumulated patches):
+  `app.py` (main window), `launch.py` (boot + account popover),
+  `webview2_host.py` (WebView2 host, boot/switch cover machine, OAuth
+  interception, playwright watcher), `widgets.py`, `theme.py` (APP_VERSION,
+  colors), `dialogs.py`, `activity.py`, `translator.py`, `meisweep.py`.
+- `net/` — licensing (Ed25519 tokens; legacy HMAC still valid) + updater
+  (`parse_version` strips `-devN`).
+- `server/` — Cloudflare Worker backend: `worker.js` (API + exe stored as
+  <20MiB KV chunks — **exe must stay < ~95MB**), `publish.py`, `wrangler.toml`
+  (`keep_vars=true`, secrets ADMIN_KEY/LAPOR_HOOK/LAPOR_HOOK_TOKEN),
+  `local_server.py` (dev backend), `API.md`, `DEPLOY.md`.
+- `bot_gui.py` / `autopilot_pw.py` — facade entry points (old import paths
+  must keep working; tests monkeypatch through them).
+- `paths.py` — frozen app stores user data in `%LOCALAPPDATA%/TypingBot`
+  (license.dat, settings, profiles, bot.log), never beside the exe.
+- `tests/` — `_test_net.py` (122 tests), `_test_profile_ui.py` (30),
+  `_test_rentang_ui.py`, `_test_harness.py` (e2e accuracy, ~90s, must end
+  with "AKURASI 100% di semua skenario.").
+
+## Hard-won constraints (each line below = a crash/regression we already paid for)
+- **NEVER add .NET→Python event callbacks** (GIL crash, PyEval_RestoreThread).
+  Poll from the Tk thread or read .NET properties directly. Playwright
+  evaluate is the only injection path proven to work reliably. The same ban
+  applies to any future Dart/Flutter↔Python bridge: request/response only,
+  never callbacks across the boundary.
+- Google pages enforce Trusted Types CSP: `innerHTML` blocked — use
+  `textContent` / `createElementNS`.
+- Google OAuth is intercepted **in-app**: `window.open` must be stubbed BEFORE
+  navigation (document born with the stub), real popup windows are adopted as
+  children, and covers hide all transitions. Do not "simplify" this away.
+- edclub `rt` refresh token is single-use — never race the rotation.
+- Cloudflare WAF blocks non-browser User-Agents — admin/API scripts need
+  `User-Agent: Mozilla/5.0 ... TypingBot-admin/1.0`.
+- PrintWindow on hidden/offscreen WebView2 returns fake black — pixel gating
+  is dead forever. DOM/title/.NET-property gates only.
+- `pop.grab_set()` eats all clicks outside a popover — click-outside close is
+  a global poller, never grab.
+- Multi-account: per-account data jars under
+  `%LOCALAPPDATA%/TypingBot/profil-akun/<name>`; a pre-warmed spare webview
+  makes switching instant (cold start was slow — fixed in dev21).
+- Lesson-list skips must be STRICTLY in order (skip locked rows only).
+- Release notes on GitHub are ENGLISH ("## Fixes in X.Y.Z", bold bullet
+  leads) even though code comments/UI are Indonesian.
+
+## Conventions
+- Identifiers English; comments casual short Indonesian; user-facing strings
+  plain friendly Indonesian.
+- Commits: Indonesian summary + trailer `Assisted-by: Crush (AI agents)`.
+- Dev workflow: bump `APP_VERSION` (`"3.5.5-devN"`) in `gui/theme.py` per
+  build on `qol-edge`; on merge → `main`, version becomes clean `3.5.5`,
+  GitHub release + `server/publish.py` to the worker.
+- Never push without explicit user ask; never commit gitignored `_*.py`.
+- Facades `bot_gui.py` / `autopilot_pw.py` keep old import paths working.
+
+## Toolchain & verify chain (Windows machine only)
 The `python` on PATH inside the shell is msys (no pip, no PyInstaller).
 The real interpreter is the manager shim:
 `C:/Users/ACER/AppData/Local/Python/bin/python.exe` (3.14.4 + PyInstaller
 + cryptography). Pin it as PY for tests, harness and builds.
 
-## Verify chain (run before declaring victory)
 1. `"$PY" -W error::SyntaxWarning -m py_compile bot_gui.py autopilot_pw.py gui/*.py engine/*.py engine/lessons/*.py net/*.py server/local_server.py server/publish.py server/gen_keys.py`
-2. Suites (each writes `_uitest.txt` in "w" mode - snapshot after EACH):
+2. Suites (each writes `_uitest.txt` in "w" mode — snapshot after EACH):
    `"$PY" -X utf8 tests/_test_<name>.py > _st.txt 2>&1` then copy
    `_uitest.txt` to `_out_<name>.txt`. Suites: ui_polish profile_ui
    rentang_ui rentang_validasi resume_list login_patrol port_luwes net.
@@ -16,52 +102,54 @@ The real interpreter is the manager shim:
    "AKURASI 100% di semua skenario."
 4. Build: taskkill TypingBot.exe first (a running app LOCKS the exe and
    PyInstaller can report success while the file stays stale!), then
-   `"" -m PyInstaller --onefile --windowed --name TypingBot --icon docs/logo.ico --add-data "docs/logo.png;assets" --add-data "docs/logo.ico;assets" --version-file version_info.txt --exclude-module cv2 --clean --noconfirm bot_gui.py`
-   (logo.ico MUST be bundled: gui/theme.py `_asset_path("logo.ico")` only
-   finds it under _MEIPASS/assets - without it the window/taskbar icon
-   falls back to the default Tk logo even though the exe icon is right.)
+   `"$PY" -m PyInstaller --onefile --windowed --name TypingBot --icon docs/logo.ico --add-data "docs/logo.png;assets" --add-data "docs/logo.ico;assets" --version-file version_info.txt --exclude-module cv2 --collect-all webview --collect-all pythonnet --collect-all clr_loader --clean --noconfirm bot_gui.py`
+   (logo.ico MUST be bundled: `gui/theme.py` `_asset_path("logo.ico")` only
+   finds it under _MEIPASS/assets.)
 5. PYZ check via CArchiveReader + open_embedded_archive('PYZ.pyz').
 6. Smoke: run exe 25s, require "Modul bot dimuat" line in
    `%LOCALAPPDATA%/TypingBot/bot.log` (frozen app writes its log there,
-   NOT next to the exe anymore; empty log = false pass, that hid a
-   startup crash once).
+   NOT next to the exe; empty log = false pass).
 
-## Conventions
-- Identifiers English; comments casual short Indonesian; user-facing
-  strings plain friendly Indonesian (translator layer converts engine log).
-- Facades autopilot_pw.py / bot_gui.py must keep old import paths working
-  (test suites + monkeypatching depend on owner-routing shim).
-- Commit trailer: `Assisted-by: Crush (AI agents)` (neutral, no model).
-- Release notes (GitHub `gh release` AND worker publish --notes) are
-  ENGLISH, format "## Fixes in X.Y.Z" with bold bullet leads - even
-  though code comments/UI are Indonesian (drifted to Indonesian in
-  2.8.4; owner noticed, fixed).
-- Never push without explicit user ask; never commit gitignored `_*.py`.
-- Frozen app keeps user data (license.dat, typingbot_settings.json,
-  level_map.json, server_url.txt, bot.log) in `%LOCALAPPDATA%/TypingBot`
-  via paths.py (dev mode: repo root). First frozen run migrates old files
-  from beside the exe and creates a Start Menu shortcut `TypingBot`
-  (friend request: exe folder must stay clean, no installer).
-- Field bug reports: read `%LOCALAPPDATA%/TypingBot/bot.log` (2.9.23+),
-  or dist/bot.log for older builds.
-- Lesson-list skips must be STRICTLY in order: `_goto_next_lesson_in_list`
-  only skips locked rows, never `has_progress` rows (2.9.22 and older
-  jumped 16-17 levels per skip; owner rejected).
-
-## Online features (v2.7)
-- net/ client + server/ backend, contract in server/API.md.
+## Online features / backend ops
+- `net/` client + `server/` backend, contract in `server/API.md`.
 - Local dev backend: `"$PY" -X utf8 server/local_server.py` (auto-generates
-  server/_signing.json Ed25519 keypair; pub key picked up by net.license
+  `server/_signing.json` Ed25519 keypair; pub key picked up by `net.license`
   when TYPINGBOT_SERVER_PUBKEY unset and not frozen).
-- Production deploy guide: server/DEPLOY.md (Cloudflare Worker + KV only,
-  no R2 and no credit card: the exe is stored as 20 MiB KV chunks in
-  META; Worker free plan body limit means exe must stay under ~95 MB).
-- Release flow: build exe -> `"$PY" server/publish.py dist/TypingBot.exe
-  --version X.Y --notes "..."` (url/admin key from server/_admin.json).
-- If publish 503s repeatedly while /api/latest still reads fine: capture
-  the error body - `error code: 1102` = the worker exceeded resources on
-  the 70 MB upload at YOUR nearest POP (live: Jakarta CGK under
-  maintenance). Fix: route through a VPN/other region and re-run publish.
-  CF-RAY footer in the error shows the POP.
+- Production deploy guide: `server/DEPLOY.md` (Cloudflare Worker + KV only;
+  exe stored as 20 MiB KV chunks in META; Worker free plan body limit means
+  exe must stay under ~95 MB).
+- Release flow: build exe → `"$PY" server/publish.py dist/TypingBot.exe
+  --version X.Y --notes "..."` (url/admin key from `server/_admin.json`).
+- If publish 503s repeatedly while /api/latest still reads fine: capture the
+  error body — `error code: 1102` = worker exceeded resources on the ~70 MB
+  upload at YOUR nearest POP. Fix: route through a VPN/other region and
+  re-run publish. CF-RAY footer in the error shows the POP.
 - Old manual HMAC keys stay valid; token files are one-line JSON in
   license.dat (sniffed by leading "{").
+- Bug-report webhook → realtime developer thread (worker LAPOR_HOOK).
+
+## Feature status (works today — don't regress)
+Boot cover → logged-in dashboard with no flash; multi-account switching
+(pre-warmed spare webview, per-account jars); in-app Google OAuth with
+full-cover transitions; bug-report button → realtime developer thread
+(worker webhook); update pill for old versions; Ed25519 licensing;
+level-range plans; games / OCR / video lessons; Indonesian UI strings via
+translator layer.
+
+## Roadmap (owner's current mission)
+1. **UI shell rebuild (Flutter — owner's choice)**: Flutter desktop app
+   renders ALL chrome in Material 3 (seeded dark scheme, two fonts, motion
+   spec, responsive). A Python sidecar keeps hosting the embedded WebView2
+   exactly as today (cover/OAuth machinery survives) behind an IPC bridge
+   (local WebSocket/stdio JSON, request-response — NEVER callbacks, see GIL
+   rule). WebView2 HWND re-parented into the Flutter Win32 window (same
+   SetParent trick used with Tk in `webview2_host.py`). `bot_web.py` (see
+   Tech stack) is the seed of the cross-platform sidecar — the Flutter UI
+   can drive it on any OS; the Windows-embedded WebView2 edition remains
+   the flagship experience.
+2. **Star-target feature**: per-level star goal (1–5). Research where edclub
+   keeps star thresholds; preferred mechanism = control the INPUT (typing
+   speed + deliberate typos), not stat patching. Batch plan editor
+   (e.g. 100–200=5★, 201–400=5★, 401–600=4★, 601–685=3★), editable, persisted.
+3. **UX polish pass**: progressive disclosure, empty states, micro-feedback,
+   referencing emilkowalski/skills (github.com/emilkowalski/skills).
