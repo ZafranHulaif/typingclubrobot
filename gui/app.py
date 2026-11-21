@@ -209,7 +209,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # fill="y" SAJA (dulu fill both + expand = chip melar memenuhi
         # seluruh kanan - 'why is it so wide lol', user 21 Nov) - lebar
         # alami: 🪲 ~45px, akun tetap 16 karakter (lebar tak berubah)
-        self.btn_bug.pack(side="left", fill="y", padx=(0, 8))
+        # (pack dipindah SETELAH btn_akun - lihat komentar di bawah)
         self.btn_bug.bind("<Enter>", lambda e: self.btn_bug.configure(
             fg="#e8eaf0", bg=CARD_HOVER))
         self.btn_bug.bind("<Leave>", lambda e: self.btn_bug.configure(
@@ -228,7 +228,11 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
             self.btn_akun.configure(width=16, anchor="center")
         except Exception:
             pass
-        self.btn_akun.pack_configure(fill="y")
+        # RATA KANAN (user 21 Nov: tepi akun beda dgn tepi webview):
+        # side=right - yang PERTAMA dipack paling kanan. Akun tepat di
+        # tepi kanan = sejajar tepi webview; bug di kirinya.
+        self.btn_akun.pack_configure(side="right", fill="y")
+        self.btn_bug.pack(side="right", fill="y", padx=(0, 8))
         self.btn_akun["state"] = "disabled"
         self._akun_perlu_login = None
         # v3.2: tombol Pulihkan & ❓ DIHAPUS (permintaan user) - Pulihkan
@@ -303,7 +307,7 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         # 'remove all old states'). State cukup lewat header.
         self.host = Wv2Host(
             root, paths.data_path("wv2profile"))  # sandbox ikut mode SIM
-        self.host.pack(fill="both", expand=True, padx=18, pady=(0, 2))
+        self.host.pack(fill="both", expand=True, padx=18, pady=(10, 2))
         tengah = tk.Frame(self.host, bg=PANEL)
         # panggung animasi status: sprite per status + crossfade antar status
         self._stage_kan = tk.Canvas(tengah, width=460, height=56, bg=PANEL,
@@ -692,9 +696,19 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
         _th.Thread(target=kerja, daemon=True).start()
 
     def _lapor_bug(self):
-        """Buka form lapor bug (dialog tile kategori wajib + cerita
-        opsional). Kirim = _lapor_kiriman (otomatis via server)."""
-        import threading as _th
+        """Popover LAPOR BUG ala popover akun (permintaan user 21 Nov:
+        'make it like the accounts, only showing hanging from the
+        button'): menempel di bawah tombol lapor, klik lagi = tutup,
+        klik luar = tutup, baris hover terang, terpilih = border
+        ACCENT + tanda centang. Kirim = _lapor_kiriman (otomatis)."""
+        # TOGGLE: klik kedua pada tombol menutup popover (ala akun)
+        if getattr(self, "_bug_pop", None) is not None:
+            try:
+                self._bug_pop.destroy()
+            except Exception:
+                pass
+            self._bug_pop = None
+            return
         if time.time() - getattr(self, "_lapor_terakhir", 0.0) < 60:
             self._log("[LAPOR] baru saja mengirim - tunggu ~1 menit "
                       "(anti-spam).")
@@ -702,21 +716,162 @@ class App(ActivityMixin, LaunchMixin, DevMixin):
                             ACCENT)
             return
 
-        def kirim(kategori, deskripsi, selesai):
-            self._lapor_kiriman(kategori, deskripsi, selesai)
+        pop = tk.Toplevel(self.root)
+        pop.overrideredirect(True)
+        pop.configure(bg=PANEL, highlightthickness=1,
+                      highlightbackground=EDGE)
 
-        try:
-            from .dialogs import dialog_lapor_bug
-            dialog_lapor_bug(self.root, kirim)
-        except Exception as e:
-            self._log(f"[LAPOR] dialog gagal: {str(e)[:90]}")
+        def tutup(alasan=""):
+            if getattr(self, "_bug_pop", None) is not pop:
+                return
+            self._bug_pop = None
+            try:
+                pop.grab_release()
+            except Exception:
+                pass
+            try:
+                pop.destroy()
+            except Exception:
+                pass
+            if alasan:
+                self._log("[LAPOR] popover ditutup (" + alasan + ")")
 
+        pop.bind("<Escape>", lambda e: tutup(alasan="esc"))
 
+        # kepala caption ala 'A K U N   E D C L U B'
+        kepala = tk.Frame(pop, bg=PANEL)
+        kepala.pack(fill="x", padx=16, pady=(12, 6))
+        tk.Label(kepala, text="L A P O R   B U G",
+                 font=("Segoe UI", 9, "bold"), fg=FAINT,
+                 bg=PANEL).pack(anchor="w")
 
+        badan = tk.Frame(pop, bg=PANEL)
+        badan.pack(fill="x", padx=10)
 
+        kategori = [
+            "Kedip hitam / layar berkedip",
+            "Login ulang terus",
+            "Level macet / tidak lanjut",
+            "Game tidak jalan",
+            "Ganti akun bermasalah",
+            "Lambat / loading lama",
+            "Salah ketik / hasil salah",
+            "Tombol tidak merespons",
+            "Lainnya",
+        ]
+        pilih = {"nama": None}
 
+        def tandai(nama):
+            # refresh tanda centang ala baris akun '✓ aktif':
+            # terpilih = tint biru + border ACCENT + hijau
+            for b, nm, lab in getattr(pop, "_baris", []):
+                aktif = (nm == nama)
+                bg = "#16233a" if aktif else CARD
+                b.configure(bg=bg, highlightbackground=ACCENT if aktif
+                            else EDGE)
+                lab.configure(text=("✓  " + nm) if aktif else nm,
+                              fg=GREEN if aktif else DIM, bg=bg)
+            pilih["nama"] = nama
 
+        def baris_kat(parent, nm):
+            baris = tk.Frame(parent, bg=CARD, highlightthickness=1,
+                             highlightbackground=EDGE, cursor="hand2")
+            baris.pack(fill="x", pady=3, ipady=7, padx=4)
+            lab = tk.Label(baris, text=nm, font=("Segoe UI", 10, "bold"),
+                           fg=DIM, bg=CARD)
+            lab.pack(side="left", padx=(12, 0))
 
+            def klik(_e=None):
+                tandai(nm)      # popover tetap terbuka (ala akun)
+
+            def masuk(_e):
+                aktif = (pilih["nama"] == nm)
+                bg = "#1d2c49" if aktif else CARD_HOVER
+                for w in (baris, lab):
+                    try:
+                        w.configure(bg=bg)
+                    except Exception:
+                        pass
+
+            def keluar(_e):
+                aktif = (pilih["nama"] == nm)
+                bg = "#16233a" if aktif else CARD
+                for w in (baris, lab):
+                    try:
+                        w.configure(bg=bg)
+                    except Exception:
+                        pass
+
+            for w in (baris, lab):
+                w.bind("<Enter>", masuk)
+                w.bind("<Leave>", keluar)
+                w.bind("<Button-1>", klik)
+            pop._baris = getattr(pop, "_baris", []) + [(baris, nm, lab)]
+
+        for nm in kategori:
+            baris_kat(badan, nm)
+
+        # cerita opsional
+        tk.Label(badan, text="Apa yang terjadi? (opsional)",
+                 font=("Segoe UI", 9), fg=DIM, bg=PANEL
+                 ).pack(anchor="w", padx=(6, 0), pady=(8, 2))
+        cerita = tk.Text(badan, height=3, font=("Segoe UI", 10),
+                         fg=FG, bg=CARD, relief="flat",
+                         highlightthickness=1, highlightbackground=EDGE,
+                         insertbackground=FG, padx=8, pady=6)
+        cerita.pack(fill="x", pady=3, padx=4)
+
+        status = tk.Label(pop, text="", font=("Segoe UI", 9),
+                          fg=DIM, bg=PANEL)
+        status.pack(anchor="w", padx=16, pady=(4, 0))
+
+        def kirim(_e=None):
+            if not pilih["nama"]:
+                status.configure(text="Pilih masalah dulu (tandai ✓).",
+                                 fg=RED)
+                return
+            teks = cerita.get("1.0", "end").strip()[:2000]
+            btn_kirim.configure(text="Mengirim…", fg=DIM, bg=CARD,
+                                cursor="arrow")
+            btn_kirim.unbind("<Button-1>")
+            status.configure(text="mengirim laporan + log…", fg=DIM)
+
+            def cb(ok, pesan):
+                def ui():
+                    try:
+                        status.configure(
+                            text=("✓ " if ok else "⚠ ") + pesan,
+                            fg=GREEN if ok else YELLOW)
+                        if ok:
+                            self._lapor_terakhir = time.time()
+                            pop.after(1400, tutup)
+                        else:
+                            btn_kirim.configure(text="Kirim", fg=BTN_FG,
+                                                bg=ACCENT, cursor="hand2")
+                            btn_kirim.bind("<Button-1>", kirim)
+                    except Exception:
+                        pass
+                pop.after(0, ui)
+            self._lapor_kiriman(pilih["nama"], teks, cb)
+
+        btn_kirim = tk.Label(badan, text="Kirim",
+                             font=("Segoe UI", 10, "bold"),
+                             fg=BTN_FG, bg=ACCENT, pady=8,
+                             cursor="hand2")
+        btn_kirim.pack(fill="x", pady=(6, 4), padx=4, ipady=2)
+        btn_kirim.bind("<Button-1>", kirim)
+        btn_kirim.bind("<Enter>", lambda _e: btn_kirim.configure(
+            bg=GREEN_HOVER))
+        btn_kirim.bind("<Leave>", lambda _e: btn_kirim.configure(
+            bg=ACCENT))
+
+        # posisi: menempel di bawah tombol 🪲 (ala popover akun)
+        self._pop_tempatkan(pop, self.btn_bug)
+        self._pop_angkat(pop)
+        self._pop_jaga_diam(pop, "_bug_pop", tutup, 60)
+        self._pop_klik_global(pop, "_bug_pop", tutup, self.btn_bug)
+        self._bug_pop = pop
+        self._log("[LAPOR] popover lapor bug dibuka (pilih masalah).")
 
     def _apply_speed(self, wpm, save=False):
         """Terapkan wpm (halus, 85-300) ke chip, dial (bila terbuka), dan
