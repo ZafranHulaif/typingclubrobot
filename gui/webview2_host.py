@@ -1096,6 +1096,7 @@ class Wv2Host(tk.Frame):
         (permintaan user 19 Nov). WAJIB thread UI (CLR STA)."""
         self._pcv_buka(nama or os.path.basename(folder))
         self._gp_ttl = ""
+        self._gp_ct = 0
         self._profil = folder
         try:
             os.makedirs(folder, exist_ok=True)
@@ -1169,67 +1170,34 @@ class Wv2Host(tk.Frame):
                 pass
         self.after(1200, lambda: self._gp_pantau(nama, 0))
 
-    def _webview_isi_ada(self):
-        """True kalau webview SUDAH menggambar konten nyata - sampling
-        PrintWindow + GetPixel: halaman putih polos / hitam polos (SPA
-        edclub belum render) = False. Cover ganti akun menunggu sinyal
-        ini, bukan cuma judul halaman - dulu cover nutup saat judul
-        sudah muncul padahal layar masih putih lalu kedip
-        putih-hitam-putih (keluhan user 21 Nov)."""
-        hwnd = getattr(self, "_chwnd", None)
-        if not hwnd:
-            return True      # tak ada yang dicek = anggap siap
-        try:
-            u32 = ctypes.windll.user32
-            gdi = ctypes.windll.gdi32
-            rc = wintypes.RECT()
-            if not u32.GetWindowRect(hwnd, ctypes.byref(rc)):
-                return True
-            w, h = rc.right - rc.left, rc.bottom - rc.top
-            if w < 50 or h < 50:
-                return True
-            hdc = u32.GetWindowDC(hwnd)
-            mem = gdi.CreateCompatibleDC(hdc)
-            bmp = gdi.CreateCompatibleBitmap(hdc, w, h)
-            gdi.SelectObject(mem, bmp)
-            u32.PrintWindow(hwnd, mem, 2)   # 2 = RENDERFULLCONTENT
-            warna = set()
-            for i in range(6):
-                for j in range(4):
-                    c = gdi.GetPixel(mem,
-                                     8 + i * (w - 16) // 5,
-                                     8 + j * (h - 16) // 3)
-                    warna.add(int(c) & 0xFFFFFF)
-            gdi.DeleteObject(bmp)
-            gdi.DeleteDC(mem)
-            u32.ReleaseDC(hwnd, hdc)
-            if len(warna) <= 1 and 0 in warna:
-                return True   # semua hitam = PrintWindow gagal (tersembunyi)
-            return len(warna) >= 6
-        except Exception:
-            return True       # gagal cek = jangan sampai cover nyangkut
-
     def _gp_pantau(self, nama, n):
         """Pantau langsung webview (.NET, bukan CDP watcher): judul
-        stabil 2x berturut + PIKSEL konten nyata (bukan putih/hitam
-        polos) = halaman hidup = cover selesai. Habis dispose, koneksi
-        CDP watcher bisa mati diam; judul saja pun belum berarti
-        render selesai (kedip putih-hitam, keluhan user 21 Nov)."""
+        stabil 3x berturut = halaman hidup, lalu tahan cover ±1 dtk
+        lagi biar SPA selesai render (dulu kedip putih-hitam-putih
+        sempat terlihat, keluhan user 21 Nov). Habis dispose, koneksi
+        CDP watcher bisa mati diam - pantauan .NET ini yang dipakai.
+        Gerbang piksel (PrintWindow) sudah dicoba (v40) = rapuh di
+        webview tersembunyi: 45 dtk watchdog + layar hitam."""
         siap = False
         try:
             core = self._ec.webview.CoreWebView2
             src = str(getattr(core, "Source", "") or "")
             ttl = str(getattr(core, "DocumentTitle", "") or "").strip()
             if "edclub" in src and ttl and "about:blank" not in src:
-                if (ttl == getattr(self, "_gp_ttl", None)
-                        and self._webview_isi_ada()):
-                    siap = True
+                if ttl == getattr(self, "_gp_ttl", None):
+                    self._gp_ct = getattr(self, "_gp_ct", 0) + 1
+                    if self._gp_ct >= 3:
+                        siap = True
+                else:
+                    self._gp_ct = 0
                 self._gp_ttl = ttl
         except Exception:
             pass
         if siap:
-            self._pcv_selesai = True
-            self.after(1500, lambda: self._gp_selesai(nama))
+            def tamat():
+                self._pcv_selesai = True
+                self._gp_selesai(nama)
+            self.after(1000, tamat)
             return
         if n < 80:
             self.after(500, lambda: self._gp_pantau(nama, n + 1))
