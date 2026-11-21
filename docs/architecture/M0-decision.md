@@ -1,6 +1,6 @@
 # M0: Flutter rebuild, architecture decision
 
-Status: APPROVED by owner 2026-11-21 (v2, after the Fable advisor review). Pause button: yes. Written 2026-11-21 against `qol-edge` @ a86d3f4 (3.5.5-dev21).
+Status: §2-§5 SUPERSEDED by `v4-native-plan.md` (owner chose native, 2026-11-21). Originally APPROVED by owner 2026-11-21 (v2, after the Fable advisor review). Pause button: yes. Written 2026-11-21 against `qol-edge` @ a86d3f4 (3.5.5-dev21).
 
 ## TL;DR
 

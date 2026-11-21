@@ -139,20 +139,15 @@ full-cover transitions; bug-report button → realtime developer thread
 level-range plans; games / OCR / video lessons; Indonesian UI strings via
 translator layer.
 
-## Roadmap (owner's current mission)
-1. **UI shell rebuild (Flutter — owner's choice)**: Flutter desktop app
-   renders ALL chrome in Material 3 (seeded dark scheme, two fonts, motion
-   spec, responsive). A Python sidecar keeps hosting the embedded WebView2
-   exactly as today (cover/OAuth machinery survives) behind an IPC bridge
-   (local WebSocket/stdio JSON, request-response — NEVER callbacks, see GIL
-   rule). WebView2 HWND re-parented into the Flutter Win32 window (same
-   SetParent trick used with Tk in `webview2_host.py`). `bot_web.py` (see
-   Tech stack) is the seed of the cross-platform sidecar — the Flutter UI
-   can drive it on any OS; the Windows-embedded WebView2 edition remains
-   the flagship experience.
-2. **Star-target feature**: per-level star goal (1–5). Research where edclub
-   keeps star thresholds; preferred mechanism = control the INPUT (typing
-   speed + deliberate typos), not stat patching. Batch plan editor
-   (e.g. 100–200=5★, 201–400=5★, 401–600=4★, 601–685=3★), editable, persisted.
-3. **UX polish pass**: progressive disclosure, empty states, micro-feedback,
-   referencing emilkowalski/skills (github.com/emilkowalski/skills).
+## Roadmap (owner's current mission) - v4, branch `v4`
+**Read `docs/architecture/v4-native-plan.md` first.** v4 = one native Flutter
+Windows app: Dart UI (done, approved), Dart engine ported from `engine/*.py`
+(JS payloads reused verbatim), Dart net port, C++ runner hosting WebView2
+(env per account jar, CDP via CallDevToolsProtocolMethod). The Python
+sidecar route in `M0-decision.md` §2-§5 is SUPERSEDED (owner, 2026-11-21).
+Python code stays as the spec + 3.5.x hotfix line until parity.
+UI rules the owner approved: minimal tool (no bloat), status shown once in
+a control capsule, single Mulai/Stop toggle (no pause), no hotkeys, small
+corners, Emil Kowalski motion rules, plan = tiles of level ranges with star
+targets (perak = top grade), active segment + next 2 levels locked while
+running. Preview on the VPS: `ui/tool/preview.sh` (memory-capped build!).
