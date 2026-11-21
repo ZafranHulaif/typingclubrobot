@@ -861,6 +861,8 @@ class Wv2Host(tk.Frame):
         except Exception:
             pass
         self._ec = None          # EdgeChrome (pywebview)
+        self._spare = None       # webview cadangan hangat (pre-warm)
+        self._spare_port = 9333  # port CDP cadangan (putar 9333-9342)
         self._chwnd = None       # hwnd kontrol WinForms
         self._on_ready = None
         self._jaga_job = None
@@ -1164,7 +1166,173 @@ class Wv2Host(tk.Frame):
             os.makedirs(folder, exist_ok=True)
         except Exception:
             pass
+        sp = getattr(self, "_spare", None)
+        if (sp is not None and sp.get("folder") == folder
+                and sp.get("siap")):
+            return self._ganti_spare(folder, url, nama, sp)
         self.after(80, lambda: self._gp_dispose(folder, url, nama))
+
+    def _buang_ec(self, ec):
+        """Buang webview (dipanggil belakangan, bukan di jalur kritis
+        ganti akun) - Dispose tetap WAJIB thread UI (CLR STA)."""
+        if ec is None:
+            return
+        try:
+            ec.webview.Dispose()
+        except Exception:
+            pass
+
+    def _ganti_spare(self, folder, url, nama, sp):
+        """Tukar ke webview cadangan yang sudah hangat: tanpa siklus
+        dispose->tunggu-port->bangun-baru yang bikin ganti akun terasa
+        lambat saat cold start (keluhan user 21 Nov)."""
+        self._pcv_log("tukar ke webview cadangan (hangat)")
+        self._pcv_info_set("hampir selesai…")
+        self._pcv_target_set(60)
+        ec_lama = self._ec
+        self._ec = sp["ec"]
+        self._chwnd = sp["hwnd"]
+        self._spare = None
+        # webview baru = handler popup pywebview terpasang lagi ->
+        # _jaga mencabut ulang (aturan v50)
+        self._popup_unsub = False
+        self._anti_ct = 0
+        user32.SetParent(self._chwnd, self.winfo_id())
+        self._pas_ukuran()
+        try:
+            user32.ShowWindow(self._chwnd, 0)   # tetap tersembunyi,
+            # PCV cover yang membuka saat halaman siap
+        except Exception:
+            pass
+        # port CDP milik proses cadangan -> pengawas & engine ikut ini
+        try:
+            from engine import state as estate
+            estate.DEBUG_PORT = sp["port"]
+        except Exception:
+            pass
+        try:
+            self.hentikan_pengawas()
+        except Exception:
+            pass
+        try:
+            self.mulai_pengawas(sp["port"])
+        except Exception:
+            pass
+        self.after(300, lambda: self._gp_nav(folder, url, nama, 0))
+        # webview lama dibuang belakangan, cadangan baru dibangun utk
+        # profil yang baru ditinggalkan (bolak-balik akun = selalu hangat)
+        self.after(4000, lambda: self._buang_ec(ec_lama))
+        self.after(15000, self._siapkan_cadangan)
+
+    def _siapkan_cadangan(self):
+        """Pre-warm webview cadangan utk profil akun LAIN yang paling
+        akhir dipakai. Konstruksi EdgeChrome mahal (2-6 dtk) dikerjakan
+        SAAT IDLE, bukan saat user nunggu ganti akun. Thread UI (CLR
+        STA) - freeze singkat thread Tk tidak mengganggu webview
+        (input/render webview di proses browser sendiri)."""
+        if getattr(self, "_spare", None) is not None:
+            return
+        if self._ec is None:
+            return
+        try:
+            akar = os.path.dirname(self._profil)
+            kandidat = []
+            for nm in os.listdir(akar):
+                fol = os.path.join(akar, nm)
+                if nm == os.path.basename(self._profil):
+                    continue
+                if not os.path.isdir(fol):
+                    continue
+                kandidat.append((os.path.getmtime(fol), fol))
+            if not kandidat:
+                return
+            kandidat.sort(reverse=True)
+            folder = kandidat[0][1]
+            self._bikin_cadangan(
+                folder, "https://www.edclub.com/student/course/3")
+        except Exception as ex:
+            print(f"[AKUN] pre-warm gagal: {str(ex)[:80]}")
+
+    def _bikin_cadangan(self, folder, url):
+        """Bangun EdgeChrome cadangan tersembunyi (tanpa mesin cover
+        boot - cukup polos). Port CDP sendiri: satu port cuma bisa
+        dipegang satu proses browser, port utama sedang dipakai."""
+        import webview
+        from webview.platforms.edgechromium import EdgeChrome
+        from webview.window import Window
+        from System.Windows.Forms import Control
+        port = getattr(self, "_spare_port", 9333)
+        self._spare_port = port + 1 if port < 9342 else 9333
+        webview.settings["REMOTE_DEBUGGING_PORT"] = port
+        control = Control()
+        window = Window(
+            "typingbot-spare", "1", url=None, html=None, js_api=None,
+            width=800, height=600, x=None, y=None, resizable=True,
+            fullscreen=False, min_size=(200, 100), hidden=False,
+            frameless=False, easy_drag=True, minimized=False,
+            on_top=False, confirm_close=False,
+            background_color="#101116", transparent=False,
+            text_select=True, localization=None, zoomable=True,
+            draggable=True, vibrancy=False)
+        os.makedirs(folder, exist_ok=True)
+        ec = EdgeChrome(control, window, folder)
+        hwnd = int(str(control.Handle))
+        user32.SetParent(hwnd, self.winfo_id())
+        try:
+            from System.Drawing import ColorTranslator
+            control.DefaultBackgroundColor =                 ColorTranslator.FromHtml("#101116")
+        except Exception:
+            pass
+        # lepas SEMUA handler event pywebview (aturan anti-crash GIL)
+        wv = ec.webview
+        for ev_name, fn in (("CoreWebView2InitializationCompleted",
+                             "on_webview_ready"),
+                            ("NavigationStarting",
+                             "on_navigation_start"),
+                            ("NavigationCompleted",
+                             "on_navigation_completed"),
+                            ("WebMessageReceived",
+                             "on_script_notify")):
+            try:
+                getattr(wv, ev_name).__isub__(getattr(ec, fn))
+            except Exception:
+                pass
+        self._spare = {"ec": ec, "hwnd": hwnd, "folder": folder,
+                       "port": port, "url": url, "siap": False}
+        print(f"[AKUN] pre-warm webview cadangan mulai "
+              f"({os.path.basename(folder)}, port {port})")
+        self._cadangkan_tunggu(0)
+
+    def _cadangkan_tunggu(self, coba):
+        """Poll core cadangan (thread UI, after) -> suntik anti-popup
+        + marker OAuth -> Navigate sekali. """
+        sp = getattr(self, "_spare", None)
+        if sp is None:
+            return
+        core = None
+        try:
+            core = sp["ec"].webview.CoreWebView2
+        except Exception:
+            core = None
+        if core is None:
+            if coba < 120:
+                self.after(250, lambda: self._cadangkan_tunggu(coba + 1))
+            else:
+                self._spare = None
+                print("[AKUN] pre-warm batal (core tak siap)")
+            return
+        if not sp.get("siap"):
+            try:
+                core.AddScriptToExecuteOnDocumentCreatedAsync(
+                    _NO_POPUP_JS)
+                core.AddScriptToExecuteOnDocumentCreatedAsync(
+                    OAUTH_MARKER_JS)
+                core.Navigate(sp["url"])
+                sp["siap"] = True
+                print("[AKUN] webview cadangan siap (hangat)")
+            except Exception:
+                self.after(500,
+                           lambda: self._cadangkan_tunggu(coba + 1))
 
     def _gp_dispose(self, folder, url, nama):
         self._pcv_log("dispose webview lama")
@@ -1234,7 +1402,20 @@ class Wv2Host(tk.Frame):
             return
         src = str(getattr(core, "Source", "") or "")
         self._pcv_log(f"nav coba {coba}: src={src[:60]}")
-        if "about:blank" in src or src.strip() in ("", "about:blank"):
+        _tujuan = (url or "").split("?")[0].rstrip("/")
+        _cocok = _tujuan and _tujuan in src.rstrip("/")
+        if _cocok:
+            # cadangan hangat sudah di halaman tujuan: pastikan saja
+            # suntikan terpasang (idempotent), JANGAN navigate ulang
+            try:
+                core.AddScriptToExecuteOnDocumentCreatedAsync(
+                    _NO_POPUP_JS)
+                core.AddScriptToExecuteOnDocumentCreatedAsync(
+                    OAUTH_MARKER_JS)
+                self._pcv_log("src sudah pas (cadangan hangat)")
+            except Exception:
+                pass
+        if "about:blank" in src or src.strip() in ("", "about:blank")                 or not _cocok:
             try:
                 # suntik anti-popup SEBELUM Navigate: dokumen signin
                 # wajib lahir dgn stub window.open (dulu suntikan
@@ -2539,6 +2720,10 @@ class Wv2Host(tk.Frame):
             # asli lalu kita adopsi ke dalam app
             ec.load_url(url)
             self._jaga()
+            # pre-warm cadangan: bangun webview utk profil LAIN saat
+            # app idle -> ganti akun nanti instan (cold start terasa
+            # cepat, keluhan user 21 Nov)
+            self.after(25000, self._siapkan_cadangan)
             return True
         except Exception as ex:
             print(f"[WEBVIEW2] gagal dibuat ({str(ex)[:100]}) - pakai "
@@ -2593,6 +2778,10 @@ class Wv2Host(tk.Frame):
             from .theme import LOG_FILE as _lf
         except Exception:
             return
+        if getattr(self, "_detak_on", False):
+            return
+        self._detak_on = True
+
         def detak():
             try:
                 hwnd = bool(self._chwnd) and bool(
@@ -2638,6 +2827,34 @@ class Wv2Host(tk.Frame):
                     print("[PCV] cover oauth naik (klik google)")
         except Exception:
             pass
+        # ---- LIFT CEPAT via .NET Source (user 21 Nov: cover kelabu
+        # terasa lama - dulu lift nunggu tick pengawas playwright ~2 dtk
+        # dan sering gagal eval di webview baru). _jaga tick 400ms:
+        # google stabil 2 tick, edclub langsung.
+        tahan_j = getattr(self, "_tahan", None)
+        if tahan_j and not getattr(self, "_boot_cover", None):
+            try:
+                core_k = self._ec.webview.CoreWebView2
+                src_k = str(getattr(core_k, "Source", "") or "").lower()
+                pot_j = tahan_j[0]
+                cocok_j = False
+                if pot_j == "accounts.google":
+                    if "accounts.google." in src_k:
+                        self._oauth_tik_j = (getattr(self,
+                            "_oauth_tik_j", 0) + 1)
+                        cocok_j = self._oauth_tik_j >= 2
+                    else:
+                        self._oauth_tik_j = 0
+                elif pot_j == "edclub":
+                    cocok_j = "edclub." in src_k
+                if cocok_j or time.time() > tahan_j[1]:
+                    self._oauth_tik_j = 0
+                    self._tahan_putih = False
+                    self._tahan = None
+                    self._boot_selesai = True
+                    self._boot_cover = None
+            except Exception:
+                pass
         # ---- cover tahan-halaman: buka bila diminta & belum terbuka
         tahan = getattr(self, "_tahan", None)
         if tahan and not getattr(self, "_boot_cover", None):
