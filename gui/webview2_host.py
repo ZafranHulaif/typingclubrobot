@@ -1017,13 +1017,12 @@ class Wv2Host(tk.Frame):
             def tik():
                 if self._pcv_job is None:
                     return
+                langkah = 3.5 if self._pcv_selesai else 1.1
                 if bar is not None:
-                    boleh_gas = self._pcv_selesai
-                    langkah = 3.5 if boleh_gas else 1.1
                     if self._pcv_val < self._pcv_target:
                         self._pcv_val = min(self._pcv_target,
                                             self._pcv_val + langkah)
-                    if boleh_gas:
+                    if self._pcv_selesai:
                         self._pcv_target = 100.0
                         self._pcv_val = min(100.0, self._pcv_val
                                             + langkah)
@@ -1033,11 +1032,10 @@ class Wv2Host(tk.Frame):
                         pct.configure(text=f"{v}%")
                     except Exception:
                         pass
-                    if boleh_gas and self._pcv_val >= 99.4:
+                    if self._pcv_selesai and self._pcv_val >= 99.4:
                         self._pcv_tutup()
                         return
                 elif self._pcv_selesai:
-                    # bar gagal dibuat - jangan sampai cover nyangkut
                     self._pcv_tutup()
                     return
                 self._pcv_job = self.after(70, tik)
@@ -1045,13 +1043,10 @@ class Wv2Host(tk.Frame):
             self._pcv_job = self.after(90, tik)
             self._pcv_info_set("menyiapkan folder data…")
             try:
-                # SEMBUNYIKAN webview (bukan offscreen - PrintWindow di
-                # window offscreen juga hitam palsu, log dev12). DOM &
-                # JS tetap jalan, jadi gate via ExecuteScriptAsync.
-                self._pcv_ganti = True
                 user32.ShowWindow(self._chwnd, 0)
             except Exception:
                 pass
+            self._pcv_ganti = True   # watcher dibisukan selama ganti
             # WATCHDOG 45 dtk: apa pun yang terjadi (watcher reconnect
             # setelah webview dibuat ulang, dll), cover SELALU menutup
             # dalam 45 dtk - tidak ada stuck tanpa akhir
@@ -1106,9 +1101,6 @@ class Wv2Host(tk.Frame):
             pass
 
     def ganti_profil(self, folder, url, nama=""):
-        self._gp_dom_ok = False
-        self._gp_task = None
-        self._gp_ct = 0
         """Ganti folder data WebView2 (jar per akun). Dijalankan sbg
         state machine after(): cover spinner + LOADING BAR bertahap
         tetap hidup & menutup halaman-perantara sampai tujuan siap
@@ -1160,7 +1152,10 @@ class Wv2Host(tk.Frame):
         self._pcv_info_set("memuat edclub di profil akun…")
         self._pcv_target_set(60)
         try:
-            self.buka(port, url, cover=False)
+            # cover=True = webview dibuat tersembunyi (jalur boot
+            # teruji): selama cover ganti akun TIDAK ADA yang menggambar
+            # di atasnya (HWND > Tk) -> tanpa kedip, bar terlihat 100%
+            self.buka(port, url, cover=True)
         except Exception as ex:
             print(f"[AKUN] ganti profil gagal: {str(ex)[:80]}")
         self.after(300, lambda: self._gp_nav(folder, url, nama, 0))
@@ -1190,74 +1185,38 @@ class Wv2Host(tk.Frame):
         self.after(1200, lambda: self._gp_pantau(nama, 0))
 
     def _gp_pantau(self, nama, n):
-        """Pantau webview (.NET): judul stabil 2x + KESIAPAN DOM via
-        ExecuteScriptAsync (hasil .NET di-poll tanpa callback - larangan
-        GIL). PrintWindow tidak dipercaya: window tersembunyi/offscreen
-        selalu hitam palsu (v40 & v44). Halaman siap = login form
-        terender ATAU masuk /student ATAU teks login - pola boot cover
-        yang terbukti."""
-        self._gp_task = getattr(self, "_gp_task", None)
-        dom_ok = getattr(self, "_gp_dom_ok", False)
-        core = None
+        """Pantau langsung webview (.NET, bukan CDP watcher): judul
+        stabil 3x berturut = halaman hidup, lalu tahan cover ±1 dtk
+        lagi biar SPA selesai render (dulu kedip putih-hitam-putih
+        sempat terlihat, keluhan user 21 Nov). Habis dispose, koneksi
+        CDP watcher bisa mati diam - pantauan .NET ini yang dipakai.
+        Gerbang piksel (PrintWindow) sudah dicoba (v40) = rapuh di
+        webview tersembunyi: 45 dtk watchdog + layar hitam."""
+        siap = False
         try:
             core = self._ec.webview.CoreWebView2
+            src = str(getattr(core, "Source", "") or "")
+            ttl = str(getattr(core, "DocumentTitle", "") or "").strip()
+            if "edclub" in src and ttl and "about:blank" not in src:
+                if ttl == getattr(self, "_gp_ttl", None):
+                    self._gp_ct = getattr(self, "_gp_ct", 0) + 1
+                    if self._gp_ct >= 3:
+                        siap = True
+                else:
+                    self._gp_ct = 0
+                self._gp_ttl = ttl
         except Exception:
             pass
-        if core is not None:
-            try:
-                src = str(getattr(core, "Source", "") or "")
-                if "edclub" in src and self._gp_task is None and not dom_ok:
-                    js = ("(function(){try{var f=document.querySelector("
-                          "'input');return JSON.stringify({rs:document."
-                          "readyState,inp:!!(f&&f.offsetParent),t:"
-                          "(document.body.innerText||'').indexOf('Login "
-                          "Individual Edition')>=0,st:location.pathname."
-                          "indexOf('/student')===0});}catch(e){return "
-                          "'{\"err\":1}';}})()")
-                    self._gp_task = core.ExecuteScriptAsync(js)
-            except Exception:
-                self._gp_task = None
-            # baca hasil poll sebelumnya (RanToCompletion = 5)
-            try:
-                task = self._gp_task
-                if task is not None and int(task.Status) == 5:
-                    import json as _json
-                    out = str(task.Result.ToString())
-                    self._gp_task = None
-                    try:
-                        data = _json.loads(out)  # hasil = JSON string
-                    except Exception:
-                        data = None
-                    if (isinstance(data, dict)
-                            and data.get("rs") == "complete"
-                            and (data.get("inp") or data.get("t")
-                                 or data.get("st"))):
-                        self._gp_dom_ok = True
-            except Exception:
-                self._gp_task = None
-        src = str(getattr(core, "Source", "") or "") if core is not None else ""
-        ttl = str(getattr(core, "DocumentTitle", "") or "").strip() \
-            if core is not None else ""
-        siap = False
-        if (core is not None and "edclub" in src
-                and "about:blank" not in src and ttl
-                and getattr(self, "_gp_dom_ok", False)):
-            if ttl == getattr(self, "_gp_ttl", None):
-                self._gp_ct = getattr(self, "_gp_ct", 0) + 1
-                if self._gp_ct >= 2:
-                    siap = True
-            else:
-                self._gp_ct = 0
-            self._gp_ttl = ttl
         if siap:
-            self._pcv_selesai = True   # bar gas ke 100%, lalu menutup
-            print("[PCV] gate DOM siap - bar gas ke 100%")
-            self.after(1500, lambda: self._gp_selesai(nama))
+            def tamat():
+                self._pcv_selesai = True
+                self._gp_selesai(nama)
+            self.after(1000, tamat)
             return
-        if n < 120:
+        if n < 80:
             self.after(500, lambda: self._gp_pantau(nama, n + 1))
             return
-        self._pcv_selesai = True       # lewat batas - bar yang tutup
+        self.after(1500, lambda: self._gp_selesai(nama))
 
     def _gp_selesai(self, nama):
         # cover ditutup oleh _pcv_selesai (pill/login page terdeteksi
@@ -1770,9 +1729,6 @@ class Wv2Host(tk.Frame):
                             # cover profil: tandai halaman tujuan siap
                             # (pill profil = sudah login; /signin dgn
                             # form terender = halaman login siap)
-                            # v44: TIDAK berlaku saat cover ganti akun -
-                            # watcher bisa membaca HALAMAN LAMA (punya
-                            # pill) sebelum dispose = cover nutup di 9%
                             if nm:
                                 self._pcv_selesai = True
                             elif "/signin" in u:
