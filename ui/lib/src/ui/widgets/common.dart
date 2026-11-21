@@ -231,7 +231,7 @@ class Popover extends StatefulWidget {
 
 class _PopoverState extends State<Popover> with SingleTickerProviderStateMixin {
   final _ctl = OverlayPortalController();
-  final _link = LayerLink();
+  final _key = GlobalKey();
   late final _anim =
       AnimationController(vsync: this, duration: Motion.short, reverseDuration: const Duration(milliseconds: 120));
   final _group = Object();
@@ -266,55 +266,88 @@ class _PopoverState extends State<Popover> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final c = Theme.of(context).colorScheme;
-    final align = widget.alignRight ? Alignment.topRight : Alignment.topLeft;
-    final anchor =
-        widget.alignRight ? Alignment.bottomRight : Alignment.bottomLeft;
     return TapRegion(
       groupId: _group,
-      child: CompositedTransformTarget(
-        link: _link,
-        child: OverlayPortal(
-          controller: _ctl,
-          overlayChildBuilder: (_) => CompositedTransformFollower(
-            link: _link,
-            targetAnchor: anchor,
-            followerAnchor: align,
-            offset: const Offset(0, 6),
-            child: Align(
-              alignment: align,
-              child: TapRegion(
-                groupId: _group,
-                onTapOutside: (_) => _close(),
-                child: AnimatedBuilder(
-                  animation: _anim,
-                  builder: (_, child) {
-                    final t = Motion.out.transform(_anim.value);
-                    return Opacity(
-                      opacity: _anim.value,
-                      child: Transform.scale(
-                          scale: 0.96 + 0.04 * t, alignment: align, child: child),
-                    );
-                  },
-                  child: Material(
-                    color: c.surfaceContainerHigh,
-                    elevation: 8,
-                    shadowColor: Colors.black,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(Radii.lg),
-                      side: BorderSide(color: c.outlineVariant),
-                    ),
-                    child: SizedBox(
-                      width: widget.width,
-                      child: widget.content(context, _close),
-                    ),
+      child: OverlayPortal(
+        controller: _ctl,
+        overlayChildBuilder: (ctx) {
+          // posisi pemicu di layar; popup di bawahnya, atau di atas kalau
+          // tidak muat, dan selalu dijepit di dalam jendela
+          final box = _key.currentContext?.findRenderObject() as RenderBox?;
+          if (box == null || !box.hasSize) return const SizedBox.shrink();
+          final r = box.localToGlobal(Offset.zero) & box.size;
+          return CustomSingleChildLayout(
+            delegate: _PopLayout(r, widget.alignRight, (up) => _up = up),
+            child: TapRegion(
+              groupId: _group,
+              onTapOutside: (_) => _close(),
+              child: AnimatedBuilder(
+                animation: _anim,
+                builder: (_, child) {
+                  final t = Motion.out.transform(_anim.value);
+                  final al = Alignment(widget.alignRight ? 1 : -1, _up ? 1 : -1);
+                  return Opacity(
+                    opacity: _anim.value,
+                    child: Transform.scale(
+                        scale: 0.96 + 0.04 * t, alignment: al, child: child),
+                  );
+                },
+                child: Material(
+                  color: c.surfaceContainerHigh,
+                  elevation: 8,
+                  shadowColor: Colors.black,
+                  clipBehavior: Clip.antiAlias,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(Radii.lg),
+                    side: BorderSide(color: c.outlineVariant),
+                  ),
+                  child: SizedBox(
+                    width: widget.width,
+                    child: SingleChildScrollView(
+                        child: widget.content(ctx, _close)),
                   ),
                 ),
               ),
             ),
-          ),
-          child: widget.trigger(context, _toggle, _open),
-        ),
+          );
+        },
+        child: KeyedSubtree(
+            key: _key, child: widget.trigger(context, _toggle, _open)),
       ),
     );
   }
+
+  bool _up = false;
+}
+
+/// Taruh popup relatif ke pemicu: bawah dulu, balik ke atas kalau tak
+/// muat, jepit ke tepi jendela (margin 8). Tinggi maks = layar - 16.
+class _PopLayout extends SingleChildLayoutDelegate {
+  _PopLayout(this.anchor, this.alignRight, this.onFlip);
+  final Rect anchor;
+  final bool alignRight;
+  final ValueChanged<bool> onFlip;
+  static const _m = 8.0, _gap = 6.0;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints c) =>
+      BoxConstraints.loose(Size(c.maxWidth - 2 * _m, c.maxHeight - 2 * _m));
+
+  @override
+  Offset getPositionForChild(Size size, Size child) {
+    var x = alignRight ? anchor.right - child.width : anchor.left;
+    x = x.clamp(_m, size.width - _m - child.width);
+    final bawah = anchor.bottom + _gap;
+    final atas = anchor.top - _gap - child.height;
+    final muatBawah = bawah + child.height <= size.height - _m;
+    final up = !muatBawah && atas >= _m;
+    onFlip(up);
+    var y = up ? atas : bawah;
+    y = y.clamp(_m, (size.height - _m - child.height).clamp(_m, double.infinity));
+    return Offset(x, y);
+  }
+
+  @override
+  bool shouldRelayout(_PopLayout old) =>
+      old.anchor != anchor || old.alignRight != alignRight;
 }
