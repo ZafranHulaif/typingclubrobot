@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../state/store.dart';
 import '../../theme/theme.dart';
+import '../../web/web_host.dart';
 import 'web_layer.dart';
 
 /// Status inti: apakah bot sedang mengetik? (satu-satunya tempat status)
@@ -246,6 +249,18 @@ class _PopoverState extends State<Popover> with SingleTickerProviderStateMixin {
   final _group = Object();
 
   bool get _open => _ctl.isShowing;
+  StreamSubscription<WebEvent>? _webSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // klik di halaman (jendela native) = klik di luar popup
+    if (StoreScope.read(context).embedded) {
+      _webSub = webHost.events
+          .where((e) => e.type == 'focus')
+          .listen((_) => _close());
+    }
+  }
 
   void _toggle() => _open ? _close() : _show();
 
@@ -265,6 +280,7 @@ class _PopoverState extends State<Popover> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    _webSub?.cancel();
     _anim.dispose();
     super.dispose();
   }

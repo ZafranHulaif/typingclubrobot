@@ -474,6 +474,18 @@ void WebHost::OnControllerReady(int64_t id, ICoreWebView2Controller* ctl,
   std::shared_ptr<bool> alive = alive_;
   EventRegistrationToken tok{};
 
+  // ---- halaman diklik/difokus: popup Flutter yang terbuka ikut ditutup
+  // (klik di jendela native tidak sampai ke TapRegion Flutter)
+  ctl->add_GotFocus(
+      Callback<ICoreWebView2FocusChangedEventHandler>(
+          [this, alive, id](ICoreWebView2Controller*, IUnknown*) -> HRESULT {
+            if (!*alive) return S_OK;
+            Emit(id, "focus", EncodableMap());
+            return S_OK;
+          })
+          .Get(),
+      &tok);
+
   // ---- popup: selalu jadi navigasi halaman utama (tanpa jendela kedua)
   v->webview->add_NewWindowRequested(
       Callback<ICoreWebView2NewWindowRequestedEventHandler>(

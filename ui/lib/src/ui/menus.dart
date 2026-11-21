@@ -179,15 +179,21 @@ class _AccountButtonState extends State<AccountButton> {
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
     final aktif = '${s.account['active'] ?? ''}';
+    final pending = s.account['pending'] == true;
+    final label = pending
+        ? 'Akun baru'
+        : '${s.account['active_label'] ?? ''}'.isNotEmpty
+            ? '${s.account['active_label']}'
+            : aktif;
     return Popover(
       width: 268,
       trigger: (_, toggle, open) => BarButton(
         onTap: toggle,
         selected: open,
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          _Avatar(aktif, size: 22, warn: s.bot['needs_login'] == true),
+          _Avatar(label, size: 22, warn: s.bot['needs_login'] == true),
           const SizedBox(width: 8),
-          Text(aktif.isEmpty ? 'Akun' : aktif,
+          Text(label.isEmpty ? 'Akun' : label,
               style: t.labelLarge!.copyWith(color: c.onSurface)),
           const SizedBox(width: 2),
           const Icon(Icons.expand_more_rounded),
@@ -212,11 +218,14 @@ class _AccountButtonState extends State<AccountButton> {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   child: Row(children: [
-                    _Avatar('${a['name']}', size: 28, active: a['name'] == aktif),
+                    _Avatar('${a['label'] ?? a['name']}', size: 28, active: a['name'] == aktif),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('${a['name']}', style: t.titleSmall),
+                        Text(a['name'] == aktif && pending
+                                ? 'Akun baru (belum login)'
+                                : '${a['label'] ?? a['name']}',
+                            style: t.titleSmall),
                         if ((a['email'] ?? '') != '')
                           Text('${a['email']}',
                               overflow: TextOverflow.ellipsis,

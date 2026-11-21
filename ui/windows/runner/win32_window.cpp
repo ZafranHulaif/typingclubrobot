@@ -1,9 +1,12 @@
 #include "win32_window.h"
 
 #include <dwmapi.h>
+#include <uxtheme.h>
 #include <flutter_windows.h>
 
 #include "resource.h"
+
+#pragma comment(lib, "uxtheme.lib")
 
 namespace {
 
@@ -158,6 +161,10 @@ bool Win32Window::Create(const std::wstring& title,
   }
 
   UpdateTheme(window);
+  // ikon kecil di title bar disembunyikan: logo sudah ada di bar atas app
+  // (taskbar & Alt+Tab tetap pakai ikon kelas jendela)
+  WTA_OPTIONS nc{WTNCA_NODRAWICON, WTNCA_NODRAWICON};
+  SetWindowThemeAttribute(window, WTA_NONCLIENT, &nc, sizeof(nc));
 
   return OnCreate();
 }

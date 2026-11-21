@@ -4,6 +4,8 @@
 //   akun/akun-<nama>.json      {"nama": ..., ...} buku alamat (cookie lama)
 //   profil-akun/<nama aman>/   folder data WebView2 per akun (jar)
 //   wv2profile/                folder data kalau belum ada akun aktif
+//   akun/label.json            (v4) {id: nama tampil dari edclub}
+//   akun/baru.json             (v4) [id] akun baru yang BELUM berhasil login
 import 'dart:convert';
 import 'dart:io';
 
@@ -72,15 +74,71 @@ class AccountStore {
     } catch (_) {}
     final a = active();
     if (a != null) add(a);
+    // akun baru yang belum login disembunyikan (kecuali yang sedang dibuka)
+    for (final id in pending()) {
+      if (id.toLowerCase() != a?.toLowerCase()) names.remove(id.toLowerCase());
+    }
     final out = names.values.toList()
       ..sort((x, y) => x.toLowerCase().compareTo(y.toLowerCase()));
     return out;
   }
 
+  // ---- nama tampil (v4): id = nama folder, label = nama dari edclub
+  Map<String, String> labels() {
+    try {
+      final m = jsonDecode(File(_j(_akunDir, 'label.json')).readAsStringSync()) as Map;
+      return {for (final e in m.entries) '${e.key}': '${e.value}'};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  String labelOf(String id) => labels()[id] ?? id;
+
+  void setLabel(String id, String label) {
+    final m = labels()..[id] = label;
+    Directory(_akunDir).createSync(recursive: true);
+    File(_j(_akunDir, 'label.json')).writeAsStringSync(jsonEncode(m));
+  }
+
+  // ---- akun baru yang belum login: tidak tampil di daftar, dibuang
+  // kalau ditinggal (biar tidak numpuk "Akun baru 2, 3, ...")
+  Set<String> pending() {
+    try {
+      return {for (final e in jsonDecode(File(_j(_akunDir, 'baru.json')).readAsStringSync()) as List) '$e'};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  void _savePending(Set<String> p) {
+    Directory(_akunDir).createSync(recursive: true);
+    File(_j(_akunDir, 'baru.json')).writeAsStringSync(jsonEncode(p.toList()));
+  }
+
+  void addPending(String id) => _savePending(pending()..add(id));
+  bool isPending(String id) => pending().contains(id);
+  void clearPending(String id) => _savePending(pending()..remove(id));
+
+  /// Buang akun baru yang ditinggal (folder jar ikut). Folder yang masih
+  /// dikunci WebView2 dicoba lagi saat app dibuka berikutnya.
+  void dropPending({String? except}) {
+    final p = pending();
+    for (final id in p.toList()) {
+      if (id == except) continue;
+      try {
+        final d = Directory(folderFor(id));
+        if (d.existsSync()) d.deleteSync(recursive: true);
+        p.remove(id);
+      } catch (_) {}
+    }
+    _savePending(p);
+  }
+
   /// Nama sementara utk akun baru (nama asli dari profil edclub menyusul
   /// bersama port sesi/login di N3).
   String newName() {
-    final ada = list().map((e) => e.toLowerCase()).toSet();
+    final ada = {...list(), ...pending()}.map((e) => e.toLowerCase()).toSet();
     var n = 1;
     String nama() => n == 1 ? 'Akun baru' : 'Akun baru $n';
     while (ada.contains(nama().toLowerCase())) {

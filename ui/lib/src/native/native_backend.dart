@@ -188,10 +188,13 @@ class NativeBackend implements Backend {
 
   void _refreshAccounts() {
     final a = accounts.active();
+    final lb = accounts.labels();
     _set('account', {
       'active': a ?? '',
+      'active_label': a == null ? '' : (lb[a] ?? a),
+      'pending': a != null && accounts.isPending(a),
       'list': [
-        for (final n in accounts.list()) {'name': n}
+        for (final n in accounts.list()) {'name': n, 'label': lb[n] ?? n}
       ],
     });
   }
@@ -264,6 +267,7 @@ class NativeBackend implements Backend {
     _state = LinkState.online;
     _link.add(_state);
     _trimLog();
+    accounts.dropPending(except: accounts.active());
     _refreshAccounts();
     _levels = LevelMap(_base)..muatPosisi();
     _set('range', {
@@ -345,11 +349,55 @@ class NativeBackend implements Backend {
 
   void _web(String url) {
     if (url.isEmpty) return;
+    _checkPendingSoon();
     _set('web', {'url': url});
     final u = Uri.tryParse(url);
     _urlNeedsLogin =
         u != null && u.host.contains('edclub') && u.path.contains('/signin');
     _set('bot', {'needs_login': _urlNeedsLogin || (_engine?.st.needsLogin ?? false) && running});
+  }
+
+  // ---- akun baru: resmi tersimpan begitu login berhasil
+  Timer? _pendingT;
+
+  void _checkPendingSoon() {
+    final a = accounts.active();
+    if (a == null || !accounts.isPending(a)) return;
+    _pendingT?.cancel();
+    _pendingT = Timer(const Duration(milliseconds: 1500), () => _checkPending(a));
+  }
+
+  Future<void> _checkPending(String id) async {
+    if (accounts.active() != id || !accounts.isPending(id)) return;
+    final url = '${_snap['web']!['url'] ?? ''}'.toLowerCase();
+    if (url.contains('/signin') || url.contains('google')) return;
+    if (await _profile() != 'in') return;
+    accounts.clearPending(id);
+    final nama = await _displayName();
+    if (nama.isNotEmpty) accounts.setLabel(id, nama);
+    _log('[AKUN] Akun baru tersimpan${nama.isNotEmpty ? ': $nama' : ''}.');
+    _refreshAccounts();
+  }
+
+  /// Nama user dari halaman edclub ('' = tidak terbaca).
+  Future<String> _displayName() async {
+    final v = _view;
+    if (v == null || v.disposed) return '';
+    try {
+      final r = await v.eval(r'''(() => {
+        const el = document.querySelector('.profile-name');
+        if (el && el.textContent.trim()) return el.textContent.trim();
+        const re = /^[A-Z][\p{L}'.-]*( [A-Z][\p{L}'.-]*){0,3}$/u;
+        for (const b of document.querySelectorAll('button span.truncate, li.dropdown > a.dropdown-toggle')) {
+          const t = (b.textContent || '').replace(/\s+/g, ' ').trim();
+          if (t.length <= 40 && re.test(t) && !/^(Typing Jungle|Courses?|English|Lessons?)$/i.test(t)) return t;
+        }
+        return '';
+      })()''');
+      return r is String ? r : '';
+    } catch (_) {
+      return '';
+    }
   }
 
   /// 'in' / 'out' / null dari penanda DOM halaman aktif.
@@ -407,14 +455,19 @@ class NativeBackend implements Backend {
           accounts.setActive(name);
           _refreshAccounts();
           await _open(name);
+          // akun baru yang ditinggal sebelum login = dibuang
+          accounts.dropPending(except: name);
+          _refreshAccounts();
           return _snap['account'];
         });
       case 'acct.add':
         _notWhileRunning();
         return _guard(() async {
           final name = accounts.newName();
+          accounts.addPending(name);
           accounts.setActive(name);
           await _open(name, url: signinUrl);
+          accounts.dropPending(except: name);
           _refreshAccounts();
           return _snap['account'];
         });

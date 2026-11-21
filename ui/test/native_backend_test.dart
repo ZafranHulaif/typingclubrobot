@@ -179,6 +179,35 @@ void main() {
       expect(c['url'], signinUrl);
       expect(c['folder'], endsWith('Akun baru'));
       expect((_last['account'] as Map)['active'], 'Akun baru');
+      expect((_last['account'] as Map)['pending'], true);
+    });
+
+    test('akun baru ditinggal sebelum login = dibuang; login = tersimpan', () async {
+      _listen(be);
+      await be.connect();
+      await _flush();
+      await be.request('acct.switch', {'name': 'budi'});
+      await _flush();
+      await be.request('acct.add');
+      await _flush();
+      Directory(AccountStore(tmp.path).folderFor('Akun baru')).createSync(recursive: true);
+      // balik ke budi tanpa login -> "Akun baru" hilang dari daftar & disk
+      await be.request('acct.switch', {'name': 'budi'});
+      await _flush();
+      final names = [for (final a in (_last['account'] as Map)['list'] as List) a['name']];
+      expect(names, isNot(contains('Akun baru')));
+      expect(Directory(AccountStore(tmp.path).folderFor('Akun baru')).existsSync(), false);
+      // tambah lagi: nama tetap "Akun baru" (bukan "Akun baru 2")
+      await be.request('acct.add');
+      await _flush();
+      expect((_last['account'] as Map)['active'], 'Akun baru');
+      // login berhasil (halaman lesson, penanda 'in') -> resmi tersimpan
+      final id = (fake.named('create').last.arguments as Map)['id'] as int;
+      await fake.emit(id, 'nav', {'phase': 'done', 'url': homeUrl});
+      await Future<void>.delayed(const Duration(milliseconds: 1700));
+      await _flush();
+      expect((_last['account'] as Map)['pending'], false);
+      expect(AccountStore(tmp.path).pending(), isEmpty);
     });
 
     test('popup Flutter di atas halaman = webview disembunyikan', () async {
