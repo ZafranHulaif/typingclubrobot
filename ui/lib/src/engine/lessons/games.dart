@@ -83,8 +83,16 @@ extension GamesLesson on Engine {
       return true;
     }
     for (final fr in allFrames()) {
+      // target bintang: cek game ada dulu, lalu jadwal tiap huruf
+      if (await runJs(phaserCheckJs, fr) is! Map) continue;
+      final pace = await gamePace(fr);
+      if (pace != null) await gamePaceBefore(fr, pace);
       var res = await runJs(phaserFeedJs, fr);
-      if (res is! Map || !_truthy(res['fed'])) continue;
+      if (res is! Map || !_truthy(res['fed'])) {
+        if (pace != null) await runJs('window.__tbPace = null; return 1;', fr);
+        continue;
+      }
+      if (pace != null) gamePaceAfter(salahOk: _truthy(res['salah']));
       log('[Minigame/Phaser] ${frameLabel(fr)}: memberi ketikan via core API...');
       var fedTotal = 1;
       var stalled = 0;
@@ -92,9 +100,17 @@ extension GamesLesson on Engine {
       var lastIdx = res['idx'];
       while (fedTotal < 150) {
         if (st.stop) break;
-        await sleep(uniform(0.05, 0.11));
+        if (pace != null) {
+          await gamePaceBefore(fr, pace);
+        } else {
+          await sleep(uniform(0.05, 0.11));
+        }
         res = await runJs(phaserFeedJs, fr);
-        if (res is! Map || !_truthy(res['fed'])) break;
+        if (res is! Map || !_truthy(res['fed'])) {
+          if (pace != null) await runJs('window.__tbPace = null; return 1;', fr);
+          break;
+        }
+        if (pace != null) gamePaceAfter(salahOk: _truthy(res['salah']));
         final idx = res['idx'];
         if (idx == lastIdx) {
           stalled += 1;

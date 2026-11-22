@@ -79,6 +79,15 @@ class Engine {
   /// 0/null = perak (ketik secepatnya tanpa salah, perilaku lama).
   int Function()? starTarget;
 
+  // pacing target bintang di game (per lesson, lihat lessons/stars.dart)
+  StarPace? _gamePace;
+  String _gamePaceUrl = '';
+  int _gameK = 0;
+  double _gameLastT = 0;
+  double _gameT0 = 0;
+  double _gamePendingT = 0;
+  Set<int> _gameErr = {};
+
   bool _running = false;
   bool get running => _running;
 

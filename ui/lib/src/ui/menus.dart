@@ -126,23 +126,59 @@ class SpeedButton extends StatelessWidget {
     final s = StoreScope.of(context);
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
+    final kunci = s.autoStars > 0;
+    final label = !kunci
+        ? '${s.wpm} wpm'
+        : s.autoWpm > 0
+            ? '${s.autoWpm} wpm'
+            : 'Otomatis';
     return Popover(
       alignRight: false,
       width: 300,
       trigger: (_, toggle, open) => BarButton(
         onTap: toggle,
         selected: open,
-        tooltip: 'Kecepatan mengetik',
+        tooltip: kunci ? 'Kecepatan diatur otomatis' : 'Kecepatan mengetik',
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.bolt_rounded),
+          Icon(kunci ? Icons.lock_rounded : Icons.bolt_rounded,
+              size: kunci ? 16 : null),
           const SizedBox(width: 6),
-          Text('${s.wpm} wpm',
+          Text(label,
               style: t.labelLarge!.copyWith(
                   color: c.onSurface,
                   fontFeatures: const [FontFeature.tabularFigures()])),
         ]),
       ),
-      content: (_, close) => const _SpeedPanel(),
+      content: (_, close) => kunci ? _SpeedLocked(s.autoStars) : const _SpeedPanel(),
+    );
+  }
+}
+
+/// Target bintang selain 5 perak: kecepatan tidak bisa diubah.
+class _SpeedLocked extends StatelessWidget {
+  const _SpeedLocked(this.stars);
+  final int stars;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final c = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(Icons.lock_rounded, size: 18, color: c.primary),
+          const SizedBox(width: 8),
+          Text('Kecepatan otomatis', style: t.titleSmall),
+        ]),
+        const SizedBox(height: 10),
+        Text('Target $stars bintang. Kecepatan menyesuaikan tiap level, '
+            'dan sebagian salah ketik memang disengaja supaya bintangnya pas.',
+            style: t.bodyMedium!.copyWith(color: c.onSurfaceVariant)),
+        const SizedBox(height: 8),
+        Text('Pilih 5 perak untuk mengatur kecepatan sendiri.',
+            style: t.bodySmall!.copyWith(color: c.onSurfaceVariant)),
+      ]),
     );
   }
 }

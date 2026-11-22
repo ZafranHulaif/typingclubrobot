@@ -96,7 +96,13 @@ extension StandardLesson on Engine {
       // target bintang (N7): ketik secepat yang dibutuhkan bintangnya
       final pace = holdKey == null ? await starPace(frame) : null;
       if (pace != null) {
-        final hasil = await typePaced(frame, rem, pace);
+        st.paceWpm = pace.wpm;
+        final String hasil;
+        try {
+          hasil = await typePaced(frame, rem, pace);
+        } finally {
+          st.paceWpm = 0;
+        }
         typedAny = true;
         if (hasil == 'stall') {
           log('[Bintang] ketikan tidak masuk - sisa lesson diketik biasa');

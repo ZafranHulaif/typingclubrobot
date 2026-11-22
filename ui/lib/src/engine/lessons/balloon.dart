@@ -141,7 +141,17 @@ extension BalloonLesson on Engine {
       return true; // sudah diketik, game belum konsumsi = klaim siklus
     }
     if (kini - st.balloonCoreTyped < 0.12) return true;
+    final pace = await gamePace(fr);
+    if (pace != null) await gamePaceBefore(fr, pace);
     final fed = await runJs(balloonFeedJs, fr);
+    if (pace != null) {
+      // jadwal dipakai hanya kalau huruf benar2 masuk
+      if (fed is Map && _truthy(fed['fed'])) {
+        gamePaceAfter(salahOk: _truthy(fed['salah']));
+      } else {
+        await runJs('window.__tbPace = null; return 1;', fr);
+      }
+    }
     if (fed is Map && _truthy(fed['fed'])) {
       final huruf = '${fed['huruf'] ?? ''}';
       st.hasBalloonCoreLast = true;

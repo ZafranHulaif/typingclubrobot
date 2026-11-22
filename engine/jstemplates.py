@@ -271,7 +271,7 @@ function doClick(el, why) { try { el.click(); taken.push(why); return true; } ca
 
 const CLOSE_TEXTS = ['x','×','✕','✖','close','tutup','no thanks','not now','maybe later','later',
                      'nanti saja','nanti','lewati','skip'];
-const NEXT_TEXTS  = ['next','continue','lanjut','mulai','main','play','start','begin','selesai',
+const NEXT_TEXTS  = ['next','continue','move on','lanjut','mulai','main','play','start','begin','selesai',
                      'claim','klaim','skip video','got it','ok','okay'];
 
 const closeSels = ['.modal-close', '.close-btn', '.pop-close', 'button[class*="close" i]',
@@ -477,7 +477,13 @@ LESSON_GOAL_JS = r"""
 try {
     const ar = window.approuter, l = ar && ar._lesson, a = l && l.activity;
     if (!a || typeof a.goal_wpm !== 'number') return null;
-    const c = window.core;
+    // core lesson biasa / balon (window.core) atau game Phaser (state.core)
+    let c = window.core;
+    if (!c && window.Phaser && Phaser.GAMES) {
+        for (const g of Phaser.GAMES) {
+            try { const s = g.state.states[g.state.current]; if (s && s.core) c = s.core; } catch (e) {}
+        }
+    }
     return {goal: a.goal_wpm, min_wpm: a.min_wpm || 0, min_acc: a.min_accuracy || 0,
             on_error: a.on_error || 'continue', objc: !!l.objective_completion,
             test: !!l.is_test, diff: ar.difficulty || 0,
@@ -485,6 +491,24 @@ try {
             pos: c ? c.cur_char_index : -1,
             total: c && c.stats ? c.stats.total_chars : 0};
 } catch (e) { return null; }
+"""
+
+MOVE_ON_JS = r"""
+// Layar hasil baru saat bintang < 5 (v4 N7, 22 Nov): tombol utama 'Try
+// again' + 'Move on' (bukan 'Next'). Enter = Try again (lesson diulang),
+// jadi cari 'Move on' dan kembalikan titiknya untuk klik mouse asli.
+// {retry:true} = cuma ada 'Try again' -> jangan tekan Enter.
+let retry = false;
+for (const el of document.querySelectorAll('button, a, [role="button"]')) {
+    if (!(el.offsetWidth || el.offsetHeight)) continue;
+    const t = (el.innerText || '').trim().toLowerCase();
+    if (t === 'try again') { retry = true; continue; }
+    if (t !== 'move on') continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 20 || r.height < 10) continue;
+    return {x: r.left + r.width / 2, y: r.top + r.height / 2};
+}
+return retry ? {retry: true} : null;
 """
 
 PREMIUM_MODAL_JS = r"""
@@ -778,8 +802,20 @@ const chr = c.cur_char.chr;
 if (chr === undefined || chr === null || chr === '' || chr === '<-') {
     return {fed: false, ended: false};
 }
-c.record_keydown_time(chr);
-return {fed: true, chr: chr, idx: c.cur_char_index, ended: !!c.has_ended};
+// target bintang (v4 N7): huruf salah yang disengaja dari Dart
+const pace = window.__tbPace;
+window.__tbPace = null;
+let salah = false;
+if (pace && pace.salah && /[a-z]/i.test(chr)) {
+    const p = 'asdfghjklqwertyuiopzxcvbnm';
+    let w = chr;
+    while (w === chr || w === String(chr).toLowerCase()) w = p[Math.floor(Math.random() * p.length)];
+    c.record_keydown_time(w);
+    salah = true;
+} else {
+    c.record_keydown_time(chr);
+}
+return {fed: true, chr: chr, idx: c.cur_char_index, ended: !!c.has_ended, salah: salah};
 """
 
 

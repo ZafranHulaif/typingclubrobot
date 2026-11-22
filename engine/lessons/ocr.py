@@ -165,6 +165,8 @@ if (!c.has_started) {
         if (!c.cur_char) return {fed: false, idx: -1, wait: true};
     }
 }
+const __tbSalah = (ch) => { const p = 'asdfghjklqwertyuiopzxcvbnm'; let w = ch;
+    while (w === ch || w === String(ch).toLowerCase()) w = p[Math.floor(Math.random() * p.length)]; return w; };
 let fed = '';
 const t0 = Date.now();
 return new Promise((selesai) => {
@@ -176,6 +178,19 @@ return new Promise((selesai) => {
         const cur = c.cur_char ? String(c.cur_char.chr) : '';
         if (!cur) { berhenti(); return; }
         const sebelum = c.cur_char_index;
+        // target bintang (v4 N7): Dart mengatur jadwal 1 huruf per
+        // panggilan, jeda = waktu nyata sejak huruf sebelumnya, dan huruf
+        // salah yang disengaja (hanya huruf a-z)
+        const pace = window.__tbPace;
+        if (pace) {
+            window.__tbPace = null;
+            let k = cur, salah = false;
+            if (pace.salah && /[a-z]/i.test(cur)) { k = __tbSalah(cur); salah = true; }
+            c.record_keydown_time(k, pace.ms);
+            fed = k;
+            selesai({fed: true, idx: c.cur_char_index, huruf: k, salah: salah, paced: true});
+            return;
+        }
         // dua argumen: lihat catatan di atas (varian baru wajib waktu)
         c.record_keydown_time(cur, 109);  // 109ms/huruf = 110wpm terukur
         // VARIAN BARU mengkonsumsi ASINKRON (tick game sendiri) - dulu

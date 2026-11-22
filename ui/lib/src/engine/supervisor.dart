@@ -174,6 +174,7 @@ extension Supervisor on Engine {
           st.tutDoneSig = null;
           st.resyncN = 0;
           st.premlockSince = 0;
+          st.paceWpm = 0;
           st.statusLabel = '';
           st.levelProgress = 0;
           if (st.lastUrl.isNotEmpty) {

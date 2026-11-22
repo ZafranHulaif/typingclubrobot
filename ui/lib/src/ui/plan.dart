@@ -431,6 +431,7 @@ class _EditorState extends State<_Editor> {
         const SizedBox(height: 10),
         Row(children: [
           StarPicker(
+            size: 11,
             stars: _sg.stars,
             silver: _sg.silver,
             onChanged: (st, sv) => setState(() {
@@ -466,8 +467,14 @@ class _EditorState extends State<_Editor> {
 /// baris bintang (angka di kiri). Perak = baris teratas.
 class StarPicker extends StatelessWidget {
   const StarPicker(
-      {super.key, required this.stars, required this.silver, required this.onChanged});
+      {super.key,
+      required this.stars,
+      required this.silver,
+      required this.onChanged,
+      this.size = 13});
   final int stars;
+  /// ukuran bintang di tombol (editor rencana lebih sempit)
+  final double size;
   final bool silver;
   final void Function(int stars, bool silver) onChanged;
 
@@ -489,13 +496,9 @@ class StarPicker extends StatelessWidget {
           hoverColor: c.surfaceContainerHighest,
           onTap: toggle,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Text('$stars',
-                  style: t.titleMedium!.copyWith(color: warna(silver))),
-              const SizedBox(width: 3),
-              Icon(Icons.star_rounded, size: 18, color: warna(silver)),
-            ]),
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+            // sama dgn kapsul saat rencana jalan: deretan bintang berwarna
+            child: StarRow(stars, silver: silver, size: size),
           ),
         ),
       ),
@@ -528,6 +531,13 @@ class StarPicker extends StatelessWidget {
                 ]),
               ),
             ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+            child: Text(
+                'Selain 5 perak, kecepatan diatur otomatis dan sebagian '
+                'salah ketik disengaja.',
+                style: t.bodySmall!.copyWith(color: c.onSurfaceVariant)),
+          ),
         ]),
       ),
     );

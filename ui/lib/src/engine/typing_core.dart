@@ -204,7 +204,24 @@ extension TypingCore on Engine {
   /// Layar skor: Enter dulu; kalau berulang tanpa efek, klik tombol
   /// lanjut dgn mouse CDP sungguhan.
   Future<bool> advanceScoreScreen() async {
-    if (await pressEnterGuarded()) {
+    // hasil < 5 bintang: 'Try again' (Enter) + 'Move on' -> klik Move on
+    var adaRetry = false;
+    for (final fr in await edclubFrames()) {
+      final r = await runJs(moveOnJs, fr);
+      if (r is! Map) continue;
+      if (r['x'] != null) {
+        try {
+          final off = await page.frameOffset(fr);
+          await markBotClick(fr);
+          await page.mouse.click((r['x'] as num) + off.x, (r['y'] as num) + off.y);
+          log("[Skor] tombol 'Move on' diklik");
+          return true;
+        } catch (_) {}
+      }
+      if (_truthy(r['retry'])) adaRetry = true;
+    }
+    // Enter di layar ini = ulang lesson, jangan
+    if (!adaRetry && await pressEnterGuarded()) {
       log('[Skor] Enter ditekan');
       return true;
     }

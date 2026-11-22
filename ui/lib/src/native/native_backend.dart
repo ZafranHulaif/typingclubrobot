@@ -105,6 +105,7 @@ class NativeBackend implements Backend {
       },
     };
     _snap['plan']!['segments'] = _bootPlan;
+    _syncSpeedLock();
     _snap['range']!['unlocked'] = _unlockedFor(this.accounts.active() ?? '');
   }
 
@@ -159,6 +160,7 @@ class NativeBackend implements Backend {
   bool _waitNavLogin = false;
   int _waitUnknown = 0;
   String _mode = 'free';
+  int _starLvl = 0; // level terakhir yang dikenal utk target bintang
   bool _urlNeedsLogin = false;
 
   // ---- mesin bot
@@ -749,6 +751,7 @@ class NativeBackend implements Backend {
         final f = {'stars': st, 'silver': p['silver'] == true && st == 5};
         _set('free', f);
         _saveSettings({'free': f});
+        _syncSpeedLock();
         return f;
       case 'bot.recover':
         _engine?.st.askRecovery = true;
@@ -964,6 +967,7 @@ class NativeBackend implements Backend {
       return _launch((range['start'] as num).toInt(), ((range['end'] as num?) ?? 0).toInt());
     }
     _mode = mode == 'plan' ? 'plan' : 'free';
+    _starLvl = 0;
     if (_mode == 'plan' && _segments.isEmpty) {
       throw RpcException('empty', 'Rencana masih kosong. Tambah bagian dulu ya.');
     }
@@ -1151,18 +1155,41 @@ class NativeBackend implements Backend {
   /// Tunggu sampai loop bot benar2 selesai (tes / tutup app).
   Future<void> get stopped => _run ?? Future.value();
 
+  /// Kecepatan terkunci target bintang (UI: gembok di tombol kecepatan).
+  /// auto = bintang target (0 = perak, kecepatan bebas), auto_wpm = wpm
+  /// yang sedang dipakai di lesson ini (0 = belum ada lesson).
+  void _syncSpeedLock() {
+    final e = _engine;
+    var tgt = 0;
+    var pw = 0.0;
+    if (e != null && running) {
+      tgt = _starTargetFor(e);
+      pw = e.st.paceWpm;
+    } else {
+      final f = _snap['free'];
+      if (f != null && f['silver'] != true) tgt = ((f['stars'] as num?) ?? 5).toInt();
+    }
+    _set('speed', {'auto': tgt, 'auto_wpm': pw.round()});
+  }
+
   /// Target bintang level sekarang: 1-5, atau 0 = perak (secepatnya).
   int _starTargetFor(Engine e) {
     Map? sg;
     if (_mode == 'plan') {
-      final lvl = _levelNow(e);
-      for (final s in _segments) {
+      final segs = _segments;
+      var lvl = _levelNow(e);
+      // level belum terbaca (habis reload): pakai level terakhir yang
+      // dikenal, jangan jatuh ke perak
+      if (lvl == 0) lvl = _starLvl;
+      if (lvl > 0) _starLvl = lvl;
+      for (final s in segs) {
         final to = s['to'] as int;
         if (lvl >= (s['from'] as int) && (to == 0 || lvl <= to)) {
           sg = s;
           break;
         }
       }
+      if (sg == null && lvl == 0 && segs.isNotEmpty) sg = segs.first;
       if (sg == null) return 0;
     } else {
       sg = _snap['free'];
@@ -1194,6 +1221,7 @@ class NativeBackend implements Backend {
             : (st.userLepas || st.waitUserUrl.isNotEmpty)
                 ? 'paused'
                 : 'running';
+    _syncSpeedLock();
     _set('bot', {
       'phase': phase,
       'needs_login': _urlNeedsLogin || (jalan && st.needsLogin),

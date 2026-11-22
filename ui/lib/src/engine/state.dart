@@ -77,6 +77,8 @@ class EngineState {
   double premSkipT = 0;
   // modal 'Upgrade to Pro': berapa kali X sudah diklik (reset saat modal hilang)
   int proXTries = 0;
+  /// wpm bersih yang sedang dipakai target bintang (0 = tidak diatur)
+  double paceWpm = 0;
   double proWaitSince = 0;
 
   // ---- pop-up

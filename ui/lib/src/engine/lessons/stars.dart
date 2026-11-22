@@ -84,7 +84,15 @@ StarPace? planStars(int stars,
 
 extension StarLesson on Engine {
   /// Rencana bintang untuk lesson di [frame] (null = ketik biasa).
-  Future<StarPace?> starPace(Frame frame) async {
+  Future<StarPace?> starPace(Frame frame, {bool game = false}) async {
+    // nomor level dibutuhkan target per bagian rencana: setelah reload
+    // label belum terbaca -> dulu target jatuh ke perak (400 wpm)
+    for (var i = 0; i < 6 && st.statusLabel.isEmpty; i++) {
+      try {
+        st.statusLabel = await levelLabel();
+      } catch (_) {}
+      if (st.statusLabel.isEmpty) await sleep(0.3);
+    }
     final target = starTarget?.call() ?? 0;
     if (target < 1 || target > 5) return null;
     final info = await runJs(lessonGoalJs, frame);
@@ -100,7 +108,10 @@ extension StarLesson on Engine {
     if (sisa < 5) return null;
     // akurasi diatur lewat salah ketik yang maju (on_error 'continue');
     // mode lain (blokir) -> tanpa salah, hanya kecepatan
-    final bolehSalah = '${info['on_error']}' == 'continue';
+    // game: salah cuma menurunkan akurasi asli (live 22 Nov, balon: skor
+    // 1056/2000 padahal target 4) & beda tiap game -> game tanpa salah,
+    // hanya kecepatan
+    final bolehSalah = !game && '${info['on_error']}' == 'continue';
     final p = planStars(target,
         goal: (info['goal'] as num?) ?? 0,
         minWpm: (info['min_wpm'] as num?) ?? 0,
@@ -197,5 +208,51 @@ extension StarLesson on Engine {
       final tunggu = t0 + k * p.dt - now;
       if (tunggu > 0) await sleep(tunggu);
     }
+  }
+
+  /// Rencana bintang untuk game di [fr] (sekali per lesson). null = game
+  /// diberi makan seperti biasa (perak / tanpa target).
+  Future<StarPace?> gamePace(Frame fr) async {
+    final url = page.url;
+    if (_gamePaceUrl == url) return _gamePace;
+    _gamePaceUrl = url;
+    _gameK = 0;
+    _gameLastT = 0;
+    _gameT0 = 0;
+    _gamePace = await starPace(fr, game: true);
+    final p = _gamePace;
+    _gameErr = {};
+    if (p != null) {
+      final calon = [for (var i = 2; i < p.chars - 2; i++) i]..shuffle(rnd);
+      _gameErr = calon.take(p.errors).toSet();
+    }
+    st.paceWpm = p?.wpm ?? 0;
+    return p;
+  }
+
+  /// Sebelum memberi satu huruf ke game: tunggu jadwal, lalu titip jeda
+  /// nyata & tanda salah ke frame (dibaca BALLOON_FEED_JS/PHASER_FEED_JS).
+  Future<void> gamePaceBefore(Frame fr, StarPace p) async {
+    // jadwal dari awal lesson (tombol ke-k pada t0 + k*dt): overhead
+    // eval tidak menumpuk jadi wpm tidak melorot
+    if (_gameT0 > 0) {
+      final tunggu = _gameT0 + _gameK * p.dt - now;
+      if (tunggu > 0) await sleep(tunggu);
+    }
+    // jeda = waktu nyata sejak tombol sebelumnya DITEKAN (bukan sejak
+    // eval feed selesai; dulu durasi game kurang ~30%, live 22 Nov)
+    _gamePendingT = now;
+    final ms = _gameLastT > 0 ? ((now - _gameLastT) * 1000).round() : (p.dt * 1000).round();
+    final salah = _gameErr.contains(_gameK);
+    await runJs('window.__tbPace = {ms: $ms, salah: $salah}; return 1;', fr);
+  }
+
+  /// Sesudah satu huruf masuk. [salahOk] false padahal dijadwalkan salah
+  /// (huruf bukan a-z) -> salahnya pindah ke huruf berikut.
+  void gamePaceAfter({required bool salahOk}) {
+    if (_gameErr.contains(_gameK) && !salahOk) _gameErr.add(_gameK + 1);
+    if (_gameT0 == 0) _gameT0 = _gamePendingT;
+    _gameLastT = _gamePendingT;
+    _gameK += 1;
   }
 }

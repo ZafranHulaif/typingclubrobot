@@ -267,7 +267,23 @@ Owner: dev9 works (premium X fix confirmed: level 24 unlocked). N7 built from ed
   timing; keystroke history is sent with the result), real typing at the needed speed instead.
 - Defaults: free mode and the first new plan segment default to silver (old behaviour).
 
-## Owner test checklist (Windows, build 4.0.0-dev10 from the CI artifact)
+### Eighth owner test (dev10) -> dev11
+Owner: star targets land exactly (4 -> 4, 1 -> 1, 4 wpm on early levels). Fixes:
+- Result screen below 5 stars has "Try again" (Enter) + "Move on": MOVE_ON_JS clicks Move on with a
+  real mouse click; Enter is skipped when only Try again is visible (Enter would redo the lesson).
+- Plan mode sometimes typed at 400 wpm after a reload: level number not read yet -> no segment ->
+  silver. starPace now reads the label first; backend falls back to the last known level, then the
+  first segment.
+- Games (balloon core + Phaser) follow the target: speed only, no deliberate errors (live: wrong
+  letters in the balloon game only lower real accuracy, score 1056 for a 4-star aim). Schedule is
+  anchored at the first key; the delay passed to record_keydown_time is the real time since the
+  previous key (it was missing the feed call time, so duration came out ~30% short).
+  DOM minigames and OCR balloon still type at normal speed.
+- UI: speed button shows a lock and the speed in use when the target is not 5 perak (panel says
+  the speed is automatic and some mistakes are deliberate); star picker note; free-mode star chip
+  uses the coloured star row like the plan capsule.
+
+## Owner test checklist (Windows, build 4.0.0-dev11 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

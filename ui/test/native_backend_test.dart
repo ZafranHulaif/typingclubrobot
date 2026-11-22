@@ -150,6 +150,20 @@ void main() {
       expect(fake.named('setVisible').last.arguments['on'], true);
     });
 
+    test('target bintang selain perak mengunci kecepatan', () async {
+      _listen(be);
+      await be.connect();
+      await _flush();
+      // default perak: kecepatan bebas
+      expect((_last['speed'] as Map)['auto'], 0);
+      await be.request('free.set', {'stars': 4});
+      await _flush();
+      expect((_last['speed'] as Map)['auto'], 4);
+      await be.request('free.set', {'stars': 5, 'silver': true});
+      await _flush();
+      expect((_last['speed'] as Map)['auto'], 0);
+    });
+
     test('tanpa runtime WebView2: pesan, tak ada webview', () async {
       fake = FakeNative(version: '');
       _listen(be);

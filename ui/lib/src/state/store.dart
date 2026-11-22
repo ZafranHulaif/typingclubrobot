@@ -81,6 +81,9 @@ class AppStore extends ChangeNotifier {
   bool get licensed => license['state'] == null || license['state'] == 'ok';
   int get levelNum => (level['num'] as num?)?.toInt() ?? 0;
   int get wpm => (speed['wpm'] as num?)?.toInt() ?? 400;
+  /// target bintang yang mengunci kecepatan (0 = bebas)
+  int get autoStars => (speed['auto'] as num?)?.toInt() ?? 0;
+  int get autoWpm => (speed['auto_wpm'] as num?)?.toInt() ?? 0;
   List<int> get tiers =>
       ((speed['tiers'] as List?) ?? const [40, 85, 140, 200, 300, 400])
           .map((e) => (e as num).toInt())
