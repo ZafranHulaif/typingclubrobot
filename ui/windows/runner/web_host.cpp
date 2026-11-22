@@ -183,6 +183,13 @@ void WebHost::Handle(const flutter::MethodCall<EncodableValue>& call,
     result->Success();
     return;
   }
+  if (m == "blur") {
+    // popup Flutter dibuka: fokus keyboard pindah ke FlutterView, supaya
+    // klik berikutnya di halaman memicu GotFocus (= tutup popup)
+    if (backdrop_) SetFocus(backdrop_);
+    result->Success();
+    return;
+  }
   if (m == "setHoles") {
     SetHoles(ArgRects(a, "rects"), static_cast<int>(ArgInt(a, "radius")));
     result->Success();

@@ -239,6 +239,58 @@ void main() {
     expect(be.running, isTrue);
   });
 
+  test('rencana per akun: ganti akun = rencana sendiri-sendiri', () async {
+    await be.request('plan.set', {
+      'segments': [
+        {'from': 3, 'to': 9, 'stars': 5},
+      ]
+    });
+    await be.request('acct.switch', {'name': 'budi'});
+    await pumpEventQueue();
+    expect(plan()['segments'], isEmpty);
+    await be.request('plan.set', {
+      'segments': [
+        {'from': 20, 'to': 30, 'stars': 4},
+      ]
+    });
+    await be.request('acct.switch', {'name': 'sari'});
+    await pumpEventQueue();
+    expect(plan()['segments'], isEmpty);
+    await be.request('acct.switch', {'name': 'budi'});
+    await pumpEventQueue();
+    expect((plan()['segments'] as List).single['from'], 20);
+  });
+
+  test('rencana lama > 685 dirapikan saat dimuat', () async {
+    File('${tmp.path}/typingbot_settings.json').writeAsStringSync(
+        '{"plan": [{"from": 364, "to": 695, "stars": 5}, {"from": 700, "to": 0, "stars": 5}]}');
+    final b2 = NativeBackend(
+        version: 't', host: WebHost(), accounts: AccountStore(tmp.path), checkLicense: false);
+    final got = <String, dynamic>{};
+    b2.events.listen((e) {
+      if (e.name == 'snapshot') got.addAll(Map<String, dynamic>.from(e.data as Map));
+    });
+    await b2.connect();
+    await Future<void>.delayed(Duration.zero);
+    final segs = (got['plan'] as Map)['segments'] as List;
+    expect(segs.length, 1);
+    expect(segs.single['to'], 685);
+    b2.close();
+  });
+
+  test('Mulai rencana di atas level terbuka = ditolak', () async {
+    be.close();
+    File('${tmp.path}/typingbot_settings.json').writeAsStringSync(
+        '{"unlocked": {"": 10}, "plans": {"": [{"from": 364, "to": 400, "stars": 5}]}}');
+    final b2 = NativeBackend(
+        version: 't', host: WebHost(), accounts: AccountStore(tmp.path),
+        checkLicense: false, bridgeFor: (_) => fake.bridge, clock: fake.clock);
+    await b2.connect();
+    expect(() => b2.request('bot.start', {'mode': 'plan'}),
+        throwsA(isA<RpcException>().having((e) => e.code, 'code', 'locked_level')));
+    b2.close();
+  });
+
   test('pengaturan lama (speed/plan) dimuat saat buka', () async {
     File('${tmp.path}/typingbot_settings.json').writeAsStringSync(
         '{"speed": 225, "plan": [{"from": 4, "to": 9, "stars": 5, "silver": true}]}');

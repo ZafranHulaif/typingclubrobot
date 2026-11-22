@@ -16,6 +16,7 @@ import '../engine/clock.dart';
 import '../engine/engine.dart';
 import '../engine/level_map.dart';
 import '../engine/js.dart' show profileCheckJs;
+import '../engine/js_inline.dart' show bacaUnlockJs;
 import '../engine/page.dart';
 import '../engine/urls.dart' show diLesson, lessonPlayUrl;
 import '../net/api.dart';
@@ -81,6 +82,7 @@ class NativeBackend implements Backend {
         accounts = accounts ?? AccountStore(AccountStore.defaultBase()),
         _bridgeFor = bridgeFor ?? WebViewBridge.new {
     _settings = _loadSettings();
+    _bootPlan = _planFor(this.accounts.active() ?? '');
     final wpm = ((_settings['speed'] as num?) ?? 400).toInt().clamp(40, 400);
     _snap = {
       'app': {'version': version, 'platform': 'windows', 'mode': 'native'},
@@ -93,12 +95,7 @@ class NativeBackend implements Backend {
       'license': {'state': checkLicense ? 'checking' : 'ok'},
       'update': <String, dynamic>{},
       'cover': {'visible': true, 'text': 'Menyiapkan edclub...'},
-      'plan': {
-        'segments': [
-          for (final s in (_settings['plan'] as List? ?? const []))
-            if (s is Map) Map<String, dynamic>.from(s)
-        ],
-      },
+      'plan': {'segments': <Map<String, dynamic>>[]},
       'web': {'url': '', 'title': ''},
       // target bintang utk Mulai tanpa rencana
       'free': {
@@ -106,6 +103,8 @@ class NativeBackend implements Backend {
         'silver': ((_settings['free'] as Map?) ?? const {})['silver'] == true,
       },
     };
+    _snap['plan']!['segments'] = _bootPlan;
+    _snap['range']!['unlocked'] = _unlockedFor(this.accounts.active() ?? '');
   }
 
   final WebHost host;
@@ -129,6 +128,7 @@ class NativeBackend implements Backend {
   bool _closed = false;
 
   late final Map<String, Map<String, dynamic>> _snap;
+  late final List<Map<String, dynamic>> _bootPlan;
   late Map<String, dynamic> _settings;
   final _events = StreamController<SidecarEvent>.broadcast();
   final _asks = StreamController<SidecarAsk>.broadcast();
@@ -341,6 +341,8 @@ class NativeBackend implements Backend {
     }
     _view = v;
     _viewAcct = name;
+    _set('plan', {'segments': _planFor(name ?? '')});
+    _set('range', {'unlocked': _unlockedFor(name ?? '')});
     _labelDone = false;
     _rtSaved = '';
     _seenIn = false;
@@ -430,6 +432,7 @@ class NativeBackend implements Backend {
   void _web(String url) {
     if (url.isEmpty) return;
     _checkPendingSoon();
+    _readUnlockedSoon(url);
     _set('web', {'url': url});
     final u = Uri.tryParse(url);
     _urlNeedsLogin =
@@ -482,15 +485,25 @@ class NativeBackend implements Backend {
     final v = _view;
     if (v == null || v.disposed) return '';
     try {
+      // sama dgn sinyal 4 profileCheckJs (tombol nama-user), tapi ambil
+      // kandidat paling kanan-atas (tombol profil di pojok kanan)
       final r = await v.eval(r'''(() => {
         const el = document.querySelector('.profile-name');
-        if (el && el.textContent.trim()) return el.textContent.trim();
-        const re = /^[A-Z][\p{L}'.-]*( [A-Z][\p{L}'.-]*){0,3}$/u;
-        for (const b of document.querySelectorAll('button span.truncate, li.dropdown > a.dropdown-toggle')) {
+        if (el && el.textContent.trim() && !/sign|log\s*in/i.test(el.textContent)) return el.textContent.trim();
+        const UI = /^(courses?|english|save progress|more|help|settings?|language|lessons?|programs?|typing jungle|dashboard|outline)$/i;
+        let best = '', bx = -1;
+        for (const b of document.querySelectorAll('button, [role="button"], a, li.dropdown > a.dropdown-toggle')) {
+          if (!b.offsetParent) continue;
           const t = (b.textContent || '').replace(/\s+/g, ' ').trim();
-          if (t.length <= 40 && re.test(t) && !/^(Typing Jungle|Courses?|English|Lessons?)$/i.test(t)) return t;
+          if (!t || t.length > 30) continue;
+          if (/log ?(in|out)|sign ?(in|up|out)|masuk|daftar|get started|help/i.test(t)) continue;
+          if (!/^[A-Z][A-Za-zÀ-ɏ'.\-]+( [A-Z][A-Za-zÀ-ɏ'.\-]{0,19}){0,3}$/.test(t)) continue;
+          if (UI.test(t)) continue;
+          const r = b.getBoundingClientRect();
+          if (r.top > 160) continue;
+          if (r.right > bx) { bx = r.right; best = t; }
         }
-        return '';
+        return best;
       })()''');
       return r is String ? r : '';
     } catch (_) {
@@ -694,6 +707,12 @@ class NativeBackend implements Backend {
         final url = p['kind'] == 'sekolah' ? loginUrlSchool : signinUrl;
         await _view?.navigate(url);
         return true;
+      case 'web.refocus':
+        if (busy) {
+          await _view?.focus().catchError((_) {});
+          _handOver();
+        }
+        return true;
       case 'web.visible':
         _occluded = p['on'] != true;
         _applyVisible();
@@ -818,6 +837,63 @@ class NativeBackend implements Backend {
   }
 
   // ------------------------------------------------------------ rencana
+  /// Rencana per akun (settings 'plans' {akun: [...]}); rencana lama
+  /// (3.5.x / dev, satu utk semua) jadi milik akun yang aktif pertama kali.
+  List<Map<String, dynamic>> _planFor(String key) {
+    final all = (_settings['plans'] as Map?) ?? const {};
+    var raw = all[key];
+    if (raw == null && all.isEmpty) raw = _settings['plan'];
+    return _cleanPlan(raw);
+  }
+
+  /// Rencana tersimpan dirapikan: level di atas 685 dipotong/dibuang,
+  /// bagian rusak/tumpang tindih dilewati (tanpa error).
+  static List<Map<String, dynamic>> _cleanPlan(dynamic raw) {
+    final out = <Map<String, dynamic>>[];
+    for (final sg in (raw is List ? raw : const [])) {
+      if (sg is! Map || sg['from'] is! num) continue;
+      final a = (sg['from'] as num).toInt();
+      var b = ((sg['to'] as num?) ?? 0).toInt();
+      if (a < 1 || a > lastLevel) continue;
+      if (b > lastLevel) b = lastLevel;
+      if (b != 0 && b < a) continue;
+      if (out.isNotEmpty && (out.last['to'] == 0 || a <= (out.last['to'] as int))) continue;
+      final st = ((sg['stars'] as num?) ?? 5).toInt().clamp(1, 5);
+      out.add({'from': a, 'to': b, 'stars': st, 'silver': sg['silver'] == true && st == 5});
+    }
+    return out;
+  }
+
+  int _unlockedFor(String key) =>
+      ((((_settings['unlocked'] as Map?) ?? const {})[key] as num?) ?? 0).toInt();
+
+  Timer? _unlockT;
+
+  /// Di daftar level: baca level terbuka tertinggi akun ini (batas awal
+  /// rencana & Mulai rencana).
+  void _readUnlockedSoon(String url) {
+    final u = Uri.tryParse(url);
+    if (u == null || !u.host.endsWith('edclub.com')) return;
+    if (!RegExp(r'^/student/course/\d+/?$').hasMatch(u.path)) return;
+    _unlockT?.cancel();
+    _unlockT = Timer(const Duration(seconds: 2), () async {
+      final v = _view;
+      if (v == null || v.disposed) return;
+      try {
+        final r = await v.eval('($bacaUnlockJs)()');
+        if (r is! List || r.isEmpty) return;
+        final n = r.whereType<num>().map((e) => e.toInt()).fold<int>(0, max);
+        if (n < 1) return;
+        final key = accounts.active() ?? '';
+        if (_unlockedFor(key) == n) return;
+        _saveSettings({
+          'unlocked': {...((_settings['unlocked'] as Map?) ?? const {}), key: n}
+        });
+        _set('range', {'unlocked': n});
+      } catch (_) {}
+    });
+  }
+
   List<Map<String, dynamic>> get _segments =>
       [for (final s in (_snap['plan']!['segments'] as List)) Map<String, dynamic>.from(s as Map)];
 
@@ -854,7 +930,10 @@ class NativeBackend implements Backend {
       _engine?.st.levelEnd = out.isEmpty ? 0 : out.last['to'] as int;
     }
     _set('plan', {'segments': out});
-    _saveSettings({'plan': out});
+    final key = accounts.active() ?? '';
+    _saveSettings({
+      'plans': {...((_settings['plans'] as Map?) ?? const {}), key: out}
+    });
     return {'segments': out};
   }
 
@@ -880,6 +959,12 @@ class NativeBackend implements Backend {
     _mode = mode == 'plan' ? 'plan' : 'free';
     if (_mode == 'plan' && _segments.isEmpty) {
       throw RpcException('empty', 'Rencana masih kosong. Tambah bagian dulu ya.');
+    }
+    final buka = _unlockedFor(accounts.active() ?? '');
+    if (_mode == 'plan' && buka > 0 && (_segments.first['from'] as int) > buka) {
+      throw RpcException('locked_level',
+          'Level ${_segments.first['from']} belum terbuka di akun ini. '
+          'Level terbuka terakhir: $buka.');
     }
     _waitNavLogin = false;
     _waitUnknown = 0;
@@ -949,6 +1034,10 @@ class NativeBackend implements Backend {
     }
   }
 
+  /// User menyerahkan kendali ke bot (Mulai / Lanjut / popup ditutup):
+  /// klik user sebelumnya di halaman jangan dihitung 'user aktif'.
+  void _handOver() => _engine?.handOver();
+
   void _stopWaiting() {
     _waitT?.cancel();
     _waitT = null;
@@ -963,9 +1052,7 @@ class NativeBackend implements Backend {
     if (n < 1) {
       throw RpcException('unknown', 'Buka level yang mau dikerjakan di halaman ya.');
     }
-    e.st.userLepas = false;
-    e.st.userWatchElapsed = 1e9;
-    e.st.userWatchT = 0;
+    e.handOver();
     final ok = await e.gotoLevelUrl(n);
     if (!ok) {
       throw RpcException('unknown', 'Level $n belum dikenal. Buka levelnya di halaman ya.');

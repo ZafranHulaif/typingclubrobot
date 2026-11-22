@@ -209,7 +209,26 @@ Owner ran dev3 on Windows. Typing works (slow first start). Fixed in dev4:
 - Delete account (menu, tap twice). Locked folders are removed on next start.
 - Exe renamed to TypingBot.exe (also clears Explorer's cached Flutter icon).
 
-## Owner test checklist (Windows, build 4.0.0-dev6 from the CI artifact)
+### Fourth owner test (dev6) -> dev7
+Owner: bot types every level kind correctly (video, intro, tutorial, standard, balloon/yeti).
+Fixed from his bot.log (engine part by Fable):
+- Each Mulai builds a new Page on the same WebView2 CDP session; Runtime.enable/setAutoAttach
+  were no-ops, so existing iframe contexts / OOPIF targets were never re-announced -> "Mengetik"
+  but nothing typed, TUNDA stalls. `_enable` now toggles them; `Page.resync()` as safety net.
+- Focus emulation (`Emulation.setFocusEmulationEnabled`, as Playwright does) + `Engine.handOver()`
+  (clicks before Mulai/Lanjut/popup-close don't count as "user active").
+- Tutorial completion screen ("Good job!") was re-detected as the same tutorial and retyped
+  2-3x; now Enter is repeated instead (15 s fallback to old path).
+- Popup-closer escalation counter never reset between levels (8 s silences); now 4 s window,
+  3 s pause. Same bug exists in Python 3.5.x.
+- 'mini' detection on non-lesson pages no longer types/holds (37 min hold seen in the log).
+App side: popups take keyboard focus (page click closes them, page refocused after), account
+name read from the right-most name button, plans saved per account (old global plan goes to the
+first active account), saved plans cleaned to <= 685, highest unlocked level read from the
+lesson list per account (plan start / Mulai rencana limited to it).
+Next: N7 star targets (needs measurement of edclub's star rules on the test account).
+
+## Owner test checklist (Windows, build 4.0.0-dev7 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

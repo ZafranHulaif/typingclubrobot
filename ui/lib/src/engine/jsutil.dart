@@ -160,7 +160,13 @@ extension JsUtil on Engine {
         log('[Pop-up] ${frameLabel(fr)}: ${taken.take(3).join('; ')}');
         total += taken.length;
         final first = '${taken.first}';
-        if (first == st.repeatLabel) {
+        // 'berulang tanpa hasil' = label sama BERUNTUN (< 4 dtk). Dulu
+        // hitungan menumpuk lintas level (tiap layar hasil punya tombol
+        // tutup berlabel sama) -> tiap 2-3 level eskalasi palsu + penutup
+        // dibungkam 8 dtk: layar hasil/pencapaian diam lama (log 05:38:43).
+        final beruntun = now - st.repeatT < 4.0;
+        st.repeatT = now;
+        if (first == st.repeatLabel && beruntun) {
           st.repeatCount += 1;
           if (st.repeatCount >= 3) {
             // klik JS 3x tanpa hasil: ESC + klik mouse dgn cek posisi
@@ -175,7 +181,7 @@ extension JsUtil on Engine {
                 await page.mouse.click(pt['x'] as num, pt['y'] as num);
               } catch (_) {}
             }
-            st.repeatUntil = now + 8;
+            st.repeatUntil = now + 3;
             st.repeatCount = 0;
           }
         } else {

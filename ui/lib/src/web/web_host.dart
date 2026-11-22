@@ -69,6 +69,9 @@ class WebHost {
   Future<void> setHoles(List<List<int>> rects, {int radius = 0}) =>
       _call('setHoles', {'rects': [for (final r in rects) ...r], 'radius': radius});
 
+  /// Pindahkan fokus keyboard dari halaman ke app (popup dibuka).
+  Future<void> blur() => _call('blur');
+
   /// Buat webview baru dgn folder data [folder]. [scripts] dipasang
   /// SEBELUM navigasi pertama (dokumen pertama sudah lahir dgnnya).
   Future<WebView> create({

@@ -21,8 +21,9 @@ class _PlanPanelState extends State<PlanPanel> {
   void _tambah(AppStore s) {
     final segs = s.segments;
     final pos = (s.range['position'] as num?)?.toInt() ?? 0;
+    // akun baru: mulai dari level terbuka terakhir (bukan posisi akun lain)
     final mulai = segs.isEmpty
-        ? (pos + 1).clamp(1, AppStore.lastLevel)
+        ? (s.unlocked > 0 ? s.unlocked : (pos + 1)).clamp(1, AppStore.lastLevel)
         : (segs.last.to == 0 ? segs.last.from + 10 : segs.last.to + 1);
     if (segs.isNotEmpty && segs.last.to == 0 || mulai > AppStore.lastLevel) {
       s.say(segs.isNotEmpty && segs.last.to == 0
@@ -63,6 +64,7 @@ class _PlanPanelState extends State<PlanPanel> {
             key: ValueKey(_draft != null ? 'baru' : _edit),
             initial: _draft ?? segs[_edit!],
             isNew: _draft != null,
+            isFirst: _draft != null ? segs.isEmpty : _edit == 0,
             onSave: (sg) async {
               if (await _simpan(s, sg, _draft != null ? null : _edit)) {
                 setState(() {
@@ -166,7 +168,8 @@ class _PlanPanelState extends State<PlanPanel> {
                       'halaman. Bot lanjut dari level itu. Tambah bagian untuk '
                       'mengatur level dan bintangnya sendiri.'
                   : 'Mulai di atas = dari level yang kamu buka. '
-                      'Mulai rencana = ikuti bagian-bagian ini.',
+                      'Mulai rencana = ikuti bagian-bagian ini.'
+                      '${s.unlocked > 0 ? ' Level terbuka terakhir: ${s.unlocked}.' : ''}',
               style: t.bodySmall!.copyWith(color: c.onSurfaceVariant)),
           const SizedBox(height: 12),
           AnimatedSize(
@@ -330,7 +333,9 @@ class _Editor extends StatefulWidget {
     required this.onSave,
     required this.onCancel,
     this.onDelete,
+    this.isFirst = false,
   });
+  final bool isFirst;
   final Segment initial;
   final bool isNew;
   final Future<void> Function(Segment) onSave;
@@ -373,6 +378,13 @@ class _EditorState extends State<_Editor> {
     }
     if (b != 0 && b < a) {
       s.say('Level akhir harus sesudah level awal.', error: true);
+      return;
+    }
+    // hanya bagian pertama yg harus mulai di level terbuka; sisanya
+    // terbuka sendiri selagi bot jalan
+    if (widget.isFirst && s.unlocked > 0 && a > s.unlocked) {
+      s.say('Level $a belum terbuka. Level terbuka terakhir: ${s.unlocked}.',
+          error: true);
       return;
     }
     _sg

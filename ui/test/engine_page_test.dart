@@ -113,6 +113,103 @@ void main() {
     });
   });
 
+  group('sambung ulang ke sesi CDP yang sudah aktif (Mulai ke-2)', () {
+    // tiruan Chromium: Runtime.enable / setAutoAttach yang sudah aktif
+    // = no-op (tidak mengumumkan ulang konteks / target yang sudah ada)
+    FakeBridge chromium() {
+      final b = FakeBridge();
+      var runtimeOn = false;
+      var autoOn = false;
+      var sesi = 0;
+      b.handlers['Page.getFrameTree'] = (p, s) => s.isEmpty
+          ? _tree('https://www.edclub.com/student/course/3/lesson/405', [
+              {
+                'frame': {'id': 'F2', 'parentId': 'MAIN', 'url': 'https://www.edclub.com/sportal/program-3/405.play'}
+              }
+            ])
+          : {
+              'frameTree': {
+                'frame': {'id': 'OOP1', 'url': 'https://phaser01balloonvalley.edclub.app/', 'parentId': 'MAIN'}
+              }
+            };
+      b.handlers['Runtime.disable'] = (p, s) {
+        if (s.isEmpty) runtimeOn = false;
+        return {};
+      };
+      b.handlers['Runtime.enable'] = (p, s) {
+        if (s.isNotEmpty || runtimeOn) return {};
+        runtimeOn = true;
+        b.emit('Runtime.executionContextCreated', {
+          'context': {'id': 1, 'auxData': {'frameId': 'MAIN', 'isDefault': true}}
+        });
+        b.emit('Runtime.executionContextCreated', {
+          'context': {'id': 7, 'auxData': {'frameId': 'F2', 'isDefault': true}}
+        });
+        return {};
+      };
+      b.handlers['Target.setAutoAttach'] = (p, s) {
+        if (s.isNotEmpty) return {};
+        final on = p['autoAttach'] == true;
+        if (on == autoOn) return {};
+        autoOn = on;
+        if (on) {
+          sesi++;
+          b.emit('Target.attachedToTarget', {
+            'sessionId': 'S$sesi',
+            'targetInfo': {'targetId': 'OOP1', 'type': 'iframe', 'url': 'https://phaser01balloonvalley.edclub.app/'},
+          });
+        } else if (sesi > 0) {
+          b.emit('Target.detachedFromTarget', {'sessionId': 'S$sesi'});
+        }
+        return {};
+      };
+      return b;
+    }
+
+    test('Page baru tetap melihat iframe lesson & iframe game yang sudah ada', () async {
+      final b = chromium();
+      final p1 = Page(b, clock: FakeClock());
+      await p1.attach();
+      await pumpEventQueue();
+      expect(p1.frames.map((f) => f.id), containsAll(['MAIN', 'F2', 'OOP1']));
+      await p1.detach();
+
+      // Mulai ke-2: Page baru di sesi CDP yang sama, tanpa navigasi
+      final p2 = Page(b, clock: FakeClock());
+      await p2.attach();
+      await pumpEventQueue();
+      expect(p2.frames.map((f) => f.id), containsAll(['MAIN', 'F2', 'OOP1']));
+      b.handlers['Runtime.evaluate'] = (p, s) => {
+            'result': {'type': 'string', 'value': '$s/${p['contextId']}'}
+          };
+      expect(await p2.frames.firstWhere((f) => f.id == 'F2').evaluate('() => 1'), '/7');
+      expect(await p2.frames.firstWhere((f) => f.id == 'OOP1').evaluate('() => 1'), 'S2/null');
+    });
+
+    test('fokus diemulasikan di halaman utama & sesi anak (seperti Playwright)', () async {
+      final b = chromium();
+      final page = Page(b, clock: FakeClock());
+      await page.attach();
+      await pumpEventQueue();
+      final calls = b.named('Emulation.setFocusEmulationEnabled').toList();
+      expect(calls.map((c) => c.session), containsAll(['', 'S1']));
+      expect(calls.every((c) => c.params['enabled'] == true), isTrue);
+    });
+
+    test('resync menemukan iframe yang terlewat', () async {
+      final b = chromium();
+      final page = Page(b, clock: FakeClock());
+      await page.attach();
+      await pumpEventQueue();
+      b.emit('Runtime.executionContextsCleared', {});
+      b.emit('Target.detachedFromTarget', {'sessionId': 'S1'});
+      expect(page.frames.length, 1);
+      await page.resync();
+      await pumpEventQueue();
+      expect(page.frames.map((f) => f.id), containsAll(['MAIN', 'F2', 'OOP1']));
+    });
+  });
+
   group('evaluate', () {
     test('nilai, undefined, error JS', () async {
       final (b, page, _) = await _page();

@@ -69,6 +69,9 @@ class AppStore extends ChangeNotifier {
   bool get busy => const {'waiting', 'starting', 'running', 'paused', 'stopping'}
       .contains(phase);
 
+  /// level terbuka tertinggi akun aktif (0 = belum terbaca dari daftar)
+  int get unlocked => (range['unlocked'] as num?)?.toInt() ?? 0;
+
   /// 'free' (tanpa rencana) / 'plan'
   String get mode => (bot['mode'] as String?) ?? 'free';
   bool get planRunning => busy && mode == 'plan';

@@ -67,6 +67,7 @@ class EngineState {
   double loginNotice = 0;
   double navTry = 0;
   double lastRecovery = 0;
+  double lastResync = 0;
   final recoveryCounts = <String, int>{};
   final hijackCounts = <String, int>{};
   final brokenLessons = <int>{};
@@ -79,12 +80,16 @@ class EngineState {
   String repeatLabel = '';
   int repeatCount = 0;
   double repeatUntil = 0;
+  double repeatT = 0;
 
   // ---- mesin ketik
   double loopOverhead = 0.030;
   double lastCharDelay = 0;
   double userWatchT = 0;
   double userWatchElapsed = 1e9;
+  /// saat user menyerahkan kendali (Mulai/Lanjut): aktivitas user yang
+  /// lebih lama dari ini diabaikan (baru di v4, lihat Engine.handOver)
+  double handOverT = 0;
   String waitUserUrl = '';
   double waitUserT = 0;
   final enterTimes = <double>[];
@@ -102,6 +107,13 @@ class EngineState {
   String? tutSig;
   int tutAttempts = 0;
   String? tutFull;
+  // layar selesai tutorial (baru di v4): teks & tanda class saat semua
+  // karakter sudah terketik -> jangan diketik ulang, cukup Enter lagi
+  String? tutDoneText;
+  String? tutDoneSig;
+  double tutDoneT = 0;
+  double tutEnterT = 0;
+  bool tutDoneNote = false;
 
   // ---- minigame / phaser
   final lastFocusClick = <String, double>{};

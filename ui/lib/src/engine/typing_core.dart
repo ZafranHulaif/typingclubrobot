@@ -130,11 +130,31 @@ extension TypingCore on Engine {
     try {
       for (final fr in await edclubFrames()) {
         final v = await runJs(userWatchJs, fr);
-        if (v is num && v < terbaik) terbaik = v.toDouble();
+        if (v is! num) continue;
+        // aktivitas sebelum serah-terima (klik user membuka level,
+        // blur saat menekan Mulai/Lanjut di app) bukan 'user aktif'
+        if (st.handOverT > 0 && t - v <= st.handOverT + 0.25) continue;
+        if (v < terbaik) terbaik = v.toDouble();
       }
     } catch (_) {}
     st.userWatchElapsed = terbaik;
     return terbaik < batas;
+  }
+
+  /// User baru saja menyerahkan kendali ke bot (Mulai, Lanjut, kembali
+  /// dari popup app). Semua aktivitas user SEBELUM saat ini diabaikan
+  /// oleh [userActive] (jam Dart, jadi berlaku di semua frame tanpa
+  /// mengubah JS), dan status 'menunggu user' dibersihkan. Sinkron:
+  /// aman dipanggil dari UI kapan pun, juga saat mesin belum jalan.
+  void handOver() {
+    st.handOverT = now;
+    st.userWatchT = 0;
+    st.userWatchElapsed = 1e9;
+    st.userLepas = false;
+    st.waitUserUrl = '';
+    st.waitUserT = 0;
+    st.askNextLevel = false;
+    st.stallUserNote = false;
   }
 
   /// User sedang menjelajah di luar lesson: tunggu; > 2 menit -> UI

@@ -135,17 +135,40 @@ class Page {
     }
 
     await tryCall('Page.enable');
+    // halaman selalu merasa punya fokus, seperti Playwright di 3.5.x
+    // (CRPage selalu memasang ini): klik tombol app di luar webview
+    // tidak mem-blur lesson (banner pause, 'user aktif' palsu).
+    await tryCall('Emulation.setFocusEmulationEnabled', {'enabled': true});
+    // Sesi CDP WebView2 hidup terus, sedangkan Page dibuat baru tiap
+    // Mulai. Runtime.enable / setAutoAttach yang SUDAH aktif = no-op:
+    // konteks iframe & target anak yang sudah ada tidak diumumkan lagi
+    // -> iframe lesson/game tak terlihat (bot diam sampai reload; log
+    // 05:36:57 & 07:25:23). Matikan dulu supaya diumumkan ulang.
+    await tryCall('Runtime.disable');
+    _ctx[session]?.clear();
     await tryCall('Runtime.enable');
     try {
       final tree = await _send('Page.getFrameTree', null, session, 10);
       _walkTree(tree['frameTree'], session.isEmpty);
     } catch (_) {}
     await tryCall('Target.setAutoAttach', {
+      'autoAttach': false,
+      'waitForDebuggerOnStart': false,
+      'flatten': true,
+    });
+    await tryCall('Target.setAutoAttach', {
       'autoAttach': true,
       'waitForDebuggerOnStart': false,
       'flatten': true,
     });
     if (session.isNotEmpty) await tryCall('Runtime.runIfWaitingForDebugger');
+  }
+
+  /// Baca ulang frame/konteks/target anak dari nol (jaring pengaman
+  /// saat bot macet: mungkin ada iframe yang tak terlihat).
+  Future<void> resync() async {
+    if (!_attached || _closed) return;
+    await _enable('');
   }
 
   void _walkTree(dynamic node, bool root) {

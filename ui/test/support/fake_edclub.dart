@@ -78,6 +78,59 @@ class FakeLesson {
   }
 }
 
+/// Tutorial boxed (.boxed-line > span > .boxed-char). Tiap karakter
+/// punya tanda class: 'done' (sudah diketik), 'active' (giliran), 'pend'.
+/// Selesai -> layar 'Good job!' menutupi, kotak TETAP di DOM (semua
+/// 'done'); Enter baru diterima [enterDelay] dtk setelah selesai.
+class FakeTutorial {
+  FakeTutorial(this.text, {this.enterDelay = 0, this.rejects = 0});
+  final String text;
+  final double enterDelay;
+
+  /// berapa kali penyelesaian DITOLAK (kotak kembali kosong, tanpa layar
+  /// selesai) - anti-buru-buru edclub
+  int rejects;
+  int pos = 0;
+  bool done = false;
+  double doneAt = 0;
+  int completions = 0;
+
+  /// tombol yang jatuh ke layar selesai (harus 0: tak boleh ketik ulang)
+  int strayKeys = 0;
+  int earlyEnters = 0;
+  double advancedAt = 0;
+
+  List<String> get _sigs => [
+        for (var i = 0; i < text.length; i++)
+          done || i < pos ? 'done' : (i == pos ? 'active' : 'pend')
+      ];
+
+  /// sama dgn TUT_REMAIN_JS / cabang tut DETECT_JS
+  Map<String, dynamic> remain() {
+    final sigs = _sigs;
+    final last = sigs.last;
+    var i = sigs.length - 1;
+    while (i >= 0 && sigs[i] == last) {
+      i--;
+    }
+    var start = i + 1;
+    if (i >= 0) {
+      var j = i;
+      while (j >= 0 && sigs[j] == sigs[i]) {
+        j--;
+      }
+      if (i - j <= 2) start = j + 1;
+    }
+    return {
+      'rem': text.substring(start),
+      'total': text.length,
+      'firstSig': sigs.first,
+      'lastSig': last,
+      'allSame': sigs.every((s) => s == last),
+    };
+  }
+}
+
 class FakeEdclub {
   FakeEdclub({this.url = 'https://www.edclub.com/student/course/3/lesson/116', this.keyCostMs = 0})
       : bridge = FakeBridge(),
@@ -116,6 +169,7 @@ class FakeEdclub {
   final double keyCostMs;
   String url;
   FakeLesson? lesson;
+  FakeTutorial? tutorial;
   final keyEvents = <Map<String, dynamic>>[];
   final clicks = <Point>[];
   final navigations = <String>[];
@@ -153,6 +207,39 @@ class FakeEdclub {
   void _onKey(Map<String, dynamic> p) {
     final l = lesson;
     final code = p['windowsVirtualKeyCode'];
+    final tu = tutorial;
+    if (tu != null) {
+      final t = '${p['text'] ?? ''}';
+      if (tu.done) {
+        if (code != 13) {
+          tu.strayKeys++;
+        } else if (clock.now - tu.doneAt < tu.enterDelay) {
+          tu.earlyEnters++;
+        } else {
+          tu.advancedAt = clock.now;
+          tutorial = null;
+          if (nextUrl != null) {
+            lesson = nextLesson;
+            _go(nextUrl!);
+            nextUrl = null;
+          }
+        }
+        return;
+      }
+      if (t.isEmpty || code == 13) return;
+      if (t == tu.text[tu.pos]) tu.pos++;
+      if (tu.pos >= tu.text.length) {
+        tu.completions++;
+        if (tu.rejects > 0) {
+          tu.rejects--;
+          tu.pos = 0;
+        } else {
+          tu.done = true;
+          tu.doneAt = clock.now;
+        }
+      }
+      return;
+    }
     if (scoreShown && code == 13) {
       enterOnScore++;
       scoreShown = false;
@@ -199,6 +286,15 @@ class FakeEdclub {
       return _val(r == null || r.isEmpty ? null : r);
     }
     if (e.contains(errCountJs)) return _val(l?.errs.length ?? 0);
+    final tu = tutorial;
+    if (e.contains(tutRemainJs)) return _val(tu?.remain());
+    if (tu != null && e.contains(detectJs)) {
+      return _val({
+        'std': null,
+        'tut': {'text': tu.remain()['rem']},
+        'canvases': 0,
+      });
+    }
     if (e.contains(detectJs)) {
       final r = l?.visibleRemaining();
       return _val({

@@ -8,6 +8,8 @@ extension Supervisor on Engine {
     var rendererGagal = 0;
     var navTime = 0.0;
     var tungguRentangBaru = false;
+    // mulai = user menyerahkan kendali: klik/blur sebelum ini diabaikan
+    handOver();
     // lompat ke levelStart hanya sekali, dan hanya kalau saat mulai tidak
     // sedang di lesson (lesson yang dibuka user = kerjakan dulu)
     st.rangeJumpDone = diLesson(page.url);
@@ -169,6 +171,8 @@ extension Supervisor on Engine {
           st.phaserFreezeCount = 0;
           st.phaserFreezeClicked = false;
           st.introFlow = false;
+          st.tutDoneText = null;
+          st.tutDoneSig = null;
           st.premlockSince = 0;
           st.statusLabel = '';
           st.levelProgress = 0;
@@ -265,6 +269,11 @@ extension Supervisor on Engine {
           await handleStandard(d.frame!, d.data);
         } else if (det == 'tut') {
           await handleTutorial(d.frame!, d.data);
+        } else if (det == 'mini' && !diLesson(url)) {
+          // 'kata' di halaman non-lesson (dashboard/daftar) bukan game:
+          // jangan diketik & jangan ditahan sbg balon (log 05:10:48
+          // mengetik 'Dashboard'; 05:41-06:18 menahan 37 menit)
+          if (await _unknownStep(url, d.data, navTime)) continue;
         } else if (det == 'mini') {
           if (await tryBalloonCore()) {
             await sleep(0.05);
@@ -387,6 +396,20 @@ extension Supervisor on Engine {
       log('[TUNDA] tidak ada aktivitas ${stalled.toStringAsFixed(0)}s di '
           '${tail(url)} - dumping state...');
       await dumpDebugInfo();
+    }
+    // jaring pengaman: lesson/game bisa hidup di iframe yang belum
+    // terlihat mesin -> baca ulang frame sebelum pemulihan berat (reload)
+    if (stalled > 4 && diLesson(url) && now - st.lastResync > 20) {
+      st.lastResync = now;
+      final n0 = allFrames().length;
+      try {
+        await page.resync();
+        await sleep(0.3);
+      } catch (_) {}
+      if (allFrames().length != n0) {
+        log('[FRAME] daftar frame dibaca ulang ($n0 -> ${allFrames().length})');
+        return true;
+      }
     }
     if (stalled > 6 && !userSibuk) {
       var prem = false;
