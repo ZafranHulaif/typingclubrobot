@@ -72,6 +72,65 @@ class Api {
     }
   }
 
+  /// macOS: rilis GitHub terbaru yang punya aset TypingBot-mac.zip
+  /// ({version, notes, size, sha256, url}), atau null.
+  Future<Map<String, dynamic>?> latestMacRelease(
+      {String repo = 'ZafranHulaif/typingclubrobot'}) async {
+    try {
+      final req = await _client
+          .getUrl(Uri.parse('https://api.github.com/repos/$repo/releases?per_page=15'))
+          .timeout(const Duration(seconds: 8));
+      req.headers.set(HttpHeaders.userAgentHeader, userAgent(version));
+      req.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
+      final res = await req.close().timeout(const Duration(seconds: 8));
+      final raw = await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 8));
+      if (res.statusCode != 200) return null;
+      return pickMacRelease(jsonDecode(raw));
+    } on Exception catch (e) {
+      throw Unreachable('$e');
+    }
+  }
+
+  /// Pilih rilis (bukan draft/prarilis) bervers tertinggi yang membawa
+  /// TypingBot-mac.zip. Dipisah biar bisa dites.
+  static Map<String, dynamic>? pickMacRelease(dynamic list) {
+    if (list is! List) return null;
+    Map<String, dynamic>? best;
+    List<int> ver(String s) => [
+          for (final x in s.replaceFirst(RegExp(r'^v'), '').split('-').first.split('.'))
+            int.tryParse(x) ?? 0
+        ];
+    bool lebih(List<int> a, List<int> b) {
+      for (var i = 0; i < 3; i++) {
+        final x = i < a.length ? a[i] : 0, y = i < b.length ? b[i] : 0;
+        if (x != y) return x > y;
+      }
+      return false;
+    }
+
+    for (final r in list) {
+      if (r is! Map || r['draft'] == true || r['prerelease'] == true) continue;
+      final tag = '${r['tag_name'] ?? ''}';
+      Map? aset;
+      for (final a in (r['assets'] as List? ?? const [])) {
+        if (a is Map && a['name'] == 'TypingBot-mac.zip') aset = a;
+      }
+      if (aset == null || tag.isEmpty) continue;
+      final v = tag.replaceFirst(RegExp(r'^v'), '');
+      if (best != null && !lebih(ver(v), ver('${best['version']}'))) continue;
+      final dg = '${aset['digest'] ?? ''}';
+      final body = '${r['body'] ?? ''}'.trim();
+      best = {
+        'version': v,
+        'notes': body.length > 300 ? '${body.substring(0, 300)}...' : body,
+        'size': (aset['size'] as num?)?.toInt() ?? 0,
+        'sha256': dg.startsWith('sha256:') ? dg.substring(7) : '',
+        'url': '${aset['browser_download_url'] ?? ''}',
+      };
+    }
+    return best;
+  }
+
   /// Info rilis terbaru, atau null bila belum ada.
   Future<Map<String, dynamic>?> fetchLatest() async {
     final (st, data) = await json('GET', '/api/latest');

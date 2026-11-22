@@ -1643,14 +1643,20 @@ class NativeBackend implements Backend {
   }
 
   Future<dynamic> _updateCheck() async {
-    // rilis di server = TypingBot.exe Windows; versi Mac belum punya jalur
-    // pembaruan otomatis (unduh manual dari GitHub). Tes (api disuntik)
-    // tetap memakai jalur biasa.
-    if (Platform.isMacOS && _apiOverride == null) {
-      _set('update', {'available': false});
-      return _snap['update'];
+    // rilis di server = TypingBot.exe Windows; Mac ambil dari rilis GitHub
+    // (aset TypingBot-mac.zip). Tes (api disuntik) tetap jalur biasa.
+    final mac = Platform.isMacOS && _apiOverride == null;
+    Map<String, dynamic>? info;
+    if (mac) {
+      try {
+        final r = await _api.latestMacRelease();
+        if (r != null && isNewer('${r['version']}', _version)) info = r;
+      } on Unreachable {
+        info = null;
+      }
+    } else {
+      info = await checkUpdate(_api, _version);
     }
-    final info = await checkUpdate(_api, _version);
     if (info == null) {
       _set('update', {'available': false});
       return _snap['update'];
@@ -1689,7 +1695,8 @@ class NativeBackend implements Backend {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
       dir.createSync(recursive: true);
     } catch (_) {}
-    final dest = '${dir.path}${Platform.pathSeparator}TypingBot-$ver.exe';
+    final mac = Platform.isMacOS && _apiOverride == null;
+    final dest = '${dir.path}${Platform.pathSeparator}TypingBot-$ver.${mac ? 'zip' : 'exe'}';
     _dlCancel = false;
     _dlPath = null;
     _set('update', {'phase': 'downloading', 'progress': 0.0, 'error': ''});
@@ -1697,7 +1704,9 @@ class NativeBackend implements Backend {
       final tok = _anyTok();
       final size = (info['size'] as num?)?.toInt();
       final want = '${info['sha256'] ?? ''}';
-      final jalur = [
+      final jalur = mac
+          ? ['${info['url'] ?? ''}']
+          : [
         if (tok != null)
           '/api/download?t=${Uri.encodeComponent(base64Encode(utf8.encode(jsonEncode(tok))))}',
         'https://github.com/ZafranHulaif/typingclubrobot/releases/download/v$ver/TypingBot.exe',
@@ -1752,11 +1761,30 @@ class NativeBackend implements Backend {
       throw RpcException('later', 'Unduh pembaruannya dulu ya.');
     }
     if (busy) throw RpcException('busy', 'Stop bot dulu ya.');
-    await Process.start(p, ['--update', '--wait', '$pid'],
-        mode: ProcessStartMode.detached);
+    if (Platform.isMacOS && _apiOverride == null) {
+      await _macInstall(p);
+    } else {
+      await Process.start(p, ['--update', '--wait', '$pid'],
+          mode: ProcessStartMode.detached);
+    }
     _log('[UPDATE] memasang versi baru, app ditutup.');
     Timer(const Duration(milliseconds: 400), () => exit(0));
     return {'ok': true};
+  }
+
+  /// macOS: skrip kecil menunggu app tutup, membongkar zip, menukar
+  /// TypingBot.app (lama disimpan dulu, dibalikkan kalau gagal), lalu
+  /// membuka versi baru.
+  Future<void> _macInstall(String zip) async {
+    // .../TypingBot.app/Contents/MacOS/TypingBot -> .../TypingBot.app
+    final exe = File(Platform.resolvedExecutable);
+    final app = exe.parent.parent.parent.path;
+    if (!app.endsWith('.app')) {
+      throw RpcException('later', 'Lokasi app tidak dikenali, unduh manual dari GitHub ya.');
+    }
+    final sh = File('$_base${Platform.pathSeparator}update${Platform.pathSeparator}pasang.sh');
+    sh.writeAsStringSync(macInstallScript(app: app, zip: zip, pid: pid));
+    await Process.start('/bin/bash', [sh.path], mode: ProcessStartMode.detached);
   }
 
   Future<dynamic> _report(String category, String text) async {
@@ -1792,4 +1820,24 @@ class NativeBackend implements Backend {
     _viewSub?.cancel();
     _view?.dispose().catchError((_) {});
   }
+}
+
+/// Skrip pasang pembaruan macOS (dites terpisah).
+String macInstallScript({required String app, required String zip, required int pid}) {
+  String q(String x) => "'${x.replaceAll("'", "'\\''")}'";
+  return [
+    '#!/bin/bash',
+    'APP=${q(app)}',
+    'ZIP=${q(zip)}',
+    'for i in \$(seq 1 100); do kill -0 $pid 2>/dev/null || break; sleep 0.2; done',
+    'T=\$(mktemp -d)',
+    r'if ! ditto -x -k "$ZIP" "$T" || [ ! -d "$T/TypingBot.app" ]; then open "$APP"; exit 1; fi',
+    r'rm -rf "$APP.lama"',
+    r'if ! mv "$APP" "$APP.lama"; then open "$APP"; exit 1; fi',
+    r'if ! mv "$T/TypingBot.app" "$APP"; then mv "$APP.lama" "$APP"; open "$APP"; exit 1; fi',
+    r'xattr -dr com.apple.quarantine "$APP" 2>/dev/null',
+    r'rm -rf "$APP.lama" "$T" "$ZIP"',
+    r'open "$APP"',
+    '',
+  ].join('\n');
 }

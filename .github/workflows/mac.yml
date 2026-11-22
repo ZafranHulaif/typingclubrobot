@@ -126,6 +126,28 @@ jobs:
         with:
           name: mactest-out
           path: mactest-out
+      - name: Uji tukar app (skrip pembaruan mac)
+        run: |
+          set -x
+          APP=$(ls -d ui/build/macos/Build/Products/Release/*.app | head -1)
+          D=$RUNNER_TEMP/upd
+          mkdir -p "$D/Apps"
+          cp -R "$APP" "$D/Apps/TypingBot.app"
+          echo lama > "$D/Apps/TypingBot.app/Contents/penanda-lama"
+          ditto -c -k --keepParent "$APP" "$D/u.zip"
+          sleep 4 &
+          P=$!
+          (cd ui && TB_TULIS_SKRIP="$D" TB_PID=$P flutter test test/mac_update_test.dart)
+          # open diganti no-op supaya app tidak benar2 dibuka di CI
+          sed -i '' 's#^open "\$APP"#true#; s#; open "\$APP"#; true#g' "$D/pasang.sh"
+          cat "$D/pasang.sh"
+          bash "$D/pasang.sh"
+          ls "$D/Apps"
+          test -f "$D/Apps/TypingBot.app/Contents/Info.plist"
+          test ! -e "$D/Apps/TypingBot.app/Contents/penanda-lama"
+          test ! -e "$D/Apps/TypingBot.app.lama"
+          test ! -e "$D/u.zip"
+          echo "tukar app OK"
       - name: Kemas app (zip)
         if: always()
         run: |
