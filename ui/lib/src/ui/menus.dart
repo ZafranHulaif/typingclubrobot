@@ -1,3 +1,5 @@
+import 'dart:async';
+
 // Popup dari bar atas: kecepatan, akun (+ pengaturan jarang), lapor, update.
 import 'package:material_ui/material_ui.dart';
 
@@ -65,6 +67,52 @@ class _MenuItem extends StatelessWidget {
           Text(label, style: t.bodyMedium!.copyWith(color: color)),
         ]),
       ),
+    );
+  }
+}
+
+/// Item berbahaya: ketuk sekali = minta konfirmasi (3 dtk), ketuk lagi = jalan.
+class _ConfirmItem extends StatefulWidget {
+  const _ConfirmItem(
+      {required this.icon, required this.label, required this.confirm, required this.onConfirm});
+  final IconData icon;
+  final String label;
+  final String confirm;
+  final VoidCallback? onConfirm;
+  @override
+  State<_ConfirmItem> createState() => _ConfirmItemState();
+}
+
+class _ConfirmItemState extends State<_ConfirmItem> {
+  bool _armed = false;
+  Timer? _t;
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = Theme.of(context).colorScheme;
+    return _MenuItem(
+      widget.icon,
+      _armed ? widget.confirm : widget.label,
+      widget.onConfirm == null
+          ? null
+          : () {
+              if (_armed) {
+                _t?.cancel();
+                widget.onConfirm!();
+                return;
+              }
+              setState(() => _armed = true);
+              _t = Timer(const Duration(seconds: 3), () {
+                if (mounted) setState(() => _armed = false);
+              });
+            },
+      color: c.error,
     );
   }
 }
@@ -243,6 +291,15 @@ class _AccountButtonState extends State<AccountButton> {
             _MenuItem(Icons.logout_rounded, 'Keluar dari akun',
                 s.busy ? null : () => run('acct.logout'),
                 color: c.error),
+            if (aktif.isNotEmpty)
+              _ConfirmItem(
+                icon: Icons.delete_outline_rounded,
+                label: 'Hapus akun ini',
+                confirm: 'Ketuk lagi untuk menghapus',
+                onConfirm: s.busy
+                    ? null
+                    : () => run('acct.delete', {'name': aktif}, 'Akun dihapus dari TypingBot.'),
+              ),
             if (_dev) ...[
               const Divider(height: 13),
               Padding(

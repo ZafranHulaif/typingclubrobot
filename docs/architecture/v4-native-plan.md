@@ -199,7 +199,17 @@ Owner ran dev3 on Windows. Typing works (slow first start). Fixed in dev4:
   as the `selftest` artifact. First run confirmed on real Windows: holes work (panel over live
   page), maximized, dark title bar, login gate -> /signin.
 
-## Owner test checklist (Windows, build 4.0.0-dev5 from the CI artifact)
+### Third owner test (dev5) -> dev6
+- Session restore + auto Google login confirmed working by the owner. Test edclub account created
+  (Google sign-up, display name "Zafran Tes").
+- Auto login marks its intent ('auto') so the relay never shows the "sign up first" banner for it.
+- Relay writes a trace (resolve result per issuer, refresh status, destination) that the host
+  copies into bot.log as `[LOGIN] relay: ...` (to explain the odd "Akun baru" account).
+- Account names follow the edclub name whenever an account is seen logged in (not only new ones).
+- Delete account (menu, tap twice). Locked folders are removed on next start.
+- Exe renamed to TypingBot.exe (also clears Explorer's cached Flutter icon).
+
+## Owner test checklist (Windows, build 4.0.0-dev6 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

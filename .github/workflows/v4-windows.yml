@@ -71,7 +71,7 @@ jobs:
             $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
             $g.Dispose(); $bmp.Dispose()
           }
-          $p = Start-Process -FilePath 'build\windows\x64\runner\Release\typingbot.exe' -PassThru
+          $p = Start-Process -FilePath 'build\windows\x64\runner\Release\TypingBot.exe' -PassThru
           $sw = [Diagnostics.Stopwatch]::StartNew()
           while ($sw.Elapsed.TotalSeconds -lt 300 -and -not (Test-Path (Join-Path $dir 'selesai'))) {
             Get-ChildItem $dir -Filter *.ready | ForEach-Object {

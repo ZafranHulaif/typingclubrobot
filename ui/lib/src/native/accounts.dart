@@ -135,6 +135,45 @@ class AccountStore {
     _savePending(p);
   }
 
+  void clearActive() {
+    try {
+      File(_j(_akunDir, 'aktif.json')).deleteSync();
+    } catch (_) {}
+  }
+
+  /// Hapus akun: folder jar, nama tampil, buku alamat 3.5.x. Folder yang
+  /// masih dikunci WebView2 ditandai & dibuang saat app dibuka lagi.
+  /// true = folder sudah hilang.
+  Future<bool> delete(String id) async {
+    final m = labels()..remove(id);
+    try {
+      Directory(_akunDir).createSync(recursive: true);
+      File(_j(_akunDir, 'label.json')).writeAsStringSync(jsonEncode(m));
+    } catch (_) {}
+    try {
+      for (final f in Directory(_akunDir).listSync().whereType<File>()) {
+        final b = f.uri.pathSegments.last;
+        if (!b.startsWith('akun-') || !b.endsWith('.json')) continue;
+        try {
+          final j = jsonDecode(f.readAsStringSync()) as Map;
+          if ('${j['nama']}'.toLowerCase() == id.toLowerCase()) f.deleteSync();
+        } catch (_) {}
+      }
+    } catch (_) {}
+    final d = Directory(folderFor(id));
+    for (var i = 0; i < 10; i++) {
+      try {
+        if (d.existsSync()) d.deleteSync(recursive: true);
+        clearPending(id);
+        return true;
+      } catch (_) {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      }
+    }
+    addPending(id); // tersembunyi dari daftar & dibuang nanti
+    return false;
+  }
+
   /// Nama sementara utk akun baru (nama asli dari profil edclub menyusul
   /// bersama port sesi/login di N3).
   String newName() {

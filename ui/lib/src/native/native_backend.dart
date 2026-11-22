@@ -341,6 +341,7 @@ class NativeBackend implements Backend {
     }
     _view = v;
     _viewAcct = name;
+    _labelDone = false;
     _rtSaved = '';
     _seenIn = false;
     _autoTried = false;
@@ -391,6 +392,7 @@ class NativeBackend implements Backend {
                 _oauthHold = false;
                 _revealT?.cancel();
                 _cover(null);
+                unawaited(_logRelay());
               }
               if (u!.path.contains('/signin')) {
                 // bisa jadi halaman relay (URL sudah dibersihkan): tunggu
@@ -438,23 +440,41 @@ class NativeBackend implements Backend {
   // ---- akun baru: resmi tersimpan begitu login berhasil
   Timer? _pendingT;
 
+  bool _labelDone = false;
+
+  /// Begitu login: akun baru jadi resmi & nama tampil ikut nama edclub
+  /// (sekali per buka webview).
   void _checkPendingSoon() {
     final a = accounts.active();
-    if (a == null || !accounts.isPending(a)) return;
+    if (a == null || _labelDone) return;
     _pendingT?.cancel();
     _pendingT = Timer(const Duration(milliseconds: 1500), () => _checkPending(a));
   }
 
   Future<void> _checkPending(String id) async {
-    if (accounts.active() != id || !accounts.isPending(id)) return;
+    if (accounts.active() != id || _labelDone) return;
     final url = '${_snap['web']!['url'] ?? ''}'.toLowerCase();
-    if (url.contains('/signin') || url.contains('google')) return;
+    if (url.contains('/signin') || url.contains('/signup') || url.contains('google')) return;
     if (await _profile() != 'in') return;
-    accounts.clearPending(id);
+    final baru = accounts.isPending(id);
+    if (baru) accounts.clearPending(id);
     final nama = await _displayName();
-    if (nama.isNotEmpty) accounts.setLabel(id, nama);
-    _log('[AKUN] Akun baru tersimpan${nama.isNotEmpty ? ': $nama' : ''}.');
+    _labelDone = nama.isNotEmpty || baru;
+    if (nama.isNotEmpty && accounts.labelOf(id) != nama) {
+      accounts.setLabel(id, nama);
+      _log('[AKUN] Nama akun: $nama');
+    }
+    if (baru) _log('[AKUN] Akun baru tersimpan${nama.isNotEmpty ? ': $nama' : ''}.');
     _refreshAccounts();
+  }
+
+  /// Jejak relay OAuth (sessionStorage tb_oauth_dbg) -> bot.log.
+  Future<void> _logRelay() async {
+    try {
+      final r = await _view?.eval("(() => { try { const v = sessionStorage.getItem('tb_oauth_dbg') || ''; "
+          "sessionStorage.removeItem('tb_oauth_dbg'); return v; } catch (e) { return ''; } })()");
+      if (r is String && r.isNotEmpty) _log('[LOGIN] relay: $r');
+    } catch (_) {}
   }
 
   /// Nama user dari halaman edclub ('' = tidak terbaca).
@@ -510,6 +530,9 @@ class NativeBackend implements Backend {
           _log('[LOGIN] Mencoba masuk otomatis lewat Google.');
           _cover('Masuk otomatis...');
           try {
+            // tandai: relay jangan kasih pesan "daftar dulu" (bukan klik user)
+            await _view?.eval("(() => { try { sessionStorage.setItem('tb_oauth_from', 'auto'); } catch (e) {} return 1; })()")
+                .catchError((_) => null);
             await _view?.navigate(googleSilentUrl());
             return;
           } catch (_) {
@@ -641,6 +664,26 @@ class NativeBackend implements Backend {
           accounts.setActive(name);
           await _open(name, url: signinUrl);
           accounts.dropPending(except: name);
+          _refreshAccounts();
+          return _snap['account'];
+        });
+      case 'acct.delete':
+        _notWhileRunning();
+        final del = '${p['name'] ?? ''}'.trim();
+        if (del.isEmpty) throw RpcException('bad_input', 'Pilih akunnya dulu.');
+        return _guard(() async {
+          if (del == accounts.active()) {
+            final lain = accounts.list().where((n) => n != del).toList();
+            if (lain.isNotEmpty) {
+              accounts.setActive(lain.first);
+              await _open(lain.first);
+            } else {
+              accounts.clearActive();
+              await _open(null, url: signinUrl);
+            }
+          }
+          final ok = await accounts.delete(del);
+          _log('[AKUN] Akun dihapus: ${accounts.labelOf(del)}${ok ? '' : ' (folder dibersihkan saat app dibuka lagi)'}');
           _refreshAccounts();
           return _snap['account'];
         });

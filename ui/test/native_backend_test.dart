@@ -24,6 +24,7 @@ class FakeNative {
   final cdpCalls = <String>[];
   final cdpParams = <String>[];
   String? rt; // kuki rt di jar palsu
+  String displayName = '';
 
   Future<Object?> _handle(MethodCall c) async {
     calls.add(c);
@@ -42,7 +43,9 @@ class FakeNative {
         return '{}';
       case 'eval':
         // cek login saat webview dibuka: anggap sudah login
-        if ('${(c.arguments as Map)['js']}'.contains('tb:login')) return '"in"';
+        final js = '${(c.arguments as Map)['js']}';
+        if (js.contains('tb:login')) return '"in"';
+        if (js.contains('profile-name')) return jsonEncode(displayName);
         return '42';
       case 'info':
         return {'url': 'https://www.edclub.com/', 'title': 't'};
@@ -217,6 +220,42 @@ void main() {
       final names = fake.calls.map((c) => c.method).toList();
       expect(names.lastIndexOf('cdp'), lessThan(names.indexOf('navigate')));
       b2.close();
+    });
+
+    test('hapus akun aktif: pindah ke akun lain, folder & nama hilang', () async {
+      _listen(be);
+      await be.connect();
+      await _flush();
+      await be.request('acct.switch', {'name': 'budi'});
+      await _flush();
+      await be.request('acct.switch', {'name': 'sari'});
+      await _flush();
+      final st = AccountStore(tmp.path);
+      Directory(st.folderFor('budi')).createSync(recursive: true);
+      Directory(st.folderFor('sari')).createSync(recursive: true);
+      st.setLabel('sari', 'Sari W');
+      await be.request('acct.delete', {'name': 'sari'});
+      await _flush();
+      expect(st.active(), 'budi');
+      expect(Directory(st.folderFor('sari')).existsSync(), false);
+      expect(st.labels().containsKey('sari'), false);
+      final names = [for (final a in (_last['account'] as Map)['list'] as List) a['name']];
+      expect(names, ['budi']);
+    });
+
+    test('nama akun ikut nama edclub begitu login', () async {
+      fake.displayName = 'Zafran Tes';
+      _listen(be);
+      await be.connect();
+      await _flush();
+      await be.request('acct.switch', {'name': 'Akun baru 2'});
+      await _flush();
+      final id = (fake.named('create').last.arguments as Map)['id'] as int;
+      await fake.emit(id, 'nav', {'phase': 'done', 'url': homeUrl});
+      await Future<void>.delayed(const Duration(milliseconds: 1700));
+      await _flush();
+      expect((_last['account'] as Map)['active_label'], 'Zafran Tes');
+      expect(((_last['account'] as Map)['list'] as List).single['label'], 'Zafran Tes');
     });
 
     test('akun baru ditinggal sebelum login = dibuang; login = tersimpan', () async {

@@ -231,14 +231,26 @@ const oauthRelayPageJs = r'''
     function pesan(m) {
       try { sessionStorage.setItem('tb_oauth_msg', m); } catch (e) {}
     }
+    // jejak utk bot.log (dibaca host v4 lewat sessionStorage tb_oauth_dbg)
+    var jejak = ['niat=' + (niat || '-')];
+    function pergi(u) {
+      try {
+        sessionStorage.setItem('tb_oauth_dbg', jejak.join(' ') + ' -> ' + u);
+      } catch (e) {}
+      location.replace(u);
+    }
     (async () => {
       for (var i = 0; i < issuers.length; i++) {
         try {
           var r = await fetch(api + '/auth/resolve_oauth_token/',
             Object.assign({}, opt, {body: JSON.stringify(
               {issuer: issuers[i], code: rc, domain: 'www'})}));
-          if (!r.ok) continue;
+          if (!r.ok) { jejak.push(issuers[i] + ':' + r.status); continue; }
           var d = await r.json();
+          jejak.push(issuers[i] + ':200 user=' + !!(d && d.user) +
+                     ' tpc=' + ((d && d.tpc_users) || []).length +
+                     ' sign=' + !!(d && d.sign) +
+                     ' konf=' + ((d && d.identity_confirmation_status) || '-'));
           var k = [];
           if (d && d.user) k.push(d.user);
           if (d && d.tpc_users) k.push(...d.tpc_users);
@@ -253,7 +265,10 @@ const oauthRelayPageJs = r'''
           // berputar signin -> google -> signin selamanya.
           if (!tok && !k.length && d &&
               !d.identity_confirmation_status) {
-            if (niat === 'signup' && d.sign) {
+            if (niat === 'auto') {
+              // login otomatis (bukan klik user): diam saja ke /signin
+              tujuan = 'https://www.edclub.com/signin';
+            } else if (niat === 'signup' && d.sign) {
               try {
                 var rs = await fetch(
                   api + '/website/create_tp_oauth_user/',
@@ -294,13 +309,14 @@ const oauthRelayPageJs = r'''
           try { localStorage.setItem('tb_lt', tok); } catch (e) {}
           var r2 = await fetch(api + '/j/auth/refresh-tokens',
             Object.assign({}, opt, {body: JSON.stringify({login_token: tok})}));
+          jejak.push('refresh=' + r2.status);
           if (r2.ok) {
-            location.replace('https://www.edclub.com/student/course/3');
+            pergi('https://www.edclub.com/student/course/3');
             return;
           }
         } catch (e) {}
       }
-      location.replace(tujuan);
+      pergi(tujuan);
     })();
     }
   } catch (e) {}
