@@ -6,7 +6,8 @@ name: v4-windows
 # diunduh & dicoba. Job sidecar = jalur lama (diparkir), tetap dicek.
 on:
   push:
-    branches: [v4]
+    # mac: port macOS menyentuh kode bersama, Windows harus tetap hijau
+    branches: [v4, mac]
   workflow_dispatch:
 
 jobs:

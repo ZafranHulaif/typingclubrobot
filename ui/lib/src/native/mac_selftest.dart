@@ -174,6 +174,17 @@ Future<void> runMacSelfTest(String dir) async {
         if (c is Map && c['name'] == 'tbtes') c['value']
     ];
 
+    // 4b) jar kuki terpisah per akun (folder lain = WKWebsiteDataStore lain)
+    final lain = await webHost.create(folder: '${dir}_profil_lain', url: 'about:blank');
+    final ck2 = await lain.cdp('Network.getCookies', {
+      'urls': ['http://127.0.0.1:8701/']
+    });
+    out['cookie_akun_lain'] = [
+      for (final c in (ck2['cookies'] as List? ?? const []))
+        if (c is Map && c['name'] == 'tbtes') c['value']
+    ];
+    await lain.dispose();
+
     // 5) reload: frame & konteks diumumkan ulang
     await page.reload(timeout: 20);
     await tunggu(1.5);

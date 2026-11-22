@@ -91,6 +91,7 @@ jobs:
           f = r.get('iframe_after_click') or []
           cek('klik di iframe isTrusted', bool(f) and all(c.get('trusted') for c in f))
           cek('kuki tersimpan', r.get('cookie') == ['ok123'])
+          cek('kuki akun lain terpisah', r.get('cookie_akun_lain') == [])
           cek('frame ada lagi sesudah reload', any('frame.html' in u for u in r.get('after_reload_frames') or []))
           sys.exit(1 if gagal else 0)
           EOF
