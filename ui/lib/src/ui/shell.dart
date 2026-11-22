@@ -337,7 +337,7 @@ class _Capsule extends StatelessWidget {
           ]),
         );
     final Widget bintang = s.planRunning
-        ? Tooltip(
+        ? Tip(
             message: 'Bintang ikut rencana',
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               mode(Icons.lock_rounded, 'Rencana'),
@@ -352,7 +352,7 @@ class _Capsule extends StatelessWidget {
             mode(Icons.tune_rounded, 'Bebas'),
             Padding(
               padding: const EdgeInsets.only(left: 2),
-              child: Tooltip(
+              child: Tip(
                 message: 'Bisa diubah kapan saja, berlaku mulai level berikutnya',
                 child: StarPicker(
                   stars: s.freeStars,

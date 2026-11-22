@@ -42,7 +42,7 @@ class BarButton extends StatelessWidget {
         ),
       ),
     );
-    return tooltip == null ? b : Tooltip(message: tooltip, child: b);
+    return tooltip == null ? b : Tip(message: tooltip!, child: b);
   }
 }
 

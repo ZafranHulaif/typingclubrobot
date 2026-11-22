@@ -398,7 +398,11 @@ on the test account, untested). Unverified: Dart engine end to end on Windows, g
 still ran at full speed. Pacing now runs with the key held; the deliberate wrong letters never use
 the held key.
 
-## Owner test checklist (Windows, build 4.0.0-dev23 from the CI artifact)
+### dev24: tooltips above the page
+Material Tooltip draws in the Flutter overlay, which the native webview covers (top bar tips
+appeared under the page). New `Tip` widget (common.dart) wraps the tooltip box in a WebHole.
+
+## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

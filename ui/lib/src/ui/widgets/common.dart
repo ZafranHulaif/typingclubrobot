@@ -398,3 +398,36 @@ class _PopLayout extends SingleChildLayoutDelegate {
   bool shouldRelayout(_PopLayout old) =>
       old.anchor != anchor || old.alignRight != alignRight;
 }
+
+/// Tooltip yang tampil DI ATAS halaman native: kotaknya jadi WebHole,
+/// jadi tidak ketutup webview (Tooltip biasa ketutup di bar atas).
+class Tip extends StatelessWidget {
+  const Tip({super.key, required this.message, required this.child});
+  final String message;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = Theme.of(context).colorScheme;
+    final t = Theme.of(context).textTheme;
+    return Tooltip(
+      // kotak & teks digambar sendiri di dalam lubang
+      decoration: const BoxDecoration(),
+      padding: EdgeInsets.zero,
+      richMessage: WidgetSpan(
+        child: WebHole(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+                color: c.surfaceContainerHighest,
+                // samakan dengan sudut lubang biar pojoknya tidak kepotong
+                borderRadius: BorderRadius.circular(WebLayer.instance.holeRadius),
+                border: Border.all(color: c.outline)),
+            child: Text(message, style: t.bodySmall!.copyWith(color: c.onSurface)),
+          ),
+        ),
+      ),
+      child: child,
+    );
+  }
+}
