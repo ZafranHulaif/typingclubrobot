@@ -112,7 +112,13 @@ class AppStore extends ChangeNotifier {
       case 'snapshot':
         snap = Map<String, dynamic>.from(e.data as Map);
       case 'state':
-        (e.data as Map).forEach((k, v) => snap['$k'] = v);
+        final m = e.data as Map;
+        // lisensi akun baru disetujui (dari menunggu): kabari
+        final lic = m['license'];
+        if (lic is Map && lic['approved'] == true && license['state'] == 'pending') {
+          say('Akun sudah aktif. Tekan Mulai.');
+        }
+        m.forEach((k, v) => snap['$k'] = v);
       default:
         return;
     }

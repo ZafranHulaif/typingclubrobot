@@ -30,6 +30,7 @@ void main() {
   final hits = <String>[];
   String status = 'unknown';
   String latest = '3.5.5';
+  bool reqApprove = false; // /api/license/request langsung approved
 
   setUpAll(() {
     lic.debugPublicKeyHex = _nodePub;
@@ -43,6 +44,7 @@ void main() {
     hits.clear();
     status = 'unknown';
     latest = '3.5.5';
+    reqApprove = false;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(const MethodChannel('typingbot/web_host'), (c) async {
       if (c.method == 'version') return ''; // tanpa webview: cukup uji jaringan
@@ -60,7 +62,9 @@ void main() {
               ? {'status': 'approved', 'token': _tokOk}
               : {'status': status}));
         case '/api/license/request':
-          req.response.write(jsonEncode({'status': 'pending'}));
+          req.response.write(jsonEncode(reqApprove
+              ? {'status': 'approved', 'token': {..._tokOk, 'mc': 'a854363933'}}
+              : {'status': 'pending'}));
         case '/api/latest':
           req.response.write(jsonEncode({
             'version': latest,
@@ -113,54 +117,82 @@ void main() {
     }
   }
 
-  test('token sah + server approved -> ok, token diperbarui', () async {
+  test('lisensi mesin: token diperbarui di latar, UI tidak dikunci saat buka', () async {
     lic.saveToken('${tmp.path}/license.dat', _tokOk);
     status = 'approved';
     final be = await boot();
-    await waitFor(() => licState()['state'] == 'ok');
-    expect(licState()['days_left'], greaterThan(1000));
-    expect(hits.first, startsWith('GET /api/license/status?mc=ZZZZZ-22222'));
+    await waitFor(() => hits.any((h) => h.startsWith('GET /api/license/status?mc=ZZZZZ-22222')));
+    expect(licState()['state'], 'ok');
     be.close();
   });
 
-  test('token sah tapi server bilang dicabut -> revoked, Mulai ditolak', () async {
-    lic.saveToken('${tmp.path}/license.dat', _tokOk);
-    status = 'denied';
-    final be = await boot();
-    await waitFor(() => licState()['state'] == 'revoked');
-    expect(() => be.request('bot.start'),
-        throwsA(isA<RpcException>().having((e) => e.code, 'code', 'license')));
-    be.close();
-  });
-
-  test('kode mesin v4 beda dgn token -> tanya server pakai mc token', () async {
-    lic.saveToken('${tmp.path}/license.dat', _tokOk);
-    status = 'approved';
-    final be = await boot(mc: 'AAAAA-BBBBB');
-    await waitFor(() => licState()['state'] == 'ok');
-    expect(hits.first, contains('mc=ZZZZZ-22222'));
-    expect(File('${tmp.path}/bot.log').readAsStringSync(), contains('beda dgn token'));
-    be.close();
-  });
-
-  test('server mati -> token lokal tetap dipercaya (offline)', () async {
-    lic.saveToken('${tmp.path}/license.dat', _tokOk);
-    await srv.close(force: true);
-    final be = await boot();
-    await waitFor(() => licState()['state'] == 'ok');
-    be.close();
-  });
-
-  test('mesin baru: need -> minta (nama pendek ditolak) -> pending', () async {
+  test('mesin baru tanpa lisensi: tetap bisa buka app (lisensi diminta saat Mulai)', () async {
     final be = await boot(mc: 'NEWWW-MACHN');
+    await waitFor(() => hits.isNotEmpty);
+    expect(licState()['state'], 'ok');
+    expect(hits.where((h) => h.contains('/api/license/request')), isEmpty);
+    be.close();
+  });
+
+  // ---------------------------------------------- lisensi per akun
+  Future<NativeBackend> bootWeb({String mc = 'ZZZZZ-22222'}) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('typingbot/web_host'), (c) async {
+      switch (c.method) {
+        case 'version':
+          return '131.0';
+        case 'create':
+          return (c.arguments as Map)['id'];
+        case 'cdp':
+          // user_id edclub dari refresh-tokens
+          if ((c.arguments as Map)['method'] == 'Runtime.evaluate') {
+            return '{"result": {"type": "number", "value": 854363933}}';
+          }
+          return '{}';
+        case 'eval':
+          return '"in"';
+      }
+      return null;
+    });
+    return boot(mc: mc);
+  }
+
+  Future<void> mulaiRencana(NativeBackend be) async {
+    await be.request('plan.set', {
+      'segments': [
+        {'from': 1, 'to': 5, 'stars': 5, 'silver': true}
+      ]
+    });
+    await be.request('bot.start', {'mode': 'plan'});
+  }
+
+  test('akun baru tanpa nama panggilan: Mulai -> minta nama -> pending utk id akun', () async {
+    final be = await bootWeb(mc: 'NEWWW-MACHN');
+    await mulaiRencana(be);
     await waitFor(() => licState()['state'] == 'need');
     expect(() => be.request('license.request', {'nickname': 'a'}), throwsA(isA<RpcException>()));
     await be.request('license.request', {'nickname': 'Ucok'});
-    await pumpEventQueue();
-    expect(licState()['state'], 'pending');
-    expect(hits.last, contains('"nickname":"Ucok"'));
-    expect(hits.last, contains('"mc":"NEWWW-MACHN"'));
+    await waitFor(() => licState()['state'] == 'pending');
+    final req = hits.lastWhere((h) => h.contains('/api/license/request'));
+    expect(req, contains('"mc":"a854363933"'));
+    expect(req, contains('Ucok'));
     expect(jsonDecode(File('${tmp.path}/typingbot_settings.json').readAsStringSync())['nickname'], 'Ucok');
+    be.close();
+  });
+
+  test('lisensi mesin 3.5.x ikut dikirim (jatah akun pertama); disetujui -> token akun tersimpan', () async {
+    lic.saveToken('${tmp.path}/license.dat', _tokOk);
+    status = 'approved';
+    reqApprove = true;
+    final be = await bootWeb();
+    await waitFor(() => hits.any((h) => h.contains('status?mc=ZZZZZ-22222')));
+    await mulaiRencana(be);
+    await waitFor(() => hits.any((h) => h.contains('/api/license/request')));
+    final req = hits.lastWhere((h) => h.contains('/api/license/request'));
+    expect(req, contains('"mc":"a854363933"'));
+    expect(req, contains('"mtok"'));
+    await waitFor(() => File('${tmp.path}/lisensi-akun.json').existsSync());
+    expect(jsonDecode(File('${tmp.path}/lisensi-akun.json').readAsStringSync()), contains('a854363933'));
     be.close();
   });
 

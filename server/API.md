@@ -19,6 +19,11 @@ Info rilis terbaru. `404` bila belum ada rilis.
 ### `POST /api/license/request`
 Body: `{"mc": "XXXXX-XXXXX", "nickname": "Ucok", "app_version": "2.7"}`
 Idempoten: mesin yang sudah approved langsung diberi token.
+
+v4: `mc` juga bisa **id akun edclub** = `"a" + user_id` (lisensi per akun, berlaku di PC
+mana pun). Body boleh membawa `"mtok"`: token lisensi MESIN 3.5.x yang sah. Mesin itu
+approved dan belum dipakai (`claimed` kosong) -> akun ini langsung `approved`, mesin dicatat
+`claimed = <id akun>` (jatah satu akun pertama). Akun berikutnya tetap `pending`.
 ```json
 {"status": "pending"}
 {"status": "approved", "token": {"mc": "...", "exp": 1790000000, "sig": "<hex>"}}

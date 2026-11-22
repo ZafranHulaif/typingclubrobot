@@ -92,7 +92,8 @@ class NativeBackend implements Backend {
       'speed': {'wpm': wpm},
       'account': {'active': '', 'list': <Map<String, dynamic>>[]},
       // N4: diisi _netBoot; checkLicense=false (tes) = tidak dikunci
-      'license': {'state': checkLicense ? 'checking' : 'ok'},
+      // v4: lisensi per akun edclub, diperiksa saat Mulai (bukan saat buka)
+      'license': {'state': 'ok'},
       'update': <String, dynamic>{},
       'cover': {'visible': true, 'text': 'Menyiapkan edclub...'},
       'plan': {'segments': <Map<String, dynamic>>[]},
@@ -308,11 +309,7 @@ class NativeBackend implements Backend {
       // cek lokal dulu (cepat): token/kunci sah = langsung ok tanpa
       // menunggu jaringan; server memastikan di latar
       final tok = lic.loadToken(_licPath);
-      if (tok != null && lic.verifyToken(tok)) {
-        _licOk(tok);
-      } else if (lic.licenseValid(_licPath, _mc())) {
-        _set('license', {'state': 'ok'});
-      }
+      if (tok != null && lic.verifyToken(tok)) _tok = tok;
       unawaited(_netBoot());
     }
     final ver = await host.version().catchError((_) => '');
@@ -1001,10 +998,6 @@ class NativeBackend implements Backend {
     if (busy) {
       throw RpcException('busy', 'Bot masih jalan. Tunggu sebentar ya.');
     }
-    if (_snap['license']!['state'] != 'ok') {
-      throw RpcException('license', 'Aktifkan TypingBot dulu ya.');
-    }
-    if (checkLicense) await _licenseGate();
     final v = _view;
     if (v == null || v.disposed) {
       throw RpcException('not_ready', 'Halaman edclub belum siap.');
@@ -1071,6 +1064,10 @@ class NativeBackend implements Backend {
           final segs = _segments;
           final akhir = _chainEnd(segs);
           _stopWaiting();
+          if (!await _accountGate()) {
+            _set('bot', {'phase': 'idle', 'wait': ''});
+            return;
+          }
           _log('Mulai rencana: level ${segs.first['from']} - '
               '${akhir == 0 ? 'akhir' : akhir}.');
           await _launch(segs.first['from'] as int, akhir);
@@ -1079,6 +1076,10 @@ class NativeBackend implements Backend {
           wait = '';
           final n = (_levels ??= LevelMap(_base)).urlToLevel(lessonPlayUrl(url)) ?? 1;
           _stopWaiting();
+          if (!await _accountGate()) {
+            _set('bot', {'phase': 'idle', 'wait': ''});
+            return;
+          }
           _log('Mulai tanpa rencana dari level yang dibuka (${n > 1 ? n : '?'}).');
           await _launch(n, 0);
           return;
@@ -1388,9 +1389,10 @@ class NativeBackend implements Backend {
     return mine;
   }
 
+  /// Lisensi MESIN (3.5.x): v4 hanya memakainya sebagai 'jatah akun
+  /// pertama' & token unduh pembaruan. Tidak lagi mengunci UI.
   void _licOk(Map<String, dynamic> tok) {
     _tok = tok;
-    _set('license', {'state': 'ok', 'days_left': lic.daysLeft(tok), 'message': ''});
   }
 
   void _saveTok(Map<String, dynamic> tok) {
@@ -1416,16 +1418,11 @@ class NativeBackend implements Backend {
 
   void _licenseLocal() {
     final tok = lic.loadToken(_licPath);
-    if (tok != null && lic.verifyToken(tok)) {
-      _licOk(tok);
-      return;
-    }
-    _set('license', {'state': lic.licenseValid(_licPath, _mc()) ? 'ok' : 'need'});
+    if (tok != null && lic.verifyToken(tok)) _licOk(tok);
   }
 
   Future<void> _licenseOnline() async {
     final tok = lic.loadToken(_licPath);
-    final lokalOk = lic.licenseValid(_licPath, _mc());
     if (tok != null && lic.verifyToken(tok)) {
       final data = await lic.fetchStatus(_api, _mcFor(tok));
       if (data['status'] == 'approved') {
@@ -1436,13 +1433,12 @@ class NativeBackend implements Backend {
         }
         _licOk(t);
       } else {
-        _set('license', {'state': 'revoked'});
+        _tok = null; // mesin dicabut: tidak jadi jatah akun pertama
       }
       return;
     }
-    if (lokalOk) {
-      // kunci manual lama masih sah: tetap jalan, minta token di latar
-      _set('license', {'state': 'ok'});
+    if (lic.licenseValid(_licPath, _mc())) {
+      // kunci manual lama masih sah: minta token di latar (jatah akun pertama)
       final nick = '${_settings['nickname'] ?? ''}'.isNotEmpty ? '${_settings['nickname']}' : 'pemilik-lama';
       final data = await lic.requestApproval(_api, _mc(), nick, _version);
       if (data['status'] == 'approved' && data['token'] is Map) {
@@ -1457,15 +1453,142 @@ class NativeBackend implements Backend {
       final t = Map<String, dynamic>.from(awal['token'] as Map);
       _saveTok(t);
       _licOk(t);
-      return;
+    }
+  }
+
+  // ---------------------------------------------- lisensi per akun (v4)
+  // id lisensi akun = 'a' + user_id edclub. Server memperlakukannya sama
+  // dgn kode mesin (status/permintaan/token Ed25519 'v1|id|exp'). Token
+  // disimpan per id di lisensi-akun.json: akun dihapus dari app lalu login
+  // lagi = token masih ada (dan server tetap menyetujuinya).
+  String get _acctLicPath => '$_base${Platform.pathSeparator}lisensi-akun.json';
+  String? _licAid; // id akun yang sedang diperiksa / diminta
+
+  Map<String, dynamic> _acctToks() {
+    try {
+      return (jsonDecode(File(_acctLicPath).readAsStringSync()) as Map).cast<String, dynamic>();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  void _saveAcctTok(String aid, Map<String, dynamic> tok) {
+    try {
+      Directory(_base).createSync(recursive: true);
+      File(_acctLicPath).writeAsStringSync(jsonEncode({..._acctToks(), aid: tok}));
+    } catch (_) {}
+  }
+
+  /// Token apa saja yang sah (mesin atau akun) - utk unduh pembaruan.
+  Map<String, dynamic>? _anyTok() {
+    final m = _tok ?? lic.loadToken(_licPath);
+    if (m != null && lic.verifyToken(m)) return m;
+    for (final t in _acctToks().values) {
+      if (t is Map && lic.verifyToken(t)) return t.cast<String, dynamic>();
+    }
+    return null;
+  }
+
+  /// user_id edclub akun yang sedang login (dari respons refresh-tokens
+  /// halaman edclub sendiri; sesi tetap utuh, diuji live 22 Nov).
+  Future<String?> _edclubAid() async {
+    final v = _view;
+    if (v == null || v.disposed) return null;
+    try {
+      final r = await v.cdp('Runtime.evaluate', {
+        'expression': '(async () => { try { const r = await fetch('
+            "'https://api.edclub.com/j/auth/refresh-tokens', {method: 'POST', "
+            "credentials: 'include', headers: {'content-type': 'application/json'}, "
+            "body: JSON.stringify({domain: 'www'})}); const j = await r.json(); "
+            'return Array.isArray(j) && j[0] && j[0].user_id ? j[0].user_id : 0; '
+            '} catch (e) { return 0; } })()',
+        'awaitPromise': true,
+        'returnByValue': true,
+      });
+      final val = (r['result'] as Map?)?['value'];
+      if (val is num && val > 0) return 'a${val.toInt()}';
+    } catch (_) {}
+    return null;
+  }
+
+  String get _acctLabel {
+    final a = accounts.active();
+    return a == null ? 'ini' : accounts.labelOf(a);
+  }
+
+  /// Gerbang Mulai: akun edclub ini sudah punya lisensi? Belum = minta
+  /// (lisensi mesin 3.5.x yang belum dipakai = disetujui otomatis server).
+  /// false = jangan jalan (banner lisensi tampil).
+  Future<bool> _accountGate() async {
+    if (!checkLicense) return true;
+    final aid = await _edclubAid();
+    if (aid == null) {
+      _set('bot', {'error': 'Akun edclub belum terbaca. Coba Mulai lagi sebentar ya.'});
+      return false;
+    }
+    _licAid = aid;
+    final label = _acctLabel;
+    final tok = _acctToks()[aid];
+    if (tok is Map && tok['mc'] == aid && lic.verifyToken(tok)) {
+      // cek cepat: dicabut = tolak (server lambat/offline = lanjut)
+      String? st;
+      try {
+        final (_, data) = await _api
+            .json('GET', '/api/license/status?mc=$aid', timeout: const Duration(seconds: 3))
+            .timeout(const Duration(milliseconds: 1500));
+        st = data['status'] as String?;
+        if (st == 'approved' && data['token'] is Map) {
+          _saveAcctTok(aid, Map<String, dynamic>.from(data['token'] as Map));
+        }
+      } catch (_) {}
+      if (st != null && st != 'approved') {
+        _set('license', {'state': 'revoked', 'account': label});
+        return false;
+      }
+      _set('license', {'state': 'ok', 'account': label});
+      return true;
     }
     final nick = '${_settings['nickname'] ?? ''}';
-    if (awal['status'] == 'pending') {
-      _set('license', {'state': 'pending', 'nickname': nick});
-      unawaited(_waitApproval());
-      return;
+    if (nick.isEmpty && _tok == null) {
+      _set('license', {'state': 'need', 'account': label, 'nickname': ''});
+      return false;
     }
-    _set('license', {'state': 'need', 'nickname': nick});
+    _set('license', {'state': 'checking', 'account': label});
+    return _acctRequest(aid, nick.isEmpty ? 'pemilik-lama' : nick, label);
+  }
+
+  /// Kirim permintaan lisensi akun. Disetujui langsung (jatah akun pertama
+  /// lisensi mesin) = true.
+  Future<bool> _acctRequest(String aid, String nick, String label) async {
+    Map<String, dynamic> data;
+    try {
+      final m = _tok;
+      final (_, d) = await _api.json('POST', '/api/license/request', body: {
+        'mc': aid,
+        'nickname': '$nick ($label)',
+        'app_version': _version,
+        if (m != null && lic.verifyToken(m)) 'mtok': m,
+      });
+      data = d;
+    } on Unreachable {
+      _set('license', {'state': 'ok', 'account': label});
+      _set('bot', {'error': 'Server lisensi tidak terjangkau. Cek internet lalu coba lagi ya.'});
+      return false;
+    }
+    if (data['status'] == 'approved' && data['token'] is Map) {
+      _saveAcctTok(aid, Map<String, dynamic>.from(data['token'] as Map));
+      _log('[LISENSI] akun $label aktif.');
+      _set('license', {'state': 'ok', 'account': label});
+      return true;
+    }
+    if (data['status'] == 'revoked' || data['status'] == 'denied' || data['status'] == 'rejected') {
+      _set('license', {'state': 'revoked', 'account': label});
+      return false;
+    }
+    _log('[LISENSI] akun $label menunggu persetujuan.');
+    _set('license', {'state': 'pending', 'account': label, 'nickname': nick});
+    unawaited(_waitApproval());
+    return false;
   }
 
   Future<dynamic> _licenseRequest(String nickname) async {
@@ -1474,21 +1597,9 @@ class NativeBackend implements Backend {
       throw RpcException('bad_input', 'Nama panggilan minimal 2 huruf.');
     }
     _saveSettings({'nickname': nick});
-    Map<String, dynamic> data;
-    try {
-      data = await lic.requestApproval(_api, _mc(), nick, _version);
-    } on Unreachable {
-      throw RpcException('offline', 'Server tidak terjangkau. Cek internet lalu coba lagi ya.');
-    }
-    if (data['status'] == 'approved' && data['token'] is Map) {
-      final t = Map<String, dynamic>.from(data['token'] as Map);
-      _saveTok(t);
-      _licOk(t);
-      _set('license', {'nickname': nick});
-      return {};
-    }
-    _set('license', {'state': 'pending', 'nickname': nick});
-    unawaited(_waitApproval());
+    final aid = _licAid;
+    if (aid == null) throw RpcException('later', 'Tekan Mulai dulu ya.');
+    await _acctRequest(aid, nick, _acctLabel);
     return {};
   }
 
@@ -1500,16 +1611,17 @@ class NativeBackend implements Backend {
       await Future<void>.delayed(const Duration(seconds: 5));
       if (_closed || run != _approvalRun) return;
       Map<String, dynamic> data;
+      final aid = _licAid;
+      if (aid == null) return;
       try {
-        data = await lic.fetchStatus(_api, _mc());
+        data = await lic.fetchStatus(_api, aid);
       } catch (_) {
         continue;
       }
       final st = data['status'];
       if (st == 'approved' && data['token'] is Map) {
-        final t = Map<String, dynamic>.from(data['token'] as Map);
-        _saveTok(t);
-        _licOk(t);
+        _saveAcctTok(aid, Map<String, dynamic>.from(data['token'] as Map));
+        _set('license', {'state': 'ok', 'account': _acctLabel, 'approved': true});
         return;
       }
       if (st == 'rejected' || st == 'revoked' || st == 'denied') {
@@ -1520,31 +1632,15 @@ class NativeBackend implements Backend {
     _set('license', {'state': 'need'});
   }
 
-  /// Cek cepat (maks 1.2 dtk) sebelum Mulai: dicabut = tolak.
-  Future<void> _licenseGate() async {
-    String? st;
-    try {
-      final (_, data) = await _api
-          .json('GET', '/api/license/status?mc=${_mcFor(_tok ?? lic.loadToken(_licPath))}',
-              timeout: const Duration(seconds: 3))
-          .timeout(const Duration(milliseconds: 1200));
-      st = data['status'] as String?;
-    } catch (_) {}
-    if (st != null && st != 'approved') {
-      _set('license', {'state': 'revoked'});
-      throw RpcException('license', 'Akses perangkat ini dicabut.');
-    }
-  }
-
   Future<dynamic> _updateCheck() async {
     final info = await checkUpdate(_api, _version);
     if (info == null) {
       _set('update', {'available': false});
       return _snap['update'];
     }
-    final tok = _tok ?? lic.loadToken(_licPath);
-    if (tok == null || !lic.verifyToken(tok)) {
-      _log('[net] pembaruan ada tapi mesin belum disetujui server');
+    final tok = _anyTok();
+    if (tok == null) {
+      _log('[net] pembaruan ada tapi belum ada lisensi yang disetujui');
       return _snap['update'];
     }
     _updateInfo = info;
@@ -1581,7 +1677,7 @@ class NativeBackend implements Backend {
     _dlPath = null;
     _set('update', {'phase': 'downloading', 'progress': 0.0, 'error': ''});
     unawaited(() async {
-      final tok = _tok ?? lic.loadToken(_licPath);
+      final tok = _anyTok();
       final size = (info['size'] as num?)?.toInt();
       final want = '${info['sha256'] ?? ''}';
       final jalur = [

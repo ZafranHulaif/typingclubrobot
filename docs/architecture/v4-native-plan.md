@@ -322,7 +322,25 @@ Owner test: balloon (lv 62, 5 gold = 14 wpm) balloons fell, hearts lost, ended 4
 platinum again. Balloon feed taps Space when the game asks "Type SPACE to begin" after a fall.
 Open: per-account licensing (owner idea, needs worker change + decisions).
 
-## Owner test checklist (Windows, build 4.0.0-dev14 from the CI artifact)
+### dev15: license per edclub account
+Owner decision: license follows the edclub account (any PC); an existing 3.5.x machine license
+covers the first account automatically.
+- Account id = "a" + edclub user_id, read at Mulai via the page's own POST
+  `api.edclub.com/j/auth/refresh-tokens {"domain":"www"}` (CDP Runtime.evaluate awaitPromise;
+  session stays intact, tested live). The server treats it like a machine code (same status,
+  request, Ed25519 token `v1|id|exp`). Tokens in `lisensi-akun.json` by id, so deleting the
+  account in the app and logging in again keeps the license.
+- Gate `_accountGate()` runs right before `_launch` (both modes). Licensed -> quick status
+  check (revoked = refuse). Not licensed: with a nickname or a machine token -> request at once
+  (body carries `mtok`); without either -> banner asks the nickname. Pending -> poll, toast
+  "Akun sudah aktif. Tekan Mulai." on approval.
+- Machine license no longer locks the UI at boot; it is only the first-account voucher and an
+  update-download token (`_anyTok`).
+- Worker: `/api/license/request` auto-approves an "a..." id when `mtok` is a valid approved
+  machine token with no `claimed` yet; admin page labels accounts vs machines. Tested in Node
+  with a fake KV. **Needs `wrangler deploy` before the release.**
+
+## Owner test checklist (Windows, build 4.0.0-dev15 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

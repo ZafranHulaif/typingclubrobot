@@ -534,11 +534,13 @@ class _LicenseBannerState extends State<_LicenseBanner> {
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
     final st = s.license['state'];
+    final akun = '${s.license['account'] ?? ''}';
+    final nama = akun.isEmpty ? 'ini' : akun;
     if (st == 'pending') {
       return _BannerShell(
         icon: Icons.key_rounded,
         color: c.secondary,
-        text: 'Permintaan terkirim. Bot aktif begitu pemilik menyetujui.',
+        text: 'Permintaan untuk akun $nama terkirim. Tekan Mulai lagi begitu pemilik menyetujui.',
         actions: const [
           Padding(
             padding: EdgeInsets.all(10),
@@ -564,14 +566,14 @@ class _LicenseBannerState extends State<_LicenseBanner> {
       return _BannerShell(
         icon: Icons.block_rounded,
         color: c.error,
-        text: 'Akses perangkat ini dicabut. Hubungi pemilik kalau ini keliru.',
+        text: 'Akses akun $nama dicabut. Hubungi pemilik kalau ini keliru.',
         actions: const [],
       );
     }
     return _BannerShell(
       icon: Icons.key_rounded,
       color: c.secondary,
-      text: 'Aktifkan TypingBot: tulis nama panggilanmu.',
+      text: 'Akun $nama belum aktif. Tulis nama panggilanmu untuk minta izin.',
       actions: [
         SizedBox(
           width: 180,

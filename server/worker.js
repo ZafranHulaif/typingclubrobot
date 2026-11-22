@@ -89,8 +89,12 @@ function adminPage(machines, key) {
           { timeZone: "Asia/Jakarta", day: "2-digit", month: "2-digit",
             year: "numeric", hour: "2-digit", minute: "2-digit" }) + " WIB"
       : "-";
+    // akun edclub (v4) vs mesin (3.5.x); mesin yang jatahnya terpakai
+    const jenis = String(m.mc).startsWith("a")
+      ? `akun edclub ${esc(String(m.mc).slice(1))}${m.via ? " (dari lisensi mesin)" : ""}`
+      : `mesin ${esc(m.mc)}${m.claimed ? " &middot; akun pertama: " + esc(String(m.claimed).slice(1)) : ""}`;
     return `<tr><td><b>${esc(m.nickname || "?")}</b>
-<div class="dim">${esc(m.mc)}</div></td>
+<div class="dim">${jenis}</div></td>
 <td class="dim">${esc(m.app_version || "-")}</td>
 <td class="dim">${kapan}</td><td>${tombol}</td></tr>`;
   };
@@ -301,6 +305,19 @@ async function handle(request, ctx) {
     m.nickname = String(d.nickname || "?").slice(0, 40) || m.nickname || "?";
     m.app_version = String(d.app_version || "").slice(0, 16);
     m.last_seen = Math.floor(Date.now() / 1000);
+    // v4: lisensi per akun edclub, id = 'a' + user_id. Lisensi MESIN 3.5.x
+    // yang masih sah & belum dipakai = akun pertamanya disetujui otomatis
+    // (mesin dicatat 'claimed', akun berikutnya wajib disetujui manual).
+    if (mc.startsWith("a") && m.status === "pending" && d.mtok &&
+        !String(d.mtok.mc || "").startsWith("a") && await tokenOk(d.mtok)) {
+      const mm = await getMachine(String(d.mtok.mc));
+      if (mm && mm.status === "approved" && !mm.claimed) {
+        mm.claimed = mc;
+        await putMachine(mm);
+        m.status = "approved";
+        m.via = mm.mc;
+      }
+    }
     await putMachine(m);
     if (m.status === "approved") {
       return json({ status: "approved", token: await makeToken(mc) });
