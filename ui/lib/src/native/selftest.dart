@@ -37,7 +37,13 @@ Future<void> runSelfTest(AppStore s, String dir) async {
     s.togglePlan();
     await tunggu(2);
     await shot('rencana-tutup');
-    await s.call('bot.start', {'mode': 'free'});
+    // TB_SELFTEST_LEVEL=<n>: mulai dari level n (rentang n..n+4), spt
+    // user memilih rentang; tanpa itu = mulai bebas dari halaman
+    final lv = int.tryParse(Platform.environment['TB_SELFTEST_LEVEL'] ?? '') ?? 0;
+    await s.call('bot.start', {
+      'mode': 'free',
+      if (lv > 0) 'range': {'mode': 'custom', 'start': lv, 'end': lv + 4},
+    });
     await tunggu(4);
     await shot('mulai');
     // TB_SELFTEST_RUN=<detik>: biarkan bot jalan sungguhan (uji live

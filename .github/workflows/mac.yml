@@ -184,7 +184,7 @@ jobs:
           APP=$(ls -d ui/build/macos/Build/Products/Release/*.app | head -1)
           OUT=$PWD/live-out
           mkdir -p "$OUT"
-          TB_SELFTEST="$OUT" TB_SELFTEST_RUN="${{ inputs.detik || '180' }}" "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
+          TB_SELFTEST="$OUT" TB_SELFTEST_RUN="${{ inputs.detik || '240' }}" TB_SELFTEST_LEVEL=76 "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
           PID=$!
           for i in $(seq 1 1600); do
             for r in "$OUT"/*.ready; do
@@ -202,8 +202,9 @@ jobs:
           kill $PID || true
           sleep 2
           cat "$OUT/error.txt" 2>/dev/null || true
-          LOG="$HOME/Library/Application Support/TypingBot/bot.log"
-          [ -f "$LOG" ] && cp "$LOG" "$OUT/bot.log" && tail -80 "$LOG" || true
+          find "$HOME/Library" -name bot.log 2>/dev/null | head -3
+          LOG=$(find "$HOME/Library" -name bot.log 2>/dev/null | head -1)
+          if [ -n "$LOG" ]; then cp "$LOG" "$OUT/bot.log"; tail -100 "$LOG"; fi
       - name: Kirim balik sesi (terenkripsi)
         if: always()
         run: |
