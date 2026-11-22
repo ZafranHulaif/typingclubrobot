@@ -14,6 +14,7 @@ import 'dart:typed_data';
 
 import 'clock.dart';
 import 'js.dart';
+import 'js_extra.dart';
 import 'js_inline.dart';
 import 'level_map.dart';
 import 'ocr.dart';

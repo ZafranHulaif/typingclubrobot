@@ -80,6 +80,10 @@ extension StandardLesson on Engine {
     var macet = false; // berhenti karena ketikan tak masuk (bukan selesai)
     try {
       if (holdKey != null) {
+        // tombol tahan harus jatuh di input ketik lesson: kalau fokus masih
+        // di body, tekanannya dihitung sbg ketikan 'j' yang salah (WebKit
+        // mac: keydown pertama mendarat di BODY, log uji live 11:54:34)
+        await runJs(focusTypingInputJs, frame);
         await page.keyboard.down(holdKey);
         await sleep(0.15);
       }

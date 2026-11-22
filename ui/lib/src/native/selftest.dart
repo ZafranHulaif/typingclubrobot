@@ -40,6 +40,9 @@ Future<void> runSelfTest(AppStore s, String dir) async {
     // TB_SELFTEST_LEVEL=<n>: mulai dari level n (rentang n..n+4), spt
     // user memilih rentang; tanpa itu = mulai bebas dari halaman
     final lv = int.tryParse(Platform.environment['TB_SELFTEST_LEVEL'] ?? '') ?? 0;
+    // TB_SELFTEST_STARS=<1-5>: target bintang mode bebas (uji pacing)
+    final bintang = int.tryParse(Platform.environment['TB_SELFTEST_STARS'] ?? '') ?? 0;
+    if (bintang > 0) await s.call('free.set', {'stars': bintang, 'silver': false});
     await s.call('bot.start', {
       'mode': 'free',
       if (lv > 0) 'range': {'mode': 'custom', 'start': lv, 'end': lv + 4},

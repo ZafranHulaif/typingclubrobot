@@ -24,6 +24,7 @@ import '../net/license.dart' as lic;
 import '../net/machine.dart' as machine;
 import '../net/report.dart';
 import '../net/updater.dart';
+import '../web/js_diag.dart';
 import '../web/js_init.dart';
 import '../web/web_host.dart';
 import 'accounts.dart';
