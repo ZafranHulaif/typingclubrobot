@@ -21,6 +21,11 @@ void maybeSelfTest(AppStore s) {
 
 /// Uji mandiri macOS (TB_MACTEST): jalan TANPA app biasa. true = aktif.
 bool maybeMacSelfTest() {
+  final g = Platform.environment['TB_GOOGLECHECK'] ?? '';
+  if (g.isNotEmpty) {
+    runGoogleCheck(g);
+    return true;
+  }
   final d = macTestDir();
   if (d == null) return false;
   runMacSelfTest(d);

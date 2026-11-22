@@ -176,18 +176,31 @@ jobs:
               git show "FETCH_HEAD:$F" | base64 -d | openssl pkeyutl -decrypt -inkey "$RUNNER_TEMP/k.pem" \
                 -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 > "$D/tb_sesi.json"
               rm -f "$RUNNER_TEMP/k.pem"
-              python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('sesi ok, kunci:', sorted(d))" "$D/tb_sesi.json"
+              # email (utk cek login Google) dipisah dari sesi app
+              python3 -c "import json,sys; d=json.load(open(sys.argv[1])); e=d.pop('email',''); open(sys.argv[2],'w').write(e); json.dump(d, open(sys.argv[1],'w')); print('sesi ok, kunci:', sorted(d), 'email:', bool(e))" "$D/tb_sesi.json" "$RUNNER_TEMP/email.txt"
               exit 0
             fi
             sleep 10
           done
           echo "sesi tidak datang"; exit 1
+      - name: Cek login Google (tanpa sandi)
+        run: |
+          APP=$(ls -d ui/build/macos/Build/Products/Release/*.app | head -1)
+          OUT=$PWD/live-out/google
+          mkdir -p "$OUT"
+          TB_GOOGLECHECK="$OUT" TB_GOOGLE_EMAIL_FILE="$RUNNER_TEMP/email.txt" "$APP/Contents/MacOS/TypingBot" >/dev/null 2>&1 &
+          PID=$!
+          for i in $(seq 1 90); do [ -f "$OUT/selesai" ] && break; sleep 1; done
+          kill $PID || true
+          sleep 2
+          rm -f "$RUNNER_TEMP/email.txt"
+          cat "$OUT/google.json" || true
       - name: Jalankan app + bot (live)
         run: |
           APP=$(ls -d ui/build/macos/Build/Products/Release/*.app | head -1)
           OUT=$PWD/live-out
           mkdir -p "$OUT"
-          TB_SELFTEST="$OUT" TB_SELFTEST_RUN="${{ inputs.detik || '300' }}" TB_SELFTEST_LEVEL=79 TB_SELFTEST_STARS=3 TB_KEYLOG=1 "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
+          TB_SELFTEST="$OUT" TB_SELFTEST_RUN="${{ inputs.detik || '200' }}" TB_SELFTEST_LEVEL=81 TB_SELFTEST_STARS=5 TB_KEYLOG=1 "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
           PID=$!
           for i in $(seq 1 1600); do
             for r in "$OUT"/*.ready; do

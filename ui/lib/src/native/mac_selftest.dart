@@ -15,6 +15,63 @@ String? macTestDir() {
   return d == null || d.isEmpty ? null : d;
 }
 
+/// Cek login Google di WKWebView (TB_GOOGLECHECK (folder), email dari file
+/// TB_GOOGLE_EMAIL_FILE): buka edclub signin, klik 'Sign in with Google',
+/// isi email (TANPA sandi), catat apakah Google menolak browser ini.
+/// Tanpa potret (email akan terlihat); teks halaman disensor.
+Future<void> runGoogleCheck(String dir) async {
+  Directory(dir).createSync(recursive: true);
+  final out = <String, dynamic>{};
+  Future<void> tunggu(double s) =>
+      Future<void>.delayed(Duration(milliseconds: (s * 1000).round()));
+  var email = '';
+  try {
+    email = File(Platform.environment['TB_GOOGLE_EMAIL_FILE'] ?? '').readAsStringSync().trim();
+  } catch (_) {}
+  String sensor(Object? x) {
+    var t = '$x';
+    if (email.isNotEmpty) t = t.replaceAll(email, '<email>');
+    return t.length > 600 ? t.substring(0, 600) : t;
+  }
+
+  try {
+    await webHost.setRect(0, 0, 2400, 1400);
+    final view = await webHost.create(
+        folder: '${dir}_profil', url: 'https://www.edclub.com/signin', visible: true);
+    final page = Page(WebViewBridge(view));
+    await page.attach();
+    await tunggu(8);
+    final r = await page.evaluate('() => { const b = [...document.querySelectorAll("a, button")]'
+        '.find((e) => /google/i.test(e.innerText || "") && e.offsetWidth);'
+        ' if (!b) return null; b.scrollIntoView({block: "center"}); const r = b.getBoundingClientRect();'
+        ' return [r.left + r.width / 2, r.top + r.height / 2]; }');
+    out['tombol_google'] = r != null;
+    if (r is List) {
+      await tunggu(0.5);
+      await page.mouse.click(r[0] as num, r[1] as num);
+    }
+    await tunggu(8);
+    out['url_sesudah_klik'] = sensor((await view.info()).url);
+    if (email.isNotEmpty) {
+      await page.evaluate('() => { const i = document.querySelector("input[type=email]");'
+          ' if (i) i.focus(); return !!i; }');
+      await view.focus();
+      await page.keyboard.type(email);
+      await page.keyboard.press('Enter');
+      await tunggu(9);
+    }
+    out['url_akhir'] = sensor((await view.info()).url);
+    out['teks_akhir'] = sensor(await page.evaluate(
+        '() => (document.body && document.body.innerText || "").replace(/\\s+/g, " ")'));
+    out['ada_kolom_sandi'] = await page.evaluate(
+        '() => !!document.querySelector("input[type=password]")');
+  } catch (e) {
+    out['error'] = sensor(e);
+  }
+  File('$dir/google.json').writeAsStringSync(const JsonEncoder.withIndent('  ').convert(out));
+  File('$dir/selesai').writeAsStringSync('ok');
+}
+
 Future<void> runMacSelfTest(String dir) async {
   Directory(dir).createSync(recursive: true);
   final out = <String, dynamic>{};
