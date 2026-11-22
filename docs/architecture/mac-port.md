@@ -38,6 +38,10 @@ macOS runners (`.github/workflows/mac.yml`) and later on a friend's Mac.
    `mactest-out` artifact. No edclub login on CI (credentials are not put on GitHub).
 5. Artifact `typingbot-mac` = zipped TypingBot.app (unsigned).
 
+Known pitfall fixed: calling makeFirstResponder before every key made the page blur/refocus and
+only the first letter landed (run 45014788363). `ensureFocus` now only grabs focus when the
+first responder is not the webview or one of its subviews. Green again in run 45015382681.
+
 ## Not done / unknown
 - Never run against real edclub while logged in (needs a friend's Mac or a CI secret the owner
   approves).
