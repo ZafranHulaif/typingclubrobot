@@ -8,9 +8,18 @@ on:
   push:
     branches: [mac]
   workflow_dispatch:
+    inputs:
+      live:
+        description: "Uji live dgn akun tes (butuh jabat tangan sesi terenkripsi)"
+        type: boolean
+        default: false
+      detik:
+        description: "Lama bot jalan (detik)"
+        default: "180"
 
 jobs:
   macos:
+    if: ${{ !inputs.live }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -123,3 +132,93 @@ jobs:
         with:
           name: typingbot-mac
           path: TypingBot-mac.zip
+
+  # Uji LIVE dgn akun tes edclub. Sesi (kuki rt) TIDAK pernah ada dalam
+  # bentuk terbaca di repo/log: job membuat kunci sekali pakai, pemilik
+  # mengirim sesi terenkripsi ke kunci itu lewat cabang mac-live-sesi,
+  # sesi yang sudah berputar dikirim balik terenkripsi ke kunci penerima
+  # (tool/mactest/kunci_penerima.pem; kunci privatnya hanya di VPS).
+  live:
+    if: ${{ inputs.live }}
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Build macos
+        working-directory: ui
+        run: |
+          flutter pub get
+          flutter build macos --release
+      - name: Kunci sekali pakai
+        run: |
+          mkdir -p kunci
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$RUNNER_TEMP/k.pem" 2>/dev/null
+          openssl pkey -in "$RUNNER_TEMP/k.pem" -pubout -out kunci/pub.pem
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kunci-sekali
+          path: kunci/pub.pem
+      - name: Tunggu sesi terenkripsi
+        run: |
+          F="sesi-${{ github.run_id }}.enc"
+          D="$HOME/Library/Application Support/TypingBot/wv2profile"
+          mkdir -p "$D"
+          for i in $(seq 1 90); do
+            if git fetch -q origin mac-live-sesi 2>/dev/null && git cat-file -e "FETCH_HEAD:$F" 2>/dev/null; then
+              git show "FETCH_HEAD:$F" | base64 -d | openssl pkeyutl -decrypt -inkey "$RUNNER_TEMP/k.pem" \
+                -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 > "$D/tb_sesi.json"
+              rm -f "$RUNNER_TEMP/k.pem"
+              python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('sesi ok, kunci:', sorted(d))" "$D/tb_sesi.json"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "sesi tidak datang"; exit 1
+      - name: Jalankan app + bot (live)
+        run: |
+          APP=$(ls -d ui/build/macos/Build/Products/Release/*.app | head -1)
+          OUT=$PWD/live-out
+          mkdir -p "$OUT"
+          TB_SELFTEST="$OUT" TB_SELFTEST_RUN="${{ inputs.detik }}" "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
+          PID=$!
+          for i in $(seq 1 1600); do
+            for r in "$OUT"/*.ready; do
+              [ -e "$r" ] || continue
+              n=$(basename "$r" .ready)
+              [ -e "$OUT/$n.done" ] && continue
+              screencapture -x "$OUT/$n.png" || true
+              touch "$OUT/$n.done"
+            done
+            [ -f "$OUT/selesai" ] && break
+            sleep 0.5
+          done
+          sleep 5
+          screencapture -x "$OUT/akhir.png" || true
+          kill $PID || true
+          sleep 2
+          cat "$OUT/error.txt" 2>/dev/null || true
+          LOG="$HOME/Library/Application Support/TypingBot/bot.log"
+          [ -f "$LOG" ] && cp "$LOG" "$OUT/bot.log" && tail -80 "$LOG" || true
+      - name: Kirim balik sesi (terenkripsi)
+        if: always()
+        run: |
+          D="$HOME/Library/Application Support/TypingBot/wv2profile/tb_sesi.json"
+          mkdir -p sesi-baru
+          [ -f "$D" ] && openssl pkeyutl -encrypt -pubin -inkey ui/tool/mactest/kunci_penerima.pem \
+            -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -in "$D" | base64 > sesi-baru/sesi.enc || true
+          rm -f "$D"
+          ls -la sesi-baru
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sesi-baru
+          path: sesi-baru
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-out
+          path: live-out

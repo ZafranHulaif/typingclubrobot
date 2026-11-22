@@ -40,6 +40,13 @@ Future<void> runSelfTest(AppStore s, String dir) async {
     await s.call('bot.start', {'mode': 'free'});
     await tunggu(4);
     await shot('mulai');
+    // TB_SELFTEST_RUN=<detik>: biarkan bot jalan sungguhan (uji live
+    // dgn akun tes), potret tiap 20 dtk
+    final run = int.tryParse(Platform.environment['TB_SELFTEST_RUN'] ?? '') ?? 0;
+    for (var t = 0; t < run; t += 20) {
+      await tunggu(20);
+      await shot('jalan-${(t + 20).toString().padLeft(3, '0')}s');
+    }
     await s.call('bot.stop');
     await tunggu(2);
     await shot('stop');

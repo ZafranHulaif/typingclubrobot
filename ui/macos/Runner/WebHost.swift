@@ -81,6 +81,9 @@ final class WebHostView: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
     cfg.preferences.javaScriptCanOpenWindowsAutomatically = true
     cfg.mediaTypesRequiringUserActionForPlayback = []
     web = TBWebView(frame: .zero, configuration: cfg)
+    // UA Safari lengkap: tanpa "Version/.. Safari/.." Google menolak login
+    // di webview tertanam ("browser ini mungkin tidak aman")
+    web.customUserAgent = WebHost.safariUA
     super.init()
     cfg.userContentController.add(WeakHandler(self), name: "tbframe")
     reinstallScripts()
@@ -212,6 +215,14 @@ final class WebHost: NSObject {
       s.handle(call, result)
     }
   }
+
+  static let safariUA: String = {
+    let v = ProcessInfo.processInfo.operatingSystemVersion
+    // Safari asli di macOS 11+ tetap melapor "10_15_7"
+    let safari = v.majorVersion >= 26 ? "26.0" : v.majorVersion >= 15 ? "18.0" : "17.0"
+    return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 " +
+      "(KHTML, like Gecko) Version/\(safari) Safari/605.1.15"
+  }()
 
   static func uuid(_ s: String) -> UUID {
     let d = Array(SHA256.hash(data: Data(s.utf8)))
