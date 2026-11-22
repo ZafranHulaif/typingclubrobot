@@ -315,6 +315,44 @@ void main() {
         allOf(containsPair('x', 10), containsPair('button', 'left'), containsPair('clickCount', 1)));
   });
 
+  group('iframe sesudah navigasi penuh', () {
+    test('goto & reload membaca ulang frame (pengumuman iframe baru tak sampai)', () async {
+      final (b, page, _) = await _page();
+      var adaIframe = false;
+      var sesi = 0;
+      b.handlers['Page.navigate'] = (p, s) {
+        adaIframe = true; // dokumen baru punya iframe lesson, TANPA event
+        scheduleMicrotask(() => b.emit('Page.loadEventFired', {'timestamp': 1}));
+        return {'frameId': 'MAIN', 'loaderId': 'L1'};
+      };
+      b.handlers['Page.reload'] = (p, s) {
+        scheduleMicrotask(() => b.emit('Page.loadEventFired', {'timestamp': 2}));
+        return {};
+      };
+      b.handlers['Target.setAutoAttach'] = (p, s) {
+        if (s.isEmpty && p['autoAttach'] == true && adaIframe) {
+          b.emit('Target.attachedToTarget', {
+            'sessionId': 'N${++sesi}',
+            'targetInfo': {'targetId': 'OOP1', 'type': 'iframe', 'url': 'https://coreclassictyping.edclub.app/'},
+          });
+        }
+        return {};
+      };
+      expect(page.frames.length, 1);
+      await page.goto('https://www.edclub.com/student/course/3/lesson/127');
+      await pumpEventQueue();
+      expect(page.frames.map((f) => f.id), ['MAIN', 'OOP1']);
+      await page.reload();
+      await pumpEventQueue();
+      // sesi lama (N1) utk target yang sama dibuang walau detach tak datang
+      expect(page.frames.map((f) => f.id), ['MAIN', 'OOP1']);
+      b.handlers['Runtime.evaluate'] = (p, s) => {
+            'result': {'type': 'string', 'value': 'dari $s'}
+          };
+      expect(await page.frames.last.evaluate('() => 1'), 'dari N2');
+    });
+  });
+
   group('navigasi', () {
     test('goto menunggu load; SPA langsung; error dilempar', () async {
       final (b, page, _) = await _page();

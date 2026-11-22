@@ -161,16 +161,6 @@ class _PlanPanelState extends State<PlanPanel> {
               ),
             ),
           ]),
-          const SizedBox(height: 8),
-          Text(
-              segs.isEmpty
-                  ? 'Tanpa rencana: tekan Mulai di atas, lalu buka level di '
-                      'halaman. Bot lanjut dari level itu. Tambah bagian untuk '
-                      'mengatur level dan bintangnya sendiri.'
-                  : 'Mulai di atas = dari level yang kamu buka. '
-                      'Mulai rencana = ikuti bagian-bagian ini.'
-                      '${s.unlocked > 0 ? ' Level terbuka terakhir: ${s.unlocked}.' : ''}',
-              style: t.bodySmall!.copyWith(color: c.onSurfaceVariant)),
           const SizedBox(height: 12),
           AnimatedSize(
             duration: Motion.medium,

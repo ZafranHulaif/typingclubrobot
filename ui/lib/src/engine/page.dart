@@ -255,7 +255,18 @@ class Page {
       } catch (_) {}
       return;
     }
-    _sessionTarget[s] = '${t['targetId'] ?? ''}';
+    final tid = '${t['targetId'] ?? ''}';
+    // sesi lama utk target yang sama = basi (detach-nya bisa telat atau
+    // tak pernah datang): buang, supaya evaluate tak nyasar ke sesi mati
+    final basi = [
+      for (final e in _sessionTarget.entries)
+        if (e.value == tid && e.key != s) e.key
+    ];
+    for (final k in basi) {
+      _sessionTarget.remove(k);
+      _ctx.remove(k);
+    }
+    _sessionTarget[s] = tid;
     _ctx[s] ??= {};
     final i = _info.putIfAbsent(_sessionTarget[s]!, _FrameInfo.new);
     if ('${t['url'] ?? ''}'.isNotEmpty) i.url = '${t['url']}';
@@ -429,6 +440,17 @@ class Page {
       return;
     }
     await _waitLoad(c, timeout);
+    await _sesudahMuat();
+  }
+
+  /// Dokumen baru = iframe lesson baru (target anak baru). Di WebView2
+  /// pengumumannya sering tak sampai sesudah navigasi penuh: mesin buta
+  /// ~5 dtk sampai jaring pengaman membaca ulang (log 08:06:28-33).
+  /// Baca ulang langsung begitu halaman selesai dimuat.
+  Future<void> _sesudahMuat() async {
+    try {
+      await resync();
+    } catch (_) {}
   }
 
   Future<void> reload({double timeout = 30}) async {
@@ -436,6 +458,7 @@ class Page {
     _loadWaiters.add(c);
     await _send('Page.reload', const {}, '', timeout);
     await _waitLoad(c, timeout);
+    await _sesudahMuat();
   }
 
   Future<void> goBack({double timeout = 30}) async {

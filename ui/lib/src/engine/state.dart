@@ -81,6 +81,13 @@ class EngineState {
   int repeatCount = 0;
   double repeatUntil = 0;
   double repeatT = 0;
+  /// modal iklan/langganan di tengah lesson: kapan terakhir dicek
+  double adModalT = 0;
+  /// pembacaan ulang frame per level (lihat Supervisor._unknownStep)
+  int resyncN = 0;
+  /// dump [TUNDA] per masa diam (dibatasi supaya log tidak banjir)
+  int dumpN = 0;
+  double dumpRef = -1;
 
   // ---- mesin ketik
   double loopOverhead = 0.030;
@@ -107,8 +114,9 @@ class EngineState {
   String? tutSig;
   int tutAttempts = 0;
   String? tutFull;
-  // layar selesai tutorial (baru di v4): teks & tanda class saat semua
-  // karakter sudah terketik -> jangan diketik ulang, cukup Enter lagi
+  // layar selesai tutorial (baru di v4): teks yang terbaca saat semua
+  // karakter sudah terketik + tanda class 'BELUM diketik' (null = tanda
+  // tak membedakan) -> jangan diketik ulang, cukup Enter lagi
   String? tutDoneText;
   String? tutDoneSig;
   double tutDoneT = 0;

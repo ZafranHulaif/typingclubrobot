@@ -83,9 +83,29 @@ class FakeLesson {
 /// Selesai -> layar 'Good job!' menutupi, kotak TETAP di DOM (semua
 /// 'done'); Enter baru diterima [enterDelay] dtk setelah selesai.
 class FakeTutorial {
-  FakeTutorial(this.text, {this.enterDelay = 0, this.rejects = 0});
+  FakeTutorial(this.text,
+      {this.enterDelay = 0,
+      this.rejects = 0,
+      this.sigTetap = false,
+      this.settle = 0,
+      this.autoSkor});
   final String text;
   final double enterDelay;
+
+  /// tanda class TIDAK berubah saat diketik (kotak selalu tampak sama):
+  /// deteksi selalu membaca teks penuh
+  final bool sigTetap;
+
+  /// animasi selesai: selama ini karakter terakhir masih bertanda
+  /// 'active' (belum seragam 'done')
+  final double settle;
+
+  /// layar skor muncul SENDIRI sekian dtk sesudah selesai (kotak hilang);
+  /// Enter sebelum itu terbuang
+  final double? autoSkor;
+
+  /// jam (diisi FakeEdclub)
+  double Function() jam = () => 0;
 
   /// berapa kali penyelesaian DITOLAK (kotak kembali kosong, tanpa layar
   /// selesai) - anti-buru-buru edclub
@@ -100,10 +120,16 @@ class FakeTutorial {
   int earlyEnters = 0;
   double advancedAt = 0;
 
-  List<String> get _sigs => [
-        for (var i = 0; i < text.length; i++)
-          done || i < pos ? 'done' : (i == pos ? 'active' : 'pend')
-      ];
+  List<String> get _sigs {
+    if (sigTetap) return List.filled(text.length, 'x');
+    final animasi = done && jam() - doneAt < settle;
+    return [
+      for (var i = 0; i < text.length; i++)
+        done
+            ? (animasi && i == text.length - 1 ? 'active' : 'done')
+            : (i < pos ? 'done' : (i == pos ? 'active' : 'pend'))
+    ];
+  }
 
   /// sama dgn TUT_REMAIN_JS / cabang tut DETECT_JS
   Map<String, dynamic> remain() {
@@ -177,6 +203,14 @@ class FakeEdclub {
   int enterOnScore = 0;
 
   /// penanda login di DOM: 'in' / 'out' / null
+  /// modal iklan/langganan muncul setelah lesson menerima sekian tombol:
+  /// merebut fokus (tombol berikutnya tertelan) + memicu blur
+  int? adAfterKeys;
+  bool adUp = false;
+  double adAt = -1;
+  double adClosedAt = -1;
+  int adSwallowed = 0;
+
   String? profile = 'in';
   bool alive = true;
   bool premiumSkip = false;
@@ -209,11 +243,15 @@ class FakeEdclub {
     final code = p['windowsVirtualKeyCode'];
     final tu = tutorial;
     if (tu != null) {
+      tu.jam = () => clock.now;
+      _autoSkor();
+    }
+    if (tutorial != null && tu != null) {
       final t = '${p['text'] ?? ''}';
       if (tu.done) {
         if (code != 13) {
           tu.strayKeys++;
-        } else if (clock.now - tu.doneAt < tu.enterDelay) {
+        } else if (tu.autoSkor != null || clock.now - tu.doneAt < tu.enterDelay) {
           tu.earlyEnters++;
         } else {
           tu.advancedAt = clock.now;
@@ -251,6 +289,10 @@ class FakeEdclub {
       return;
     }
     if (l == null) return;
+    if (adUp) {
+      adSwallowed++;
+      return;
+    }
     if (code == 8) {
       l.backspace();
       return;
@@ -262,7 +304,22 @@ class FakeEdclub {
       if (t.isEmpty) return;
       l.key(t == '\r' ? '\n' : t);
     }
+    if (adAfterKeys != null && l.keystrokes >= adAfterKeys! && !l.done) {
+      adAfterKeys = null;
+      adUp = true;
+      adAt = clock.now;
+    }
     if (l.done) scoreShown = true;
+  }
+
+  void _autoSkor() {
+    final tu = tutorial;
+    if (tu == null || !tu.done || tu.autoSkor == null) return;
+    if (clock.now - tu.doneAt >= tu.autoSkor!) {
+      tu.advancedAt = clock.now;
+      tutorial = null;
+      scoreShown = true;
+    }
   }
 
   Map<String, dynamic> _val(dynamic v) => v == null
@@ -286,7 +343,16 @@ class FakeEdclub {
       return _val(r == null || r.isEmpty ? null : r);
     }
     if (e.contains(errCountJs)) return _val(l?.errs.length ?? 0);
+    tutorial?.jam = () => clock.now;
+    _autoSkor();
     final tu = tutorial;
+    if (e.contains(adModalCloseJs)) {
+      if (!adUp) return _val([]);
+      adUp = false;
+      adClosedAt = clock.now;
+      return _val(['tutup-teks:"close"']);
+    }
+    if (e.contains(userWatchJs) && adAt >= 0) return _val(clock.now - adAt);
     if (e.contains(tutRemainJs)) return _val(tu?.remain());
     if (tu != null && e.contains(detectJs)) {
       return _val({

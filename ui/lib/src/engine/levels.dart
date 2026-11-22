@@ -113,10 +113,28 @@ extension Levels on Engine {
   }
 
   /// Lesson benar2 dirender (canvas/video/teks), bukan halaman kosong.
+  ///
+  /// Beda dgn 3.5.x: lesson UI baru hidup di IFRAME (coreclassictyping /
+  /// corevideo / game .edclub.app), sedangkan cek ini dulu hanya melihat
+  /// frame utama -> SELALU 'tidak hidup' (3 dari 3 di log v4): 8 dtk
+  /// diam di level, balik ke daftar, klik baris, 6 dtk lagi, lalu reload
+  /// (log 08:06:07-28). Sekarang iframe ikut dicek, dan daftar frame
+  /// dibaca ulang karena iframe baru sesudah navigasi penuh sering belum
+  /// terlihat mesin.
   Future<bool> lessonHidup([double batas = 8.0]) async {
     final mulai = now;
+    var sinkron = 0;
     while (now - mulai < batas) {
       if (st.stop) return false;
+      final umur = now - mulai;
+      if ((sinkron == 0 && umur > 0.8) || (sinkron == 1 && umur > 3.5)) {
+        sinkron += 1;
+        try {
+          await page.resync();
+          st.lastResync = now;
+          await sleep(0.3);
+        } catch (_) {}
+      }
       dynamic n;
       try {
         n = await page.evaluate(lessonHidupJs);
@@ -127,8 +145,24 @@ extension Levels on Engine {
         final b = (n['b'] as num?) ?? 0;
         if (_truthy(n['c']) || _truthy(n['v']) || b > 200) return true;
         if (await gateAtauMulai()) return true;
+        for (final fr in allFrames()) {
+          if (fr.isMain || !isEdclubFrameUrl(fr.url)) continue;
+          final info = await runJs(detectJs, fr);
+          if (info is! Map) continue;
+          final cv = info['canvases'];
+          if (_truthy(info['std']) ||
+              _truthy(info['tut']) ||
+              _truthy(info['mini']) ||
+              (cv is num && cv > 0)) {
+            return true;
+          }
+          final m = await runJs('return (${lessonHidupJs.trim()})();', fr);
+          if (m is Map && (_truthy(m['v']) || ((m['b'] as num?) ?? 0) > 200)) {
+            return true;
+          }
+        }
       }
-      await sleep(0.5);
+      await sleep(0.3);
     }
     return false;
   }

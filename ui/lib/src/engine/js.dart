@@ -328,6 +328,35 @@ if (!premModal) {
 return taken;
 ''';
 
+/// engine/jstemplates.py :: AD_MODAL_CLOSE_JS
+const adModalCloseJs = r'''
+// Modal iklan / ajakan langganan yang muncul DI TENGAH lesson (v4, log
+// 07:56:53): fokus direbut modal -> ketikan tidak masuk. Penutup generik
+// (OVERLAY_JS) baru jalan setelah lesson dianggap macet, dan dilewati 3
+// dtk karena blur dari modal terbaca sebagai 'user aktif'. Ini versi
+// sempitnya yang aman dipanggil saat mengetik: HANYA mengklik tombol
+// bertuliskan tutup DI DALAM kontainer modal (blok yang sama dengan
+// 'tutup-teks' OVERLAY_JS, yang terbukti menutup modal itu) - tidak
+// pernah menyentuh tombol lanjut/next/skip maupun area ketik.
+const taken = [];
+const visible = el => { try { return !!(el.offsetWidth || el.offsetHeight); } catch (e) { return false; } };
+const want = {};
+for (const t of ['x','×','✕','✖','close','tutup','no thanks','not now','maybe later','later',
+                 'nanti saja','nanti']) want[t] = true;
+const MODAL_SEL = '[class*="modal" i],[class*="popup" i],[class*="dialog" i],[class*="overlay" i],[role="dialog"],[class*="premium" i],[class*="upsell" i],[class*="paywall" i],[class*="achiev" i],[class*="promo" i],[class*="banner" i]';
+for (const el of document.querySelectorAll('button, a, span, div, [role="button"]')) {
+    let txt = '';
+    try { txt = (el.innerText || '').trim().toLowerCase(); } catch (e) {}
+    if (!txt || txt.length > 18 || !want[txt] || !visible(el)) continue;
+    try { if (el.closest('.typable, .token_unit, .boxed-typing-lines, .boxed-line, .TPGAME')) continue; } catch (e) {}
+    let inModal = false;
+    try { inModal = !!el.closest(MODAL_SEL); } catch (e) {}
+    if (!inModal) continue;
+    try { el.click(); taken.push('tutup-teks:"' + txt + '"'); break; } catch (e) {}
+}
+return taken;
+''';
+
 /// engine/jstemplates.py :: ESC_FALLBACK_JS
 const escFallbackJs = r'''
 const ev = new KeyboardEvent('keydown', {key: 'Escape', code: 'Escape', keyCode: 27,

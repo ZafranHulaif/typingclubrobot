@@ -159,14 +159,22 @@ extension JsUtil on Engine {
       if (taken is List && taken.isNotEmpty) {
         log('[Pop-up] ${frameLabel(fr)}: ${taken.take(3).join('; ')}');
         total += taken.length;
-        final first = '${taken.first}';
-        // 'berulang tanpa hasil' = label sama BERUNTUN (< 4 dtk). Dulu
-        // hitungan menumpuk lintas level (tiap layar hasil punya tombol
-        // tutup berlabel sama) -> tiap 2-3 level eskalasi palsu + penutup
-        // dibungkam 8 dtk: layar hasil/pencapaian diam lama (log 05:38:43).
+        // 'berulang tanpa hasil' = SELURUH aksi sama persis, BERUNTUN
+        // (< 4 dtk) dan hanya klik tutup. Dulu cuma label pertama yang
+        // dibandingkan, padahal di layar hasil label pertama selalu
+        // tombol tutup yang sama: [tutup], [tutup], [tutup + continue]
+        // dihitung 3x gagal -> ESC + klik mouse + penutup dibungkam 3
+        // dtk tepat saat pencapaian baru ditutup, tombol 'next' baru
+        // diklik 4 dtk kemudian (log 08:01:33-39, 07:57:04-11). Klik
+        // tombol lanjut (teks:/lanjut:) = ada kemajuan, bukan gagal.
+        final first = taken.join('; ');
+        final maju = taken.any((x) => '$x'.startsWith('teks:') || '$x'.startsWith('lanjut:'));
         final beruntun = now - st.repeatT < 4.0;
         st.repeatT = now;
-        if (first == st.repeatLabel && beruntun) {
+        if (maju) {
+          st.repeatLabel = '';
+          st.repeatCount = 0;
+        } else if (first == st.repeatLabel && beruntun) {
           st.repeatCount += 1;
           if (st.repeatCount >= 3) {
             // klik JS 3x tanpa hasil: ESC + klik mouse dgn cek posisi
@@ -181,7 +189,8 @@ extension JsUtil on Engine {
                 await page.mouse.click(pt['x'] as num, pt['y'] as num);
               } catch (_) {}
             }
-            st.repeatUntil = now + 3;
+            // jeda pendek saja: tombol lanjut bisa muncul kapan pun
+            st.repeatUntil = now + 1.2;
             st.repeatCount = 0;
           }
         } else {
@@ -206,6 +215,28 @@ extension JsUtil on Engine {
       }
     }
     return total;
+  }
+
+  /// Modal iklan / ajakan langganan di TENGAH lesson: tutup sekarang
+  /// juga (hanya tombol tutup di dalam modal - aman saat mengetik).
+  /// Blur yang ditimbulkan modal bukan aktivitas user: dihapus, supaya
+  /// penutup lain & pengetikan tidak ikut menunggu 3 dtk.
+  Future<bool> closeAdModal() async {
+    st.adModalT = now;
+    for (final fr in await edclubFrames()) {
+      final t = await runJs(adModalCloseJs, fr);
+      if (t is List && t.isNotEmpty) {
+        log('[Pop-up] ${frameLabel(fr)}: modal di tengah lesson ditutup '
+            '(${t.first})');
+        st.handOverT = now;
+        st.userWatchT = 0;
+        st.userWatchElapsed = 1e9;
+        st.stallUserNote = false;
+        st.bump('popup');
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> dumpDebugInfo() async {

@@ -324,7 +324,11 @@ class NativeBackend implements Backend {
   /// Buka webview utk akun [name] (null = profil awal). Webview lama
   /// dibuang SETELAH yang baru siap (tak ada layar kosong di tengah).
   Future<void> _open(String? name, {String url = homeUrl}) async {
-    _cover(name == null ? 'Menyiapkan edclub...' : 'Membuka akun $name...');
+    _cover(name == null
+        ? 'Menyiapkan edclub...'
+        : accounts.isPending(name)
+            ? 'Membuka akun baru...'
+            : 'Membuka akun ${accounts.labelOf(name)}...');
     final old = _view;
     await _viewSub?.cancel();
     _viewSub = null;
@@ -708,7 +712,9 @@ class NativeBackend implements Backend {
         await _view?.navigate(url);
         return true;
       case 'web.refocus':
-        if (busy) {
+        final st = _engine?.st;
+        // hanya saat benar2 mengetik (bukan Dijeda / menunggu)
+        if (running && st != null && !st.userLepas && st.waitUserUrl.isEmpty) {
           await _view?.focus().catchError((_) {});
           _handOver();
         }

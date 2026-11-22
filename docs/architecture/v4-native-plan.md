@@ -228,7 +228,21 @@ first active account), saved plans cleaned to <= 685, highest unlocked level rea
 lesson list per account (plan start / Mulai rencana limited to it).
 Next: N7 star targets (needs measurement of edclub's star rules on the test account).
 
-## Owner test checklist (Windows, build 4.0.0-dev7 from the CI artifact)
+### Fifth owner test (dev7) -> dev8
+Owner: start/stop no longer janky; levels continue fast. Engine speed fixes (Fable), from log:
+- Tutorial done screen: race (boxes still in DOM 1 s after Enter -> slow retype). Now polls
+  0.1 s for 2.5 s, Enter every 0.5 s, Enter as soon as the score screen shows; new log line
+  `[Tutorial] sesudah ketik: ...` to confirm the real DOM behaviour.
+- Achievement before Continue: closer compared only the first action label -> false
+  "no effect" escalation + mute. Whole action list compared; continue/next clicks = progress.
+- Premium ad mid-lesson: dedicated AD_MODAL_CLOSE_JS (close-text in modal only), closed on the
+  first unconsumed burst; blur from the modal no longer counts as user activity.
+- lessonHidup only checked the main frame (lessons live in .edclub.app iframes) -> jump to level,
+  "not alive", list, level, reload. Now checks iframes and re-reads frames after goto/reload.
+- App: menu close only refocuses/hands over while really typing (not while Dijeda); cover uses
+  the account name; plan panel explanation text removed.
+
+## Owner test checklist (Windows, build 4.0.0-dev8 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

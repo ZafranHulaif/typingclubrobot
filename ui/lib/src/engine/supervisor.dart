@@ -173,6 +173,7 @@ extension Supervisor on Engine {
           st.introFlow = false;
           st.tutDoneText = null;
           st.tutDoneSig = null;
+          st.resyncN = 0;
           st.premlockSince = 0;
           st.statusLabel = '';
           st.levelProgress = 0;
@@ -244,6 +245,15 @@ extension Supervisor on Engine {
           continue;
         }
 
+        // modal iklan/langganan di tengah lesson: tutup secepatnya, juga
+        // saat 'user aktif' (blur dari modal itu sendiri terbaca begitu
+        // -> dulu penutup di bawah menunggu 3 dtk, log 07:55:31-36)
+        if (diLesson(url) && now - st.adModalT > 0.4 && await closeAdModal()) {
+          st.lastActionTime = now;
+          await sleep(0.15);
+          continue;
+        }
+
         // level video duluan sebelum penutup pop-up
         if (diLesson(url) && await handleVideoLevel()) continue;
 
@@ -269,10 +279,12 @@ extension Supervisor on Engine {
           await handleStandard(d.frame!, d.data);
         } else if (det == 'tut') {
           await handleTutorial(d.frame!, d.data);
-        } else if (det == 'mini' && !diLesson(url)) {
+        } else if (det == 'mini' && (!diLesson(url) || lessonGone())) {
           // 'kata' di halaman non-lesson (dashboard/daftar) bukan game:
           // jangan diketik & jangan ditahan sbg balon (log 05:10:48
-          // mengetik 'Dashboard'; 05:41-06:18 menahan 37 menit)
+          // mengetik 'Dashboard'; 05:41-06:18 menahan 37 menit). url
+          // putaran ini bisa basi (user baru pindah, log 07:57:51) ->
+          // cek juga page.url terkini
           if (await _unknownStep(url, d.data, navTime)) continue;
         } else if (det == 'mini') {
           if (await tryBalloonCore()) {
@@ -391,16 +403,30 @@ extension Supervisor on Engine {
 
     final stalled = now - st.lastActionTime;
     final userSibuk = await userActive(25.0) || st.userLepas;
-    if (stalled > 10 && now - st.lastDebugDump > 10) {
+    // dump maks 3x per masa diam (dulu tiap 10 dtk tanpa henti selama
+    // bot menunggu user di daftar level: ratusan baris, log 08:02-08:09)
+    if (st.dumpRef != st.lastActionTime) {
+      st.dumpRef = st.lastActionTime;
+      st.dumpN = 0;
+    }
+    if (stalled > 10 && now - st.lastDebugDump > 10 && st.dumpN < 3) {
       st.lastDebugDump = now;
+      st.dumpN += 1;
       log('[TUNDA] tidak ada aktivitas ${stalled.toStringAsFixed(0)}s di '
           '${tail(url)} - dumping state...');
       await dumpDebugInfo();
     }
     // jaring pengaman: lesson/game bisa hidup di iframe yang belum
     // terlihat mesin -> baca ulang frame sebelum pemulihan berat (reload)
-    if (stalled > 4 && diLesson(url) && now - st.lastResync > 20) {
+    // Sesudah navigasi penuh (goto/reload) iframe lesson yang baru sering
+    // belum terlihat: dulu baru dibaca ulang setelah diam 4 dtk (log
+    // 08:06:28 -> 08:06:33, 08:07:01 -> 08:07:06). Sekarang 1 dtk, 3x
+    // pertama per level berjarak 2 dtk, sesudahnya tiap 20 dtk.
+    if (stalled > 1.0 &&
+        diLesson(url) &&
+        now - st.lastResync > (st.resyncN < 3 ? 2.0 : 20.0)) {
       st.lastResync = now;
+      st.resyncN += 1;
       final n0 = allFrames().length;
       try {
         await page.resync();

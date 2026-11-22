@@ -276,9 +276,10 @@ class _PopoverState extends State<Popover> with SingleTickerProviderStateMixin {
     await _anim.reverse();
     if (!mounted) return;
     _ctl.hide();
-    // bot jalan: halaman dapat fokus lagi (blur dihitung 'user aktif')
+    // bot sedang mengetik: halaman dapat fokus lagi (blur dihitung
+    // 'user aktif'). Saat Dijeda JANGAN: itu menyerahkan kendali.
     final st = StoreScope.read(context);
-    if (st.embedded && st.busy) st.call('web.refocus');
+    if (st.embedded && st.phase == 'running') st.call('web.refocus');
     setState(() {});
   }
 

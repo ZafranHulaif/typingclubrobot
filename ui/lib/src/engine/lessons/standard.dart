@@ -67,6 +67,7 @@ extension StandardLesson on Engine {
     st.levelProgress = 0;
 
     var typedAny = false;
+    var macet = false; // berhenti karena ketikan tak masuk (bukan selesai)
     try {
       if (holdKey != null) {
         await page.keyboard.down(holdKey);
@@ -169,6 +170,20 @@ extension StandardLesson on Engine {
           stall += 1;
           st.burstLen = 1;
           st.burstStreak = 0;
+          // modal iklan/langganan muncul di tengah lesson = penyebab
+          // paling sering ketikan tak masuk: tutup saat itu juga (dulu
+          // baru tertutup setelah 8x macet + 3 dtk 'user aktif' palsu
+          // dari blur modal, log 07:56:53-58). Tombol yang jatuh ke
+          // modal tidak tercatat salah; sisa dibaca ulang dari halaman.
+          if ((stall == 1 || stall % 3 == 0) && await closeAdModal()) {
+            await sleep(0.25);
+            await focusFrame(frame);
+            final (rAd, eAd) = await readState(frame);
+            if (rAd != null && rAd.isNotEmpty) rem = rAd;
+            errPrev = eAd ?? errAfter;
+            stall = 0;
+            continue;
+          }
           final userHadir = await userActive(3.0);
           if (userHadir) {
             stall = min(stall, 3);
@@ -204,6 +219,7 @@ extension StandardLesson on Engine {
               await sleep(0.6);
               return true;
             }
+            macet = true;
             break;
           }
           errPrev = errAfter;
@@ -227,9 +243,11 @@ extension StandardLesson on Engine {
     }
     if (lessonGone()) return false;
     if (!typedAny) return false;
-    st.levelProgress = 1;
+    if (!macet) {
+      st.levelProgress = 1;
+      st.bump('std'); // lesson macet jangan dihitung selesai (dulu dobel)
+    }
     st.lastTypedText = '$text';
-    st.bump('std');
     st.lastActionTime = now;
     final errTotal = await countErrors(frame);
     if (errTotal != null && errTotal > 0) {
@@ -244,7 +262,7 @@ extension StandardLesson on Engine {
     while (now < deadline) {
       if (st.stop) break;
       if (await closeOverlaysAllFrames() > 0) {
-        await sleep(0.6);
+        await sleep(0.35);
         continue;
       }
       final d = await detectAllFrames();
