@@ -49,6 +49,9 @@ const birthYear = '2000';
 const ocrMinInterval = 3.0;
 
 class Engine {
+  /// Diagnosa: log event tombol halaman di titik masalah (TB_KEYLOG).
+  static bool keyLog = false;
+
   Engine({
     required this.page,
     Clock? clock,

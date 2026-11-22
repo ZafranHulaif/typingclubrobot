@@ -337,7 +337,9 @@ class NativeBackend implements Backend {
     try {
       // tanpa URL dulu: kuki sesi dipasang sebelum halaman pertama
       v = await host.create(
-          folder: accounts.folderFor(name), url: '', scripts: initScripts);
+          folder: accounts.folderFor(name),
+          url: '',
+          scripts: [...initScripts, if (Engine.keyLog) keyLogJs]);
     } on WebHostException catch (e) {
       _cover('Halaman edclub gagal dibuka (${e.code}). Tutup lalu buka '
           'lagi TypingBot ya.');

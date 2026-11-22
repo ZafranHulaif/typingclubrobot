@@ -3,6 +3,16 @@
 part of '../engine.dart';
 
 extension StandardLesson on Engine {
+  /// TB_KEYLOG: 60 event tombol terakhir yang diterima frame lesson.
+  Future<void> dumpKeyLog(Frame frame) async {
+    if (!Engine.keyLog) return;
+    try {
+      final r = await runJs('return JSON.stringify((window.__tbKeys || []).slice(-60));', frame);
+      log('[KEYLOG] $r');
+      await runJs('if (window.__tbKeys) window.__tbKeys.length = 0; return 1;', frame);
+    } catch (_) {}
+  }
+
   Future<bool> handleStandard(Frame frame, dynamic text) async {
     // level terkunci premium: modal menutupi lesson -> lewati
     for (final fr in allFrames()) {
@@ -163,6 +173,7 @@ extension StandardLesson on Engine {
           } else {
             bsOk = false;
             log('[Standard] koreksi mundur tidak mempan (lanjut - tercatat di akurasi)');
+            await dumpKeyLog(frame);
             rem2 = rChk;
           }
         }
@@ -271,6 +282,7 @@ extension StandardLesson on Engine {
     final errTotal = await countErrors(frame);
     if (errTotal != null && errTotal > 0) {
       log('[Standard] lesson selesai dengan $errTotal karakter salah');
+      await dumpKeyLog(frame);
     }
 
     // tunggu transisi pasca-lesson; keluar begitu URL berganti

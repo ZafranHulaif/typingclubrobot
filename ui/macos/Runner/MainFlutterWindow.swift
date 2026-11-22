@@ -6,6 +6,8 @@ class MainFlutterWindow: NSWindow {
   var webHost: WebHost?
 
   override func awakeFromNib() {
+    // tahan tombol (level 'tahan j') jangan memunculkan menu aksen macOS
+    UserDefaults.standard.set(false, forKey: "ApplePressAndHoldEnabled")
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
     self.contentViewController = flutterViewController

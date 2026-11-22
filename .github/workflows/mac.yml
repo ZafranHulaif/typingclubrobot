@@ -184,7 +184,7 @@ jobs:
           APP=$(ls -d ui/build/macos/Build/Products/Release/*.app | head -1)
           OUT=$PWD/live-out
           mkdir -p "$OUT"
-          TB_SELFTEST="$OUT" TB_SELFTEST_RUN="${{ inputs.detik || '240' }}" TB_SELFTEST_LEVEL=76 "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
+          TB_SELFTEST="$OUT" TB_SELFTEST_RUN="${{ inputs.detik || '240' }}" TB_SELFTEST_LEVEL=76 TB_KEYLOG=1 "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
           PID=$!
           for i in $(seq 1 1600); do
             for r in "$OUT"/*.ready; do
