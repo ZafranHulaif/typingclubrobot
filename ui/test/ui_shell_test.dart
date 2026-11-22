@@ -68,6 +68,21 @@ void main() {
     expect(store.segments.single.to, store.segments.single.from + 9);
     expect(find.text('Bagian baru'), findsNothing);
 
+    // bagian tidak tersambung: celah jadi kotak Tambah, bagian setelahnya abu-abu
+    await t.runAsync(() => store.savePlan([Segment(51, 200, 5), Segment(401, 600, 4)]));
+    await _settle(t);
+    expect(find.text('201-400'), findsOneWidget);
+    expect(find.text('tidak tersambung'), findsOneWidget);
+    await t.tap(find.text('201-400'));
+    await _settle(t);
+    expect(find.text('Bagian baru'), findsOneWidget);
+    await t.tap(find.text('Buat'));
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await _settle(t);
+    expect([for (final g in store.segments) '${g.from}-${g.to}'],
+        ['51-200', '201-400', '401-600']);
+    expect(find.text('tidak tersambung'), findsNothing);
+
     // tutup panel: lubang hilang
     await t.tap(find.text('Rencana').first);
     await _settle(t);

@@ -904,6 +904,17 @@ class NativeBackend implements Backend {
     });
   }
 
+  /// Akhir rangkaian bagian yang tersambung dari bagian pertama. Bagian
+  /// setelah celah tidak dijalankan (UI menandainya abu-abu).
+  static int _chainEnd(List<Map<String, dynamic>> segs) {
+    var end = segs.first['to'] as int;
+    for (var i = 1; i < segs.length && end != 0; i++) {
+      if ((segs[i]['from'] as int) != end + 1) break;
+      end = segs[i]['to'] as int;
+    }
+    return end;
+  }
+
   List<Map<String, dynamic>> get _segments =>
       [for (final s in (_snap['plan']!['segments'] as List)) Map<String, dynamic>.from(s as Map)];
 
@@ -937,7 +948,7 @@ class NativeBackend implements Backend {
             'Bagian yang sedang dikerjakan belum bisa diubah. Stop dulu ya.');
       }
       // akhir rentang ikut rencana baru
-      _engine?.st.levelEnd = out.isEmpty ? 0 : out.last['to'] as int;
+      _engine?.st.levelEnd = out.isEmpty ? 0 : _chainEnd(out);
     }
     _set('plan', {'segments': out});
     final key = accounts.active() ?? '';
@@ -1023,10 +1034,11 @@ class NativeBackend implements Backend {
         } else if (_mode == 'plan') {
           wait = '';
           final segs = _segments;
+          final akhir = _chainEnd(segs);
           _stopWaiting();
           _log('Mulai rencana: level ${segs.first['from']} - '
-              '${segs.last['to'] == 0 ? 'akhir' : segs.last['to']}.');
-          await _launch(segs.first['from'] as int, segs.last['to'] as int);
+              '${akhir == 0 ? 'akhir' : akhir}.');
+          await _launch(segs.first['from'] as int, akhir);
           return;
         } else if (diLesson(url)) {
           wait = '';

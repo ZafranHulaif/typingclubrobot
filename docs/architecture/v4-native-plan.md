@@ -283,7 +283,17 @@ Owner: star targets land exactly (4 -> 4, 1 -> 1, 4 wpm on early levels). Fixes:
   the speed is automatic and some mistakes are deliberate); star picker note; free-mode star chip
   uses the coloured star row like the plan capsule.
 
-## Owner test checklist (Windows, build 4.0.0-dev11 from the CI artifact)
+### Ninth owner test (dev11) -> dev12
+Owner: everything else perfect. Polish:
+- Plan parts must connect: a gap between parts shows an amber "201-400 / belum ada / Tambah" tile
+  that opens a draft filling exactly the gap; parts after the first gap are greyed
+  ("tidak tersambung") with a one-line note, and the run range ends at the last connected part
+  (`_chainEnd`). Drafts are sorted on save.
+- Bar buttons: hover is visible while selected (Rencana open).
+- Wording: "Target bintang 5", silver is called "platinum" in the UI.
+Next: N5 (3.5.x data compatibility), then release.
+
+## Owner test checklist (Windows, build 4.0.0-dev12 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

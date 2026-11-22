@@ -30,7 +30,8 @@ class BarButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(Radii.md),
         child: InkWell(
           borderRadius: BorderRadius.circular(Radii.md),
-          hoverColor: c.surfaceContainerHigh,
+          // terpilih: hover tetap terasa (lebih terang dari warna terpilih)
+          hoverColor: selected ? c.surfaceContainerHighest : c.surfaceContainerHigh,
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -172,11 +173,11 @@ class _SpeedLocked extends StatelessWidget {
           Text('Kecepatan otomatis', style: t.titleSmall),
         ]),
         const SizedBox(height: 10),
-        Text('Target $stars bintang. Kecepatan menyesuaikan tiap level, '
+        Text('Target bintang $stars. Kecepatan menyesuaikan tiap level, '
             'dan sebagian salah ketik memang disengaja supaya bintangnya pas.',
             style: t.bodyMedium!.copyWith(color: c.onSurfaceVariant)),
         const SizedBox(height: 8),
-        Text('Pilih 5 perak untuk mengatur kecepatan sendiri.',
+        Text('Pilih bintang 5 platinum untuk mengatur kecepatan sendiri.',
             style: t.bodySmall!.copyWith(color: c.onSurfaceVariant)),
       ]),
     );
