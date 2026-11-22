@@ -369,7 +369,14 @@ delete asks for confirmation, auto refresh keeps the tab and pauses while typing
 Worker is backward compatible with 3.5.x (machine requests unchanged): safe to deploy before the
 release. Deploy = paste server/worker.js into the Cloudflare worker editor (DEPLOY.md step 2).
 
-## Owner test checklist (Windows, build 4.0.0-dev19 from the CI artifact)
+### dev20: menus while the bot runs
+Closing a popover while running called web.refocus -> native GotFocus -> every popover's
+"page clicked" listener closed itself, including one just opened by the same click. Now
+`WebView.focus()` stamps `WebHost.selfFocusAt` and focus events within 900 ms are ignored;
+refocus waits 150 ms and only fires when no popover is open. Embedded popovers close instantly
+(fading out over the webview hole showed an empty dark hole, worse while the bot is busy).
+
+## Owner test checklist (Windows, build 4.0.0-dev20 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

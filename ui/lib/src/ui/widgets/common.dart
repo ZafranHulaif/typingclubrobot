@@ -256,15 +256,21 @@ class _PopoverState extends State<Popover> with SingleTickerProviderStateMixin {
     super.initState();
     // klik di halaman (jendela native) = klik di luar popup
     if (StoreScope.read(context).embedded) {
+      // fokus yang diberikan app sendiri (refocus saat bot mengetik) bukan
+      // klik user: dulu menutup popup yang baru saja dibuka
       _webSub = webHost.events
-          .where((e) => e.type == 'focus')
+          .where((e) => e.type == 'focus' && !WebHost.recentSelfFocus)
           .listen((_) => _close());
     }
   }
 
   void _toggle() => _open ? _close() : _show();
 
+  /// Popup yang sedang terbuka (refocus halaman hanya kalau tidak ada).
+  static int _terbuka = 0;
+
   void _show() {
+    _terbuka++;
     if (StoreScope.read(context).embedded) webHost.blur().catchError((_) {});
     _ctl.show();
     _anim.forward(from: 0);
@@ -273,18 +279,30 @@ class _PopoverState extends State<Popover> with SingleTickerProviderStateMixin {
 
   Future<void> _close() async {
     if (!_open) return;
-    await _anim.reverse();
+    final st = StoreScope.read(context);
+    // di atas halaman (lubang di webview) animasi tutup = lubang kosong
+    // gelap sesaat: tutup seketika
+    if (st.embedded) {
+      _anim.value = 0;
+    } else {
+      await _anim.reverse();
+    }
     if (!mounted) return;
     _ctl.hide();
-    // bot sedang mengetik: halaman dapat fokus lagi (blur dihitung
-    // 'user aktif'). Saat Dijeda JANGAN: itu menyerahkan kendali.
-    final st = StoreScope.read(context);
-    if (st.embedded && st.phase == 'running') st.call('web.refocus');
+    _terbuka = (_terbuka - 1).clamp(0, 1 << 20);
     setState(() {});
+    // bot sedang mengetik: halaman dapat fokus lagi (blur dihitung
+    // 'user aktif'). Saat Dijeda JANGAN: itu menyerahkan kendali. Tunggu
+    // sebentar: klik yang menutup popup ini bisa membuka popup lain.
+    if (st.embedded && st.phase == 'running') {
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      if (_terbuka == 0 && st.phase == 'running') st.call('web.refocus');
+    }
   }
 
   @override
   void dispose() {
+    if (_open) _terbuka = (_terbuka - 1).clamp(0, 1 << 20);
     _webSub?.cancel();
     _anim.dispose();
     super.dispose();

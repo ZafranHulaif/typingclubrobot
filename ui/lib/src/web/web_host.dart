@@ -41,6 +41,12 @@ class WebHost {
 
   Stream<WebEvent> get events => _events.stream;
 
+  /// Kapan app sendiri terakhir memberi fokus ke halaman (WebView.focus).
+  /// Event 'focus' sesudahnya BUKAN klik user (popup jangan ikut tutup).
+  static DateTime selfFocusAt = DateTime(0);
+  static bool get recentSelfFocus =>
+      DateTime.now().difference(selfFocusAt) < const Duration(milliseconds: 900);
+
   Future<dynamic> _onCall(MethodCall call) async {
     if (call.method != 'event') return null;
     final m = (call.arguments as Map).cast<String, dynamic>();
@@ -112,7 +118,10 @@ class WebView {
   Future<void> navigate(String url) => _call('navigate', {'url': url});
   Future<void> reload() => _call('reload');
   Future<void> goBack() => _call('goBack');
-  Future<void> focus() => _call('focus');
+  Future<void> focus() {
+    WebHost.selfFocusAt = DateTime.now();
+    return _call('focus');
+  }
 
   Future<({String url, String title})> info() async {
     final m = (await _call<Map>('info')) ?? const {};
