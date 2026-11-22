@@ -435,9 +435,13 @@ final class WebHost: NSObject {
   }
 
   /// Tombol hanya sampai ke halaman kalau webview yang dapat fokus.
+  /// Fokus diambil HANYA kalau memang bukan di webview: makeFirstResponder
+  /// berulang = blur/focus halaman tiap tombol, input lesson kehilangan
+  /// fokus sesudah huruf pertama (CI 45014788363: cuma 'H' masuk).
   func ensureFocus(_ w: WKWebView) {
     guard let win = w.window else { return }
-    if win.firstResponder !== w { win.makeFirstResponder(w) }
+    if let r = win.firstResponder as? NSView, r === w || r.isDescendant(of: w) { return }
+    win.makeFirstResponder(w)
   }
 
   // ---------------------------------------------------------------- mouse

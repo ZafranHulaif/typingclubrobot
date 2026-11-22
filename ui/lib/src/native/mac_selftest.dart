@@ -58,7 +58,10 @@ Future<void> runMacSelfTest(String dir) async {
       await iframe.evaluate('() => document.getElementById("ketik").focus()');
       await view.focus();
       await tunggu(0.3);
-      await page.keyboard.type('Hello World');
+      for (final ch in 'Hello World'.split('')) {
+        await page.keyboard.type(ch);
+        await tunggu(0.03);
+      }
       await page.keyboard.press('Backspace');
       await page.keyboard.press('Enter');
       await tunggu(0.5);
