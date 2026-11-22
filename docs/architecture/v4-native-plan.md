@@ -393,7 +393,12 @@ mismatch). 15 live runs (Balloon 2953/2937/2938, Monster 2941, targets 1-5) all 
 Enabled: BalloonValley, MonsterAttack. TempleBash and FloatingBubbles stay full speed (premium
 on the test account, untested). Unverified: Dart engine end to end on Windows, goals other than 10.
 
-## Owner test checklist (Windows, build 4.0.0-dev22 from the CI artifact)
+### dev23: hold-key levels follow the star target
+"Hold the X key while typing" levels were excluded from star pacing (holdKey != null), so they
+still ran at full speed. Pacing now runs with the key held; the deliberate wrong letters never use
+the held key.
+
+## Owner test checklist (Windows, build 4.0.0-dev23 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

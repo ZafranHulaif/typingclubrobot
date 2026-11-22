@@ -94,12 +94,13 @@ extension StandardLesson on Engine {
         }
       }
       // target bintang (N7): ketik secepat yang dibutuhkan bintangnya
-      final pace = holdKey == null ? await starPace(frame) : null;
+      final pace = await starPace(frame);
       if (pace != null) {
         st.paceWpm = pace.wpm;
         final String hasil;
         try {
-          hasil = await typePaced(frame, rem, pace);
+          hasil = await typePaced(frame, rem, pace,
+              avoid: holdKey?.toLowerCase());
         } finally {
           st.paceWpm = 0;
         }

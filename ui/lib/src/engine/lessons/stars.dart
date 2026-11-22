@@ -200,7 +200,8 @@ extension StarLesson on Engine {
   /// Ketik sisa lesson sesuai [p]: jadwal jam dinding (tombol ke-k pada
   /// t0 + k*dt) supaya overhead tidak menumpuk, salah ketik di posisi
   /// acak (hanya huruf). Return 'done' | 'stall' | 'gone' | 'stop'.
-  Future<String> typePaced(Frame frame, String rem0, StarPace p) async {
+  Future<String> typePaced(Frame frame, String rem0, StarPace p,
+      {String? avoid}) async {
     // posisi salah: acak di [2, chars-3]
     final calon = [for (var i = 2; i < p.chars - 2; i++) i]..shuffle(rnd);
     final salahDi = calon.take(p.errors).toSet();
@@ -237,7 +238,8 @@ extension StarLesson on Engine {
       if (hutang > 0 && huruf.hasMatch(ch)) {
         final c = ch.toLowerCase();
         var w = papan[rnd.nextInt(papan.length)];
-        while (w == c) {
+        // jangan pakai tombol yang lagi ditahan (level tahan tombol)
+        while (w == c || w == avoid) {
           w = papan[rnd.nextInt(papan.length)];
         }
         key = w;
