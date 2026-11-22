@@ -174,9 +174,14 @@ function relatif(ts) {
   if (d < 86400) return Math.floor(d / 3600) + ' jam lalu';
   return Math.floor(d / 86400) + ' hari lalu';
 }
-function terap() {
+// tab awal (sekali saat halaman dibuka): ada yang menunggu = Menunggu,
+// selain itu tab terakhir yang dipilih, atau tab pertama yang berisi
+{
   const n = JSON.parse(document.getElementById('isi').dataset.n);
-  if (!tab || (tab === 'tunggu' && !n.tunggu)) tab = n.tunggu ? 'tunggu' : 'akun';
+  if (n.tunggu) tab = 'tunggu';
+  else if (!tab || !n[tab]) tab = n.akun ? 'akun' : n.mesin ? 'mesin' : 'tunggu';
+}
+function terap() {
   const q = (document.getElementById('q').value || '').toLowerCase().trim();
   let ada = 0;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.t === tab));
