@@ -348,11 +348,42 @@ static int CleanDups(const std::wstring& self, std::wstring dir = L"") {
   return n;
 }
 
+struct CariJendela {
+  DWORD pid;
+  HWND hwnd;
+};
+
+static BOOL CALLBACK CariProc(HWND h, LPARAM lp) {
+  auto* c = (CariJendela*)lp;
+  DWORD pid = 0;
+  GetWindowThreadProcessId(h, &pid);
+  if (pid == c->pid && IsWindowVisible(h) && GetWindow(h, GW_OWNER) == nullptr) {
+    c->hwnd = h;
+    return FALSE;
+  }
+  return TRUE;
+}
+
 static bool Launch(const std::wstring& exe, const std::wstring& dir) {
   std::wstring cmd = L"\"" + exe + L"\"";
   STARTUPINFOW si = {sizeof(si)};
   PROCESS_INFORMATION pi = {};
   if (!CreateProcessW(nullptr, &cmd[0], nullptr, nullptr, FALSE, 0, nullptr, dir.c_str(), &si, &pi)) return false;
+  // Windows melarang proses baru merebut fokus kecuali diizinkan proses
+  // yang sedang di depan (file ini, baru diklik user): izinkan, tunggu
+  // jendela app muncul (maks 20 dtk), lalu bawa ke depan
+  AllowSetForegroundWindow(pi.dwProcessId);
+  if (Env(L"TB_SETUP_NO_LAUNCH").empty()) {
+    CariJendela c = {pi.dwProcessId, nullptr};
+    for (int i = 0; i < 200 && !c.hwnd; i++) {
+      if (WaitForSingleObject(pi.hProcess, 100) == WAIT_OBJECT_0) break;
+      EnumWindows(CariProc, (LPARAM)&c);
+    }
+    if (c.hwnd) {
+      if (IsIconic(c.hwnd)) ShowWindow(c.hwnd, SW_RESTORE);
+      SetForegroundWindow(c.hwnd);
+    }
+  }
   CloseHandle(pi.hProcess);
   CloseHandle(pi.hThread);
   return true;
@@ -474,7 +505,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     RemoveTree(lama);
     g_oldDir = OldShortcutDir();
     Shortcut(appExe, app);
-    if (g_splash) DestroyWindow(g_splash);
+    // splash tetap tampil sampai jendela app muncul (Launch): file ini
+    // tetap 'di depan' sehingga boleh menyerahkan fokus ke app
     CoUninitialize();
   }
 
@@ -482,6 +514,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
   if (!noLaunch && !Launch(appExe, app)) {
     Fail(L"TypingBot terpasang tapi gagal dibuka.");
     return 1;
+  }
+  if (g_splash) {
+    DestroyWindow(g_splash);
+    g_splash = nullptr;
   }
   int dibersihkan = CleanDups(self);
   if (!g_oldDir.empty()) dibersihkan += CleanDups(self, g_oldDir);

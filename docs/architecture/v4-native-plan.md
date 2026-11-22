@@ -376,7 +376,12 @@ Closing a popover while running called web.refocus -> native GotFocus -> every p
 refocus waits 150 ms and only fires when no popover is open. Embedded popovers close instantly
 (fading out over the webview hole showed an empty dark hole, worse while the bot is busy).
 
-## Owner test checklist (Windows, build 4.0.0-dev20 from the CI artifact)
+### dev21: app gets focus when started from TypingBot.exe
+Windows foreground lock: the launcher calls AllowSetForegroundWindow(app pid), keeps its splash
+until the app's top-level window is visible (max 20 s), then SetForegroundWindow on it; the
+runner also calls SetForegroundWindow after ShowWindow.
+
+## Owner test checklist (Windows, build 4.0.0-dev21 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

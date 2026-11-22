@@ -171,7 +171,11 @@ bool Win32Window::Create(const std::wstring& title,
 
 bool Win32Window::Show() {
   // mulai maximize; ukuran dari Create() (1360x860) jadi ukuran restore
-  return ShowWindow(window_handle_, SW_SHOWMAXIMIZED);
+  const bool shown = ShowWindow(window_handle_, SW_SHOWMAXIMIZED);
+  // dibuka dari pemasang/shortcut: minta fokus (diizinkan pemasang lewat
+  // AllowSetForegroundWindow)
+  SetForegroundWindow(window_handle_);
+  return shown;
 }
 
 // static
