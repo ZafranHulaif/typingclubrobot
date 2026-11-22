@@ -346,7 +346,18 @@ failed 3.5.x updates. Every launcher run (after starting the app) deletes, in IT
 files named typingbot*.exe / typingbot*.part plus `_update.cmd` and `update_pending.json`, never
 itself, never under %LOCALAPPDATA%/TypingBot; locked (running) files are skipped. CI checks it.
 
-## Owner test checklist (Windows, build 4.0.0-dev16 from the CI artifact)
+### dev17: why the 3.5.x swap fails for some users
+`net/updater.py` writes `set EXE="%~dp0<name>"` (value already quoted) and then `ren "%EXE%" ...`,
+so the path ends up double-quoted (`""C:\...""`) = effectively unquoted. Any space in the exe name
+(browser duplicate "TypingBot (1).exe") or in the path (Windows username with a space) breaks the
+ren 90 times, the script rolls back and relaunches the old exe; the next download is then named
+`<name>.new.exe`, which is how the `.new.exe.new.exe` chains appear. v4 cannot fix the old script,
+but the downloaded bundle runs under any name: running that `.new.exe` once (or downloading
+TypingBot.exe from the release) installs v4. The launcher then deletes the old copies and, when
+it deleted any, writes a Desktop `TypingBot.lnk` to the installed app (old desktop links pointed at
+the deleted copies). v4's own updater never uses that script.
+
+## Owner test checklist (Windows, build 4.0.0-dev17 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

@@ -249,11 +249,7 @@ static DWORD RunWait(std::wstring cmd, DWORD timeoutMs) {
   return code;
 }
 
-static void Shortcut(const std::wstring& target, const std::wstring& workdir) {
-  std::wstring appdata = Env(L"APPDATA");
-  if (appdata.empty()) return;
-  std::wstring dir = appdata + L"\\Microsoft\\Windows\\Start Menu\\Programs";
-  std::wstring lnk = dir + L"\\TypingBot.lnk";
+static void ShortcutAt(const std::wstring& lnk, const std::wstring& target, const std::wstring& workdir) {
   IShellLinkW* sl = nullptr;
   if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW, (void**)&sl))) return;
   sl->SetPath(target.c_str());
@@ -265,6 +261,20 @@ static void Shortcut(const std::wstring& target, const std::wstring& workdir) {
     pf->Release();
   }
   sl->Release();
+}
+
+static void Shortcut(const std::wstring& target, const std::wstring& workdir) {
+  std::wstring appdata = Env(L"APPDATA");
+  if (appdata.empty()) return;
+  ShortcutAt(appdata + L"\\Microsoft\\Windows\\Start Menu\\Programs\\TypingBot.lnk", target, workdir);
+}
+
+// salinan lama dihapus = shortcut desktop ke salinan itu ikut mati: buat
+// shortcut desktop baru ke app terpasang
+static void DesktopShortcut(const std::wstring& target, const std::wstring& workdir) {
+  wchar_t buf[MAX_PATH];
+  if (FAILED(SHGetFolderPathW(nullptr, CSIDL_DESKTOPDIRECTORY, nullptr, 0, buf))) return;
+  ShortcutAt(std::wstring(buf) + L"\\TypingBot.lnk", target, workdir);
 }
 
 static std::wstring Lower(std::wstring s) {
@@ -281,17 +291,17 @@ static bool EndsWith(const std::wstring& s, const std::wstring& suf) {
 // update_pending.json. App kini terpasang di LOCALAPPDATA, jadi salinan2
 // itu tidak dipakai lagi. File ini sendiri tidak disentuh; yang sedang
 // jalan (terkunci) dilewati diam-diam.
-static void CleanDups(const std::wstring& self) {
+static int CleanDups(const std::wstring& self) {
   size_t slash = self.find_last_of(L"\\/");
-  if (slash == std::wstring::npos) return;
+  if (slash == std::wstring::npos) return 0;
   std::wstring dir = self.substr(0, slash);
   std::wstring selfLow = Lower(self);
   // jangan pernah bersih2 di folder app terpasang
   std::wstring local = Lower(Env(L"LOCALAPPDATA") + L"\\TypingBot");
-  if (Lower(dir).rfind(local, 0) == 0) return;
+  if (Lower(dir).rfind(local, 0) == 0) return 0;
   WIN32_FIND_DATAW fd;
   HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
-  if (h == INVALID_HANDLE_VALUE) return;
+  if (h == INVALID_HANDLE_VALUE) return 0;
   int n = 0;
   do {
     if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
@@ -306,6 +316,7 @@ static void CleanDups(const std::wstring& self) {
   } while (FindNextFileW(h, &fd));
   FindClose(h);
   if (n) Log(L"sisa lama dihapus: " + std::to_wstring(n));
+  return n;
 }
 
 static bool Launch(const std::wstring& exe, const std::wstring& dir) {
@@ -437,15 +448,17 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     CoUninitialize();
   }
 
-  if (!Env(L"TB_SETUP_NO_LAUNCH").empty()) {
-    CleanDups(self);
-    return 0;
-  }
-  if (!Launch(appExe, app)) {
+  bool noLaunch = !Env(L"TB_SETUP_NO_LAUNCH").empty();
+  if (!noLaunch && !Launch(appExe, app)) {
     Fail(L"TypingBot terpasang tapi gagal dibuka.");
     return 1;
   }
-  CleanDups(self);
+  if (CleanDups(self) > 0 && !noLaunch) {
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    DesktopShortcut(appExe, app);
+    CoUninitialize();
+  }
+  if (noLaunch) return 0;
   ReleaseMutex(mutex);
   return 0;
 }
