@@ -12,6 +12,9 @@ class MainFlutterWindow: NSWindow {
     self.setFrame(windowFrame, display: true)
     self.title = "TypingBot"
     self.minSize = NSSize(width: 900, height: 600)
+    // ukuran awal spt Windows (1280x800), di tengah layar
+    self.setContentSize(NSSize(width: 1280, height: 800))
+    self.center()
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     webHost = WebHost(messenger: flutterViewController.engine.binaryMessenger,
