@@ -8,6 +8,7 @@ import 'dart:io';
 
 import '../engine/page.dart';
 import '../web/web_host.dart';
+import 'native_backend.dart' show initScripts;
 import 'view_bridge.dart';
 
 String? macTestDir() {
@@ -37,7 +38,11 @@ Future<void> runGoogleCheck(String dir) async {
   try {
     await webHost.setRect(0, 0, 2400, 1400);
     final view = await webHost.create(
-        folder: '${dir}_profil', url: 'https://www.edclub.com/signin', visible: true);
+        folder: '${dir}_profil',
+        url: 'https://www.edclub.com/signin',
+        visible: true,
+        // skrip app asli (popup Google jadi navigasi halaman, relay OAuth)
+        scripts: initScripts);
     final page = Page(WebViewBridge(view));
     await page.attach();
     await tunggu(8);
