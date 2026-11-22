@@ -607,8 +607,12 @@ class NativeBackend implements Backend {
 
   /// rt = kuki sesi (hilang saat app tutup): pasang lagi SEBELUM navigasi.
   Future<void> _rtRestore(WebView v, String? name) async {
-    final rt = '${_sesiLoad(name)['rt'] ?? ''}';
-    if (rt.isEmpty) return;
+    final sesi = _sesiLoad(name);
+    final rt = '${sesi['rt'] ?? ''}';
+    if (rt.isEmpty) {
+      if (sesi['legacy'] != true) await _legacyImport(v, name);
+      return;
+    }
     try {
       if (await _rtNow(v) != null) return; // jar masih punya rt lebih baru
       await v.cdp('Network.setCookie', {
@@ -623,6 +627,37 @@ class NativeBackend implements Backend {
       });
       _rtSaved = rt;
     } catch (_) {}
+  }
+
+  /// N5: akun dari 3.5.x belum punya sesi v4: pasang kuki edclub lamanya
+  /// sekali (3.5.x menyimpannya di akun/akun-NAMA.json & sesi_edclub.json).
+  Future<void> _legacyImport(WebView v, String? name) async {
+    final cookies = accounts.legacyCookies(name);
+    _sesiSave(name, {'legacy': true});
+    if (cookies == null) return;
+    var n = 0;
+    for (final c in cookies) {
+      final dom = '${c['domain'] ?? ''}';
+      if (!dom.contains('edclub') && !dom.contains('typingclub')) continue;
+      final p = <String, dynamic>{
+        'name': c['name'],
+        'value': c['value'],
+        'domain': dom,
+        'path': c['path'] ?? '/',
+        if (c['secure'] == true) 'secure': true,
+        if (c['httpOnly'] == true) 'httpOnly': true,
+        if (const ['Strict', 'Lax', 'None'].contains(c['sameSite'])) 'sameSite': c['sameSite'],
+        // kuki sesi (expires -1) dipasang dgn umur 180 hari spt rt v4
+        'expires': ((c['expires'] as num?) ?? -1) > 0
+            ? c['expires']
+            : DateTime.now().millisecondsSinceEpoch / 1000 + 180 * 86400,
+      };
+      try {
+        await v.cdp('Network.setCookie', p);
+        n++;
+      } catch (_) {}
+    }
+    if (n > 0) _log('[AKUN] $n kuki login dari versi lama dipasang (${name ?? 'bawaan'}).');
   }
 
   /// rt berputar tiap refresh: simpan tiap berubah, HANYA saat pasti login
@@ -771,11 +806,11 @@ class NativeBackend implements Backend {
       case 'update.check':
         return _updateCheck();
       case 'update.download':
+        return _updateDownload();
       case 'update.install':
-        throw RpcException('later',
-            'Pasang pembaruan otomatis menyusul di versi berikutnya. '
-            'Untuk sekarang unduh manual dari halaman rilis ya.');
+        return _updateInstall();
       case 'update.cancel':
+        _dlCancel = true;
         return {};
       case 'report.send':
         return _report('${p['category'] ?? ''}', '${p['text'] ?? ''}');
@@ -1524,6 +1559,92 @@ class NativeBackend implements Backend {
 
   /// Info rilis terakhir yang ditawarkan (N6 memakainya utk unduh).
   Map<String, dynamic>? get updateInfo => _updateInfo;
+
+  bool _dlCancel = false;
+  String? _dlPath;
+
+  /// N6: unduh TypingBot.exe rilis (pembawa: exe + zip app) ke folder
+  /// update, cek sha256. Jalur: server (token) lalu GitHub langsung, sama
+  /// dgn 3.5.x. Progres lewat snapshot 'update'.
+  Future<dynamic> _updateDownload() async {
+    final info = _updateInfo;
+    if (info == null) throw RpcException('later', 'Belum ada versi baru.');
+    if (_snap['update']!['phase'] == 'downloading') return _snap['update'];
+    final ver = '${info['version'] ?? ''}';
+    final dir = Directory('$_base${Platform.pathSeparator}update');
+    try {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+      dir.createSync(recursive: true);
+    } catch (_) {}
+    final dest = '${dir.path}${Platform.pathSeparator}TypingBot-$ver.exe';
+    _dlCancel = false;
+    _dlPath = null;
+    _set('update', {'phase': 'downloading', 'progress': 0.0, 'error': ''});
+    unawaited(() async {
+      final tok = _tok ?? lic.loadToken(_licPath);
+      final size = (info['size'] as num?)?.toInt();
+      final want = '${info['sha256'] ?? ''}';
+      final jalur = [
+        if (tok != null)
+          '/api/download?t=${Uri.encodeComponent(base64Encode(utf8.encode(jsonEncode(tok))))}',
+        'https://github.com/ZafranHulaif/typingclubrobot/releases/download/v$ver/TypingBot.exe',
+      ];
+      var terakhir = 0.0;
+      for (final u in jalur) {
+        try {
+          final h = await _api.download(u, dest, timeout: const Duration(seconds: 120),
+              progress: (got, total) {
+            final t = total ?? size;
+            if (t != null && t > 0) {
+              final p = (got / t).clamp(0.0, 1.0);
+              if (p - terakhir >= 0.01) {
+                terakhir = p;
+                _set('update', {'progress': p});
+              }
+            }
+            return !_dlCancel;
+          });
+          if (want.isNotEmpty && h != want) {
+            _log('[UPDATE] hash unduhan tidak cocok (${u.startsWith('/') ? 'server' : 'GitHub'})');
+            try {
+              File(dest).deleteSync();
+            } catch (_) {}
+            continue;
+          }
+          _dlPath = dest;
+          _log('[UPDATE] versi $ver terunduh.');
+          _set('update', {'phase': 'ready', 'progress': 1.0});
+          return;
+        } on Cancelled {
+          _set('update', {'phase': 'idle', 'progress': 0.0});
+          return;
+        } catch (e) {
+          _log('[UPDATE] unduh gagal lewat ${u.startsWith('/') ? 'server' : 'GitHub'}: $e');
+        }
+      }
+      _set('update', {
+        'phase': 'idle',
+        'progress': 0.0,
+        'error': 'Unduhan gagal. Cek internet lalu coba lagi ya.',
+      });
+    }());
+    return _snap['update'];
+  }
+
+  /// Jalankan pembawa dgn --update (dia menunggu app ini tutup, memasang,
+  /// lalu membuka versi baru), lalu keluar.
+  Future<dynamic> _updateInstall() async {
+    final p = _dlPath;
+    if (p == null || !File(p).existsSync()) {
+      throw RpcException('later', 'Unduh pembaruannya dulu ya.');
+    }
+    if (busy) throw RpcException('busy', 'Stop bot dulu ya.');
+    await Process.start(p, ['--update', '--wait', '$pid'],
+        mode: ProcessStartMode.detached);
+    _log('[UPDATE] memasang versi baru, app ditutup.');
+    Timer(const Duration(milliseconds: 400), () => exit(0));
+    return {'ok': true};
+  }
 
   Future<dynamic> _report(String category, String text) async {
     final akun = '${_snap['account']!['active'] ?? ''}';

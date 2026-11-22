@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:typingbot/src/bridge/bridge.dart';
 import 'package:typingbot/src/native/accounts.dart';
@@ -61,7 +62,15 @@ void main() {
         case '/api/license/request':
           req.response.write(jsonEncode({'status': 'pending'}));
         case '/api/latest':
-          req.response.write(jsonEncode({'version': latest, 'notes': 'catatan', 'size': 99}));
+          req.response.write(jsonEncode({
+            'version': latest,
+            'notes': 'catatan',
+            'size': 5,
+            'sha256': sha256.convert(utf8.encode('BUNDL')).toString(),
+          }));
+        case '/api/download':
+          req.response.headers.contentType = ContentType.binary;
+          req.response.write('BUNDL');
         case '/api/lapor':
           req.response.write('{"ok": true}');
         default:
@@ -170,7 +179,11 @@ void main() {
     final be = await boot();
     await waitFor(() => (last['update'] as Map?)?['available'] == true);
     expect((last['update'] as Map)['version'], '4.1.0');
-    expect(() => be.request('update.download'), throwsA(isA<RpcException>()));
+    // unduh lewat server (token) -> hash cocok -> siap dipasang
+    await be.request('update.download');
+    await waitFor(() => (last['update'] as Map?)?['phase'] == 'ready');
+    expect(hits.any((h) => h.startsWith('GET /api/download?t=')), true);
+    expect(File('${tmp.path}/update/TypingBot-4.1.0.exe').readAsStringSync(), 'BUNDL');
     final r = await be.request('report.send', {'category': 'bot', 'text': 'macet'});
     expect(r, {'sent': true});
     final lapor = jsonDecode(hits.last.substring(hits.last.indexOf('{')));

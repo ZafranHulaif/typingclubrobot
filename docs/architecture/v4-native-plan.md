@@ -293,7 +293,30 @@ Owner: everything else perfect. Polish:
 - Wording: "Target bintang 5", silver is called "platinum" in the UI.
 Next: N5 (3.5.x data compatibility), then release.
 
-## Owner test checklist (Windows, build 4.0.0-dev12 from the CI artifact)
+### N5 + N6 (dev13): 3.5.x data and update path
+- Capsule shows the mode: "Rencana" (lock, plan stars) or "Bebas" (star picker; a change while
+  typing applies from the next level, toast says so).
+- N6 decision: the release asset `TypingBot.exe` is a bundle = `launcher/` (small C++ exe, static
+  CRT) + zip of the Flutter Release folder + trailer (`[zip][version][u32 verLen][u64 zipLen]TBBNDL01`).
+  Running it installs to `%LOCALAPPDATA%/TypingBot/app` (tar.exe extracts to app.new, swap,
+  version.txt, Start Menu `TypingBot.lnk` -> app/TypingBot.exe) when the payload is newer, then
+  launches the app. So the 3.5.x updater (replaces its exe with the asset and runs it), its Start
+  Menu shortcut and fresh downloads all work. VC++ runtime DLLs are copied into the bundle.
+  `--update --wait <pid>`: used by v4's own updater (waits for the app to exit).
+  CI builds `launcher/`, packs with `launcher/pack.ps1`, install-tests it into a temp
+  LOCALAPPDATA (fresh, same version = no reinstall, older version.txt = updated), uploads
+  artifact `typingbot-setup`.
+- v4 updater: `update.download` fetches the asset via the worker (`/api/download?t=` token) then
+  GitHub direct, checks sha256, `update.install` starts the bundle with `--update --wait` and exits.
+- N5: v4 already shares the 3.5.x files (license.dat, typingbot_settings.json speed, level_map,
+  posisi_level, akun/aktif.json, profil-akun). New: an account with no v4 session gets its 3.5.x
+  edclub cookies (akun/akun-NAMA.json by "nama", or sesi_edclub.json for the last active account,
+  <60 days) set once via CDP before the first navigation (`tb_sesi.json` "legacy": true).
+- Release steps (owner to confirm): set version 4.0.0, `gh release create v4.0.0 TypingBot.exe`
+  (the `typingbot-setup` artifact), then `python server/publish.py TypingBot.exe --version 4.0.0`
+  with the SAME file (worker sha256 must match the GitHub asset).
+
+## Owner test checklist (Windows, build 4.0.0-dev13 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

@@ -51,6 +51,46 @@ jobs:
         with:
           name: typingbot-ui-windows
           path: ui/build/windows/x64/runner/Release
+      # N6: satu TypingBot.exe = pembawa (launcher/) + zip folder app. Ini
+      # aset rilis: updater 3.5.x mengganti exe lama dengannya, unduhan baru
+      # cukup satu file. Diuji pasang ke LOCALAPPDATA sementara.
+      - name: Bundel TypingBot.exe
+        shell: pwsh
+        run: |
+          cmake -S launcher -B build-launcher -A x64
+          cmake --build build-launcher --config Release
+          $v = (Select-String -Path ui/lib/src/version.dart -Pattern "appVersion = '([^']+)'").Matches[0].Groups[1].Value
+          New-Item -ItemType Directory -Force dist | Out-Null
+          ./launcher/pack.ps1 -Launcher build-launcher/Release/TypingBotSetup.exe -AppDir ui/build/windows/x64/runner/Release -Version $v -Out dist/TypingBot.exe
+          # uji: pasang ke folder sementara, tanpa membuka app
+          $tmp = Join-Path $env:RUNNER_TEMP 'tb-install'
+          New-Item -ItemType Directory -Force $tmp | Out-Null
+          $env:LOCALAPPDATA = $tmp
+          $env:TB_SETUP_NO_LAUNCH = '1'
+          $env:TB_SETUP_SILENT = '1'
+          $p = Start-Process -FilePath dist/TypingBot.exe -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content "$tmp/TypingBot/setup.log" -ErrorAction SilentlyContinue; throw "pasang gagal: $($p.ExitCode)" }
+          $app = "$tmp/TypingBot/app"
+          if (-not (Test-Path "$app/TypingBot.exe")) { throw 'app/TypingBot.exe tidak ada' }
+          if (-not (Test-Path "$app/vcruntime140.dll")) { throw 'vcruntime ikut dibawa?' }
+          $iv = (Get-Content "$app/version.txt" -Raw).Trim()
+          if ($iv -ne $v) { throw "version.txt $iv != $v" }
+          # jalan kedua: sudah terpasang, tidak memasang ulang
+          $stamp = (Get-Item "$app/TypingBot.exe").LastWriteTimeUtc
+          $p = Start-Process -FilePath dist/TypingBot.exe -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw 'jalan kedua gagal' }
+          if ((Get-Item "$app/TypingBot.exe").LastWriteTimeUtc -ne $stamp) { throw 'terpasang ulang padahal versi sama' }
+          # versi terpasang lebih lama -> diperbarui
+          Set-Content "$app/version.txt" '3.9.0'
+          $p = Start-Process -FilePath dist/TypingBot.exe -ArgumentList '--update' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw 'pembaruan gagal' }
+          if ((Get-Content "$app/version.txt" -Raw).Trim() -ne $v) { throw 'version.txt tidak diperbarui' }
+          if (Test-Path "$tmp/TypingBot/app.old") { throw 'app.old tertinggal' }
+          Write-Host "bundel OK ($v)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typingbot-setup
+          path: dist/TypingBot.exe
       # Uji mandiri: jalankan app (TB_SELFTEST), app melakukan langkah UI
       # sendiri, skrip ini memotret layar tiap langkah. Hasil (png +
       # bot.log) = artifact 'selftest'. Tidak menggagalkan build.

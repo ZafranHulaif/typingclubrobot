@@ -535,6 +535,11 @@ class UpdateButton extends StatelessWidget {
                 child: Text('· $n', style: t.bodyMedium!.copyWith(color: c.onSurfaceVariant)),
               ),
             const SizedBox(height: 10),
+            if ('${u['error'] ?? ''}'.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text('${u['error']}', style: t.bodySmall!.copyWith(color: c.error)),
+              ),
             if (phase == 'downloading') ...[
               SmoothProgress(value: prog),
               const SizedBox(height: 8),

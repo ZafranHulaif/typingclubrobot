@@ -236,6 +236,43 @@ void main() {
       b2.close();
     });
 
+    test('akun dari 3.5.x: kuki lama dipasang sekali sebelum navigasi', () async {
+      Directory('${tmp.path}/akun').createSync(recursive: true);
+      File('${tmp.path}/akun/akun-budi.json').writeAsStringSync(jsonEncode({
+        'nama': 'budi',
+        'cookies': [
+          {'name': 'rt', 'value': 'LAMA-RT', 'domain': '.edclub.com', 'path': '/',
+           'expires': -1, 'httpOnly': true, 'secure': true, 'sameSite': 'None'},
+          {'name': 'x', 'value': 'y', 'domain': '.google.com', 'path': '/'},
+        ],
+      }));
+      _listen(be);
+      await be.connect();
+      await _flush();
+      fake.calls.clear();
+      fake.cdpCalls.clear();
+      fake.cdpParams.clear();
+      await be.request('acct.switch', {'name': 'budi'});
+      await _flush();
+      final set = [
+        for (var i = 0; i < fake.cdpCalls.length; i++)
+          if (fake.cdpCalls[i] == 'Network.setCookie') fake.cdpParams[i]
+      ];
+      expect(set.length, 1); // kuki google tidak ikut
+      expect(set.single, contains('LAMA-RT'));
+      final names = fake.calls.map((c) => c.method).toList();
+      expect(names.lastIndexOf('cdp') < names.lastIndexOf('navigate'), true);
+      final f = File('${AccountStore(tmp.path).folderFor('budi')}/tb_sesi.json');
+      expect(jsonDecode(f.readAsStringSync())['legacy'], true);
+      // dibuka lagi: tidak dipasang ulang
+      fake.cdpCalls.clear();
+      await be.request('acct.switch', {'name': 'sari'});
+      await _flush();
+      await be.request('acct.switch', {'name': 'budi'});
+      await _flush();
+      expect(fake.cdpCalls.where((m) => m == 'Network.setCookie'), isEmpty);
+    });
+
     test('hapus akun aktif: pindah ke akun lain, folder & nama hilang', () async {
       _listen(be);
       await be.connect();

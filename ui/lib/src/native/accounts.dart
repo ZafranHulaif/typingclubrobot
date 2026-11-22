@@ -1,7 +1,7 @@
 // Buku akun di %LOCALAPPDATA%/TypingBot, format SAMA dgn 3.5.x
 // (gui/webview2_host.py) supaya pengguna lama langsung lanjut:
 //   akun/aktif.json            {"nama": "..."}  akun aktif
-//   akun/akun-<nama>.json      {"nama": ..., ...} buku alamat (cookie lama)
+//   akun/akun-NAMA.json      {"nama": ..., ...} buku alamat (cookie lama)
 //   profil-akun/<nama aman>/   folder data WebView2 per akun (jar)
 //   wv2profile/                folder data kalau belum ada akun aktif
 //   akun/label.json            (v4) {id: nama tampil dari edclub}
@@ -33,6 +33,43 @@ class AccountStore {
   String folderFor(String? name) => name == null
       ? _j(base, 'wv2profile')
       : _j(_profilDir, safeName(name));
+
+  /// N5: kuki edclub akun ini dari 3.5.x (akun/akun-NAMA.json, cocok
+  /// lewat "nama"), atau sesi_edclub.json untuk akun yang terakhir aktif
+  /// (maks 60 hari). null = tidak ada.
+  List<Map<String, dynamic>>? legacyCookies(String? name) {
+    String norm(String x) => x.replaceAll(RegExp(r'\s+'), ' ').trim().toLowerCase();
+    List<Map<String, dynamic>>? ambil(dynamic m) {
+      final c = m is Map ? m['cookies'] : null;
+      if (c is! List || c.isEmpty) return null;
+      return [for (final x in c) if (x is Map) x.cast<String, dynamic>()];
+    }
+
+    if (name != null) {
+      try {
+        for (final f in Directory(_akunDir).listSync().whereType<File>()) {
+          final b = f.uri.pathSegments.last;
+          if (!b.startsWith('akun-') || !b.endsWith('.json')) continue;
+          try {
+            final m = jsonDecode(f.readAsStringSync());
+            if (m is Map && norm('${m['nama'] ?? ''}') == norm(name)) {
+              final c = ambil(m);
+              if (c != null) return c;
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+    final a = active();
+    if (name == null || (a != null && norm(a) == norm(name))) {
+      try {
+        final m = jsonDecode(File(_j(base, 'sesi_edclub.json')).readAsStringSync());
+        final t = (m is Map ? m['t'] as num? : null) ?? 0;
+        if (DateTime.now().millisecondsSinceEpoch / 1000 - t < 60 * 86400) return ambil(m);
+      } catch (_) {}
+    }
+    return null;
+  }
 
   String? active() {
     try {
