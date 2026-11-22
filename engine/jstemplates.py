@@ -493,6 +493,43 @@ try {
 } catch (e) { return null; }
 """
 
+GAME_STAT_JS = r"""
+// Target bintang di GAME (v4 N7b): baca core yang benar2 dinilai game
+// (window.core = typingCore game baru; Phaser lama = state.core) sebelum
+// tiap tombol. Skor game = rumus lesson biasa, tapi akurasi asli dihitung
+// dari chars[0..huruf kotor terakhir] (per_chr di end_lesson): spasi yang
+// dilompati (yeti) ikut terhitung BENAR -> dulu perkiraan meleset
+// (.564 vs .672, live 22 Nov). rvb = jumlah real_valid sebelum idx.
+// Dicocokkan live: balon 2953 & yeti 2941, perkiraan = skor edclub persis.
+try {
+    const ar = window.approuter, l = ar && ar._lesson, a = l && l.activity;
+    if (!a || typeof a.goal_wpm !== 'number') return null;
+    let c = window.core;
+    if (!c && window.Phaser && Phaser.GAMES) {
+        for (const g of Phaser.GAMES) {
+            try { const s = g.state.states[g.state.current]; if (s && s.core) c = s.core; } catch (e) {}
+        }
+    }
+    if (!c || !c.chars || !c.stats) return null;
+    const idx = c.cur_char_index, cs = c.chars;
+    let rvb = 0;
+    for (let i = 0; i < idx && i < cs.length; i++) if (cs[i].real_valid) rvb++;
+    // pn/prv = per_chr edclub saat ini (sampai huruf kotor terakhir)
+    let pn = 0, prv = 0;
+    for (let i = 0; i < cs.length; i++) if (cs[i].dirty) pn = i + 1;
+    for (let i = 0; i < pn; i++) if (cs[i].real_valid) prv++;
+    const cur = c.cur_char;
+    const s = c.stats;
+    return {app: String(a.app || ''), host: location.hostname, pn: pn, prv: prv,
+            goal: a.goal_wpm, min_wpm: a.min_wpm || 0, min_acc: a.min_accuracy || 0,
+            diff: ar.difficulty || 0, objc: !!l.objective_completion, test: !!l.is_test,
+            blok: c.on_error === 'block', started: !!c.has_started, ended: !!c.has_ended,
+            idx: idx, len: cs.length, rvb: rvb,
+            chr: cur ? String(cur.chr) : '', cur_rv: cur ? !!cur.real_valid : true,
+            v: s.valids || 0, t: s.total_chars || 0, d: s.duration || 0};
+} catch (e) { return null; }
+"""
+
 MOVE_ON_JS = r"""
 // Layar hasil baru saat bintang < 5 (v4 N7, 22 Nov): tombol utama 'Try
 // again' + 'Move on' (bukan 'Next'). Enter = Try again (lesson diulang),
@@ -802,20 +839,8 @@ const chr = c.cur_char.chr;
 if (chr === undefined || chr === null || chr === '' || chr === '<-') {
     return {fed: false, ended: false};
 }
-// target bintang (v4 N7): huruf salah yang disengaja dari Dart
-const pace = window.__tbPace;
-window.__tbPace = null;
-let salah = false;
-if (pace && pace.salah && /[a-z]/i.test(chr)) {
-    const p = 'asdfghjklqwertyuiopzxcvbnm';
-    let w = chr;
-    while (w === chr || w === String(chr).toLowerCase()) w = p[Math.floor(Math.random() * p.length)];
-    c.record_keydown_time(w);
-    salah = true;
-} else {
-    c.record_keydown_time(chr);
-}
-return {fed: true, chr: chr, idx: c.cur_char_index, ended: !!c.has_ended, salah: salah};
+c.record_keydown_time(chr);
+return {fed: true, chr: chr, idx: c.cur_char_index, ended: !!c.has_ended};
 """
 
 

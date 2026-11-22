@@ -78,6 +78,7 @@ extension BalloonLesson on Engine {
     if (res is! Map || res.isEmpty) return false;
     if (_truthy(res['ended'])) {
       if (st.balloonEndT == 0) st.balloonEndT = now;
+      await gamePaceEnd(fr);
       if (now - st.balloonSkipT > 1.2) {
         st.balloonSkipT = now;
         await runJs(canvasSkipJs, fr);
@@ -130,6 +131,21 @@ extension BalloonLesson on Engine {
       }
       return true;
     }
+    // target bintang (N7b): huruf demi huruf sesuai jadwal + salah yang
+    // disengaja. Layar mulai (spasi) juga lewat sini: rantai cepat jalur
+    // biasa bisa langsung menyambar huruf2 pertama
+    if (gamePaceMaybe) {
+      final gs = await runJs(gameStatJs, fr);
+      if (gs is Map) {
+        final pace = await gamePace(fr, gs);
+        if (pace != null) {
+          st.balloonEndT = 0;
+          return _balloonPaced(fr, pace, gs);
+        }
+      } else if (gamePaceHold()) {
+        return true;
+      }
+    }
     final chr = res['chr'] as String?;
     final idx = res['idx'];
     final kini = now;
@@ -141,17 +157,7 @@ extension BalloonLesson on Engine {
       return true; // sudah diketik, game belum konsumsi = klaim siklus
     }
     if (kini - st.balloonCoreTyped < 0.12) return true;
-    final pace = await gamePace(fr);
-    if (pace != null) await gamePaceBefore(fr, pace);
     final fed = await runJs(balloonFeedJs, fr);
-    if (pace != null) {
-      // jadwal dipakai hanya kalau huruf benar2 masuk
-      if (fed is Map && _truthy(fed['fed'])) {
-        gamePaceAfter(salahOk: _truthy(fed['salah']));
-      } else {
-        await runJs('window.__tbPace = null; return 1;', fr);
-      }
-    }
     if (fed is Map && _truthy(fed['fed'])) {
       final huruf = '${fed['huruf'] ?? ''}';
       st.hasBalloonCoreLast = true;
@@ -165,6 +171,31 @@ extension BalloonLesson on Engine {
       return true;
     }
     return false;
+  }
+
+  /// Game dengan target bintang: beri huruf sesuai jadwal selama ~2 dtk
+  /// per panggilan (jadwal tidak terganggu putaran supervisor), lalu
+  /// kembali supaya pop-up/Stop tetap tertangani.
+  Future<bool> _balloonPaced(Frame fr, GamePace pace, Map s0) async {
+    final mulai = now;
+    var s = s0;
+    var n = 0;
+    while (true) {
+      final r = await gamePaceStep(fr, pace, s);
+      if (r == 'fed') {
+        n += 1;
+        st.lastActionTime = now;
+      }
+      if (r != 'fed' || st.stop || now - mulai > 2.0) break;
+      final s2 = await runJs(gameStatJs, fr);
+      if (s2 is! Map) break;
+      s = s2;
+    }
+    if (n > 0) {
+      st.bump('phaser', n);
+      log('[Minigame/Balloon] core (bintang): $n huruf, idx->$_gameIdx');
+    }
+    return true;
   }
 
   /// Frame game balon (iframe balloon/phaserNN, game di frame utama

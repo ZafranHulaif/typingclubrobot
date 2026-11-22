@@ -157,6 +157,121 @@ class FakeTutorial {
   }
 }
 
+/// Game edclub palsu (core typing mode blokir, seperti BalloonValley /
+/// MonsterAttack): huruf salah tidak maju & tidak menurunkan akurasi,
+/// hanya menandai huruf itu bukan benar-pertama-kali. Spasi dilompati
+/// (yeti). Skor = rumus edclub dari statistik core.
+class FakeGame {
+  FakeGame(this.text,
+      {this.app = 'typing.games.BalloonValley',
+      this.goal = 10,
+      this.minWpm = 1,
+      this.endAfter,
+      this.spaceStart = false,
+      this.onError = 'block'})
+      : dirty = List.filled(text.length, false),
+        realValid = List.filled(text.length, true) {
+    while (idx < text.length && text[idx] == ' ') {
+      idx++;
+    }
+  }
+
+  final String text;
+  final String app;
+  final num goal;
+  final num minWpm;
+  final String onError;
+
+  /// yeti: huruf pertama baru ada setelah spasi (feed JS yang mengetuk)
+  bool spaceStart;
+
+  /// yeti: game tamat setelah sekian huruf benar (monster jatuh duluan)
+  final int? endAfter;
+  final List<bool> dirty;
+  final List<bool> realValid;
+  int idx = 0;
+  int valids = 0;
+  int misses = 0;
+  double duration = 0;
+  bool started = false;
+  bool ended = false;
+
+  /// jeda terpanjang antar huruf BENAR (ms) = ukuran bahaya balon jatuh
+  double maxGap = 0;
+  double _sinceValid = 0;
+
+  /// jeda terpendek antar tombol (ms)
+  double minDelay = double.infinity;
+
+  /// satu tombol dengan jeda [ms]; true = maju
+  bool key(String k, num ms) {
+    if (ended || idx >= text.length) return false;
+    started = true;
+    duration += ms;
+    if (valids + misses > 0) minDelay = min(minDelay, ms.toDouble());
+    _sinceValid += ms;
+    if (k != text[idx]) {
+      realValid[idx] = false;
+      misses++;
+      return false;
+    }
+    if (valids > 0) maxGap = max(maxGap, _sinceValid);
+    _sinceValid = 0;
+    dirty[idx] = true;
+    valids++;
+    idx++;
+    while (idx < text.length && text[idx] == ' ') {
+      idx++;
+    }
+    if (idx >= text.length || (endAfter != null && valids >= endAfter!)) {
+      ended = true;
+      if (idx >= text.length) idx = text.length - 1;
+    }
+    return true;
+  }
+
+  int get _pn => dirty.lastIndexOf(true) + 1;
+  int get _prv => realValid.take(_pn).where((x) => x).length;
+
+  /// wpm seperti edclub (dibulatkan)
+  int get wpm => duration <= 0 ? 0 : (valids / 5 / (duration / 60000) + 0.5).floor();
+  int get realAccuracy => _pn == 0 ? 100 : (100 * _prv / _pn).ceil();
+
+  /// rasio edclub (akurasi selalu 100 di mode blokir)
+  double get ratio => min(2.0, 100 * realAccuracy * min(wpm, 200) / (1e4 * max(1, goal)));
+  int get stars {
+    final r = ratio;
+    return r >= 1 ? 5 : r >= .8 ? 4 : r >= .6 ? 3 : r >= .4 ? 2 : r >= .2 ? 1 : 0;
+  }
+
+  Map<String, dynamic> stat() => {
+        'app': app,
+        'host': 'phaser.edclub.app',
+        'pn': _pn,
+        'prv': _prv,
+        'goal': goal,
+        'min_wpm': minWpm,
+        'min_acc': 80,
+        'diff': 0,
+        'objc': false,
+        'test': false,
+        'blok': onError == 'block',
+        'started': started,
+        'ended': ended,
+        'idx': idx,
+        'len': text.length,
+        'rvb': realValid.take(idx).where((x) => x).length,
+        'chr': ended || spaceStart ? '' : text[idx],
+        'cur_rv': realValid[min(idx, text.length - 1)],
+        'v': valids,
+        't': valids,
+        'd': duration,
+      };
+}
+
+final _balloonStateJs = balloonBridgeJs.replaceAll("'FEED'", '0');
+final _paceRe = RegExp(r'window\.__tbPace = \{ms: (\d+), salah: (true|false)\}');
+
 class FakeEdclub {
   FakeEdclub({this.url = 'https://www.edclub.com/student/course/3/lesson/116', this.keyCostMs = 0})
       : bridge = FakeBridge(),
@@ -221,6 +336,8 @@ class FakeEdclub {
   bool premiumSkip = false;
   /// modal 'Upgrade to Pro' tampil (X di 900,80); [proXDead] = X tak mempan
   bool proModal = false;
+  /// game core (jalur tryBalloonCore); url harus sportal ...play
+  FakeGame? game;
   /// target lesson (lessonGoalJs); null = tidak terbaca
   Map<String, dynamic>? lessonGoal;
   /// waktu (jam palsu) tiap keyDown
@@ -387,6 +504,35 @@ class FakeEdclub {
       return _val(m?[0]);
     }
     if (e.contains(lessonGoalJs)) return _val(lessonGoal);
+    final g = game;
+    if (g != null) {
+      if (e.contains(coreMainJs)) return _val(true);
+      if (e.contains(gameStatJs)) return _val(g.stat());
+      if (e.contains(balloonFeedJs)) {
+        if (g.ended) return _val({'ended': true});
+        final m = _paceRe.firstMatch(e);
+        final mulai = g.spaceStart;
+        g.spaceStart = false;
+        final cur = g.text[g.idx];
+        if (m == null) {
+          // tanpa target: rantai cepat 109 ms/huruf (setelah spasi huruf2
+          // pertama langsung tersambar)
+          for (var i = 0; i < (mulai ? 20 : 1) && !g.ended; i++) {
+            g.key(g.text[g.idx], 109);
+          }
+          return _val({'fed': true, 'idx': g.idx, 'huruf': cur});
+        }
+        final salah = m[2] == 'true' && RegExp(r'[a-zA-Z]').hasMatch(cur);
+        final k = salah ? (cur == 'x' ? 'q' : 'x') : cur;
+        g.key(k, int.parse(m[1]!));
+        return _val({'fed': true, 'idx': g.idx, 'huruf': k, 'salah': salah, 'paced': true});
+      }
+      if (e.contains(_balloonStateJs)) {
+        if (g.ended) return _val({'ended': true});
+        if (g.spaceStart) return _val({'wait': true, 'idx': -1, 'mulai': true});
+        return _val({'chr': g.text[g.idx], 'idx': g.idx, 'ended': false});
+      }
+    }
     if (e.contains(proModalJs)) {
       if (!proModal) return _val(null);
       return _val(proXDead ? {'modal': true} : {'x': 900, 'y': 80});

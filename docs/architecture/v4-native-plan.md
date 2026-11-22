@@ -381,7 +381,19 @@ Windows foreground lock: the launcher calls AllowSetForegroundWindow(app pid), k
 until the app's top-level window is visible (max 20 s), then SetForegroundWindow on it; the
 runner also calls SetForegroundWindow after ShowWindow.
 
-## Owner test checklist (Windows, build 4.0.0-dev21 from the CI artifact)
+### dev22: games follow the star target (Fable, verified live)
+Speed-only pacing was unsafe because each game's danger scales with goal_wpm (balloon sink speed
+0.3*goal, monster push-back 350/goal, TempleBash 2 s + 12/goal per letter). New approach: type at a
+safe pace `wpm = ceil(goal * max(1.25, target/0.88))` (integer, >= goal, off above 150 wpm) with real
+delays, and steer the ratio with single deliberate first-try misses (block mode: a miss does not
+advance, accuracy stays 100, only real_accuracy drops), closed-loop on the scoring core's live
+stats (GAME_STAT_JS) before every letter, aiming at the band centre. MonsterAttack ends when the
+monster is pushed off (~50-60% of text); real accuracy counts spaces it skips (explains the old
+mismatch). 15 live runs (Balloon 2953/2937/2938, Monster 2941, targets 1-5) all landed on target.
+Enabled: BalloonValley, MonsterAttack. TempleBash and FloatingBubbles stay full speed (premium
+on the test account, untested). Unverified: Dart engine end to end on Windows, goals other than 10.
+
+## Owner test checklist (Windows, build 4.0.0-dev22 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.
