@@ -474,10 +474,15 @@ extension Supervisor on Engine {
       }
     }
     if (stalled > 6 && !userSibuk && await switchToPlayableTab()) return true;
-    if (stalled > 12 &&
+    // halaman lesson tanpa iframe lesson sama sekali = edclub gagal
+    // memasang lesson (log 05:36:47: cuma judul + nama, baru pulih lewat
+    // reload 27 dtk kemudian). Kasus ini tidak perlu nunggu selama itu.
+    final tanpaFrame = diLesson(url) && allFrames().length <= 1;
+    final tunggu = tanpaFrame ? 8.0 : 25.0;
+    if (stalled > (tanpaFrame ? 8 : 12) &&
         !userSibuk &&
-        now - st.lastRecovery > 25 &&
-        now - navTime > 25) {
+        now - st.lastRecovery > tunggu &&
+        now - navTime > tunggu) {
       if (!await recoverAndRestartLesson()) st.lastRecovery = now;
     }
     if (stalled > 20 && !userSibuk) {

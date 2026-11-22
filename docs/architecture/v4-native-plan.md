@@ -402,6 +402,11 @@ the held key.
 Material Tooltip draws in the Flutter overlay, which the native webview covers (top bar tips
 appeared under the page). New `Tip` widget (common.dart) wraps the tooltip box in a WebHole.
 
+### 4.0.0: release
+Faster recovery when edclub opens a lesson page without mounting the lesson iframe (only the
+main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 recovered only at
+05:37:14). Owner approved the release after testing dev24.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
