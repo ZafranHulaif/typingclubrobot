@@ -181,7 +181,11 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<void> setFreeStars(int stars, bool silver) async {
-    await call('free.set', {'stars': stars, 'silver': silver});
+    final r = await call('free.set', {'stars': stars, 'silver': silver});
+    // sedang mengetik tanpa rencana: lesson ini tetap, ganti di level berikutnya
+    if (r != null && phase == 'running' && !planRunning) {
+      say('Target bintang baru berlaku mulai level berikutnya.');
+    }
   }
 
   Future<bool> savePlan(List<Segment> segs) async {

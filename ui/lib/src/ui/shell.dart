@@ -327,23 +327,41 @@ class _Capsule extends StatelessWidget {
 
     // bintang: rencana jalan = ikut bagian aktif (terkunci); selain itu
     // target "tanpa rencana" yang bisa diubah kapan saja
+    // label mode: rencana (bintang terkunci) atau bebas (bisa diubah)
+    Widget mode(IconData ikon, String teks) => Padding(
+          padding: const EdgeInsets.only(left: 10),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(ikon, size: 13, color: c.onSurfaceVariant),
+            const SizedBox(width: 4),
+            Text(teks, style: t.labelMedium!.copyWith(color: c.onSurfaceVariant)),
+          ]),
+        );
     final Widget bintang = s.planRunning
-        ? (seg != null
-            ? Padding(
-                padding: const EdgeInsets.only(left: 10),
-                child: StarRow(seg.stars, silver: seg.silver, size: 13))
-            : const SizedBox.shrink())
-        : Padding(
-            padding: const EdgeInsets.only(left: 4),
-            child: Tooltip(
-              message: 'Target bintang tanpa rencana',
-              child: StarPicker(
-                stars: s.freeStars,
-                silver: s.freeSilver,
-                onChanged: s.setFreeStars,
+        ? Tooltip(
+            message: 'Bintang ikut rencana',
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              mode(Icons.lock_rounded, 'Rencana'),
+              if (seg != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: StarRow(seg.stars, silver: seg.silver, size: 13),
+                ),
+            ]),
+          )
+        : Row(mainAxisSize: MainAxisSize.min, children: [
+            mode(Icons.tune_rounded, 'Bebas'),
+            Padding(
+              padding: const EdgeInsets.only(left: 2),
+              child: Tooltip(
+                message: 'Bisa diubah kapan saja, berlaku mulai level berikutnya',
+                child: StarPicker(
+                  stars: s.freeStars,
+                  silver: s.freeSilver,
+                  onChanged: s.setFreeStars,
+                ),
               ),
             ),
-          );
+          ]);
 
     return Container(
       height: 40,
