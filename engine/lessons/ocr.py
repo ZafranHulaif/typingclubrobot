@@ -176,7 +176,20 @@ return new Promise((selesai) => {
     const langkah = () => {
         if (c.has_ended || Date.now() - t0 > 3500) { berhenti(); return; }
         const cur = c.cur_char ? String(c.cur_char.chr) : '';
-        if (!cur) { berhenti(); return; }
+        if (!cur) {
+            // jatuh / nyawa hilang (live 22 Nov, balon lv 62): game minta
+            // 'Type SPACE to begin' lagi padahal sudah mulai -> ketuk spasi
+            if (c.has_started && !c.has_ended &&
+                (!window.__tbSpasiT || Date.now() - window.__tbSpasiT > 1500)) {
+                window.__tbSpasiT = Date.now();
+                document.dispatchEvent(new KeyboardEvent('keydown',
+                  {key: ' ', code: 'Space', keyCode: 32, which: 32, bubbles: true, cancelable: true}));
+                setTimeout(() => document.dispatchEvent(new KeyboardEvent('keyup',
+                  {key: ' ', code: 'Space', keyCode: 32, which: 32, bubbles: true})), 40);
+            }
+            berhenti();
+            return;
+        }
         const sebelum = c.cur_char_index;
         // target bintang (v4 N7): Dart mengatur jadwal 1 huruf per
         // panggilan, jeda = waktu nyata sejak huruf sebelumnya, dan huruf

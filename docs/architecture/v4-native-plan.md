@@ -316,7 +316,13 @@ Next: N5 (3.5.x data compatibility), then release.
   (the `typingbot-setup` artifact), then `python server/publish.py TypingBot.exe --version 4.0.0`
   with the SAME file (worker sha256 must match the GitHub asset).
 
-## Owner test checklist (Windows, build 4.0.0-dev13 from the CI artifact)
+### dev14: games back to full speed
+Owner test: balloon (lv 62, 5 gold = 14 wpm) balloons fell, hearts lost, ended 4 stars; yeti gave
+3 then 5. Timed games cannot be slowed safely -> `gamePacingOn = false` (code kept), games are
+platinum again. Balloon feed taps Space when the game asks "Type SPACE to begin" after a fall.
+Open: per-account licensing (owner idea, needs worker change + decisions).
+
+## Owner test checklist (Windows, build 4.0.0-dev14 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

@@ -82,6 +82,9 @@ StarPace? planStars(int stars,
   return StarPace(stars: stars, wpm: w, errors: e, chars: chars, dt: dt, ratio: ratio);
 }
 
+/// Pacing bintang di game (lihat gamePace). Mati: game berwaktu.
+const gamePacingOn = false;
+
 extension StarLesson on Engine {
   /// Rencana bintang untuk lesson di [frame] (null = ketik biasa).
   Future<StarPace?> starPace(Frame frame, {bool game = false}) async {
@@ -213,6 +216,11 @@ extension StarLesson on Engine {
   /// Rencana bintang untuk game di [fr] (sekali per lesson). null = game
   /// diberi makan seperti biasa (perak / tanpa target).
   Future<StarPace?> gamePace(Frame fr) async {
+    // MATI (22 Nov): game balon/yeti berwaktu - diketik pelan balon jatuh,
+    // nyawa hilang, bintang jadi acak (target 5 dapat 4 / 3). Game kembali
+    // secepatnya (platinum). Kode pacing disimpan kalau nanti ada game yang
+    // aman diperlambat.
+    if (!gamePacingOn) return null;
     final url = page.url;
     if (_gamePaceUrl == url) return _gamePace;
     _gamePaceUrl = url;
