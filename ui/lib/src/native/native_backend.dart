@@ -85,7 +85,7 @@ class NativeBackend implements Backend {
     _bootPlan = _planFor(this.accounts.active() ?? '');
     final wpm = ((_settings['speed'] as num?) ?? 400).toInt().clamp(40, 400);
     _snap = {
-      'app': {'version': version, 'platform': 'windows', 'mode': 'native'},
+      'app': {'version': version, 'platform': Platform.isMacOS ? 'macos' : 'windows', 'mode': 'native'},
       'bot': {'phase': 'idle', 'needs_login': false},
       'level': <String, dynamic>{},
       'range': <String, dynamic>{},
@@ -1641,8 +1641,9 @@ class NativeBackend implements Backend {
 
   Future<dynamic> _updateCheck() async {
     // rilis di server = TypingBot.exe Windows; versi Mac belum punya jalur
-    // pembaruan otomatis (unduh manual dari GitHub)
-    if (Platform.isMacOS) {
+    // pembaruan otomatis (unduh manual dari GitHub). Tes (api disuntik)
+    // tetap memakai jalur biasa.
+    if (Platform.isMacOS && _apiOverride == null) {
       _set('update', {'available': false});
       return _snap['update'];
     }
