@@ -1,0 +1,98 @@
+name: mac
+
+# Versi macOS (cabang mac): build app WKWebView + uji mandiri di Mac asli
+# GitHub. Uji = halaman lokal dgn iframe LINTAS ORIGIN (ui/tool/mactest),
+# cek ketikan & klik sampai sebagai input asli (isTrusted), kuki, reload.
+# Tanpa akun edclub (kredensial tidak ditaruh di CI).
+on:
+  push:
+    branches: [mac]
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Analyze
+        working-directory: ui
+        run: |
+          flutter pub get
+          flutter analyze
+      - name: Tes
+        working-directory: ui
+        run: flutter test
+      - name: Build macos
+        working-directory: ui
+        run: flutter build macos --release
+      - name: Uji mandiri (webview + peniru CDP)
+        run: |
+          set -x
+          cd ui/tool/mactest
+          python3 -m http.server 8701 --bind 127.0.0.1 >/tmp/srv1.log 2>&1 &
+          python3 -m http.server 8702 --bind 127.0.0.1 >/tmp/srv2.log 2>&1 &
+          cd -
+          sleep 2
+          curl -sf http://127.0.0.1:8701/main.html >/dev/null
+          curl -sf http://localhost:8702/frame.html >/dev/null
+          APP=$(ls -d ui/build/macos/Build/Products/Release/*.app | head -1)
+          echo "app: $APP"
+          OUT=$PWD/mactest-out
+          mkdir -p "$OUT"
+          TB_MACTEST="$OUT" TB_MACTEST_URL=http://127.0.0.1:8701/main.html \
+            "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
+          PID=$!
+          for i in $(seq 1 90); do
+            [ -f "$OUT/selesai" ] && break
+            [ $i -eq 20 ] && screencapture -x "$OUT/layar-20s.png" || true
+            sleep 1
+          done
+          screencapture -x "$OUT/layar-akhir.png" || true
+          kill $PID || true
+          cat "$OUT/result.json" || echo "TIDAK ADA result.json"
+          cat "$OUT/log.txt" || true
+          tail -50 "$OUT/stdout.txt" || true
+      - name: Periksa hasil
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          r = json.load(open('mactest-out/result.json'))
+          gagal = []
+          def cek(nama, ok):
+              print(('OK   ' if ok else 'GAGAL'), nama)
+              if not ok: gagal.append(nama)
+          cek('tanpa error', 'error' not in r)
+          cek('iframe lintas origin terlihat', r.get('iframe_found') is True)
+          cek('eval di iframe', r.get('eval_iframe') == 'http://localhost:8702')
+          t = r.get('iframe_typing') or {}
+          keys = t.get('keys') or []
+          cek('teks terketik di iframe', t.get('text') == 'Hello Worl')
+          cek('semua tombol isTrusted', bool(keys) and all(k.get('trusted') for k in keys))
+          cek('Shift terbaca di huruf besar', any(k.get('k') == 'H' and k.get('shift') for k in keys))
+          m = (r.get('main_after_click') or {}).get('clicks') or []
+          cek('klik utama isTrusted', bool(m) and all(c.get('trusted') for c in m))
+          f = r.get('iframe_after_click') or []
+          cek('klik di iframe isTrusted', bool(f) and all(c.get('trusted') for c in f))
+          cek('kuki tersimpan', r.get('cookie') == ['ok123'])
+          cek('frame ada lagi sesudah reload', any('frame.html' in u for u in r.get('after_reload_frames') or []))
+          sys.exit(1 if gagal else 0)
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mactest-out
+          path: mactest-out
+      - name: Kemas app (zip)
+        if: always()
+        run: |
+          cd ui/build/macos/Build/Products/Release
+          ditto -c -k --keepParent TypingBot.app ../../../../../../TypingBot-mac.zip
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: typingbot-mac
+          path: TypingBot-mac.zip

@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>tb mactest</title>
+<style>body{font:16px sans-serif;margin:20px} iframe{width:700px;height:260px;border:2px solid #888;margin-top:40px}</style>
+</head><body>
+<h3>TypingBot mac self-test (utama)</h3>
+<button id="btn" style="width:160px;height:50px">klik saya</button>
+<input id="inp" style="width:300px;height:30px">
+<div id="log"></div>
+<iframe id="fr" src="http://localhost:8702/frame.html"></iframe>
+<script>
+window.hasil = {clicks: [], keys: []};
+document.getElementById('btn').addEventListener('click', (e) => hasil.clicks.push({trusted: e.isTrusted, x: e.clientX, y: e.clientY}));
+document.getElementById('inp').addEventListener('keydown', (e) => hasil.keys.push({k: e.key, code: e.code, trusted: e.isTrusted}));
+</script>
+</body></html>

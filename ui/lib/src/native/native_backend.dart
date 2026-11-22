@@ -1640,6 +1640,12 @@ class NativeBackend implements Backend {
   }
 
   Future<dynamic> _updateCheck() async {
+    // rilis di server = TypingBot.exe Windows; versi Mac belum punya jalur
+    // pembaruan otomatis (unduh manual dari GitHub)
+    if (Platform.isMacOS) {
+      _set('update', {'available': false});
+      return _snap['update'];
+    }
     final info = await checkUpdate(_api, _version);
     if (info == null) {
       _set('update', {'available': false});

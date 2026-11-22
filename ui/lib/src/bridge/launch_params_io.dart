@@ -8,6 +8,6 @@ LaunchParams read() {
   return LaunchParams(
     Uri.parse('ws://127.0.0.1:$port/'),
     env['TYPINGBOT_IPC_TOKEN'] ?? '',
-    embedded: Platform.isWindows,
+    embedded: Platform.isWindows || Platform.isMacOS,
   );
 }

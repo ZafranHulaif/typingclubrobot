@@ -86,6 +86,20 @@ int? _windowsVolume() {
 /// Kode mesin perangkat ini ("XXXXX-XXXXX").
 String machineCode() {
   final host = Platform.environment['COMPUTERNAME'] ?? Platform.localHostname;
+  if (Platform.isMacOS) {
+    // nama host Mac bisa berubah ikut jaringan: pakai UUID perangkat
+    return machineCodeFrom(machineDataFrom(host: _macUuid() ?? host));
+  }
   if (!Platform.isWindows) return machineCodeFrom(machineDataFrom(host: host));
   return machineCodeFrom(machineDataFrom(node: _windowsNode(), host: host, vol: _windowsVolume()));
+}
+
+String? _macUuid() {
+  try {
+    final r = Process.runSync('/usr/sbin/ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice']);
+    final m = RegExp(r'"IOPlatformUUID"\s*=\s*"([^"]+)"').firstMatch('${r.stdout}');
+    return m?.group(1);
+  } catch (_) {
+    return null;
+  }
 }

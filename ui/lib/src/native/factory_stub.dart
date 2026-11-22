@@ -5,3 +5,5 @@ Backend createNativeBackend(String version) =>
     throw UnsupportedError('backend native hanya di Windows');
 
 void maybeSelfTest(AppStore s) {}
+
+bool maybeMacSelfTest() => false;

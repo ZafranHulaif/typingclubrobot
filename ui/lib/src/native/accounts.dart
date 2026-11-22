@@ -16,6 +16,11 @@ class AccountStore {
   final String base;
 
   static String defaultBase() {
+    if (Platform.isMacOS) {
+      // macOS: ~/Library/Application Support/TypingBot
+      final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
+      return _j(_j(_j(home, 'Library'), 'Application Support'), 'TypingBot');
+    }
     final la = Platform.environment['LOCALAPPDATA'];
     return _j(la ?? Directory.systemTemp.path, 'TypingBot');
   }

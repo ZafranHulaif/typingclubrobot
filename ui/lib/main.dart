@@ -11,6 +11,11 @@ import 'src/version.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // CI macOS: uji webview + peniru CDP saja (tanpa app biasa)
+  if (maybeMacSelfTest()) {
+    runApp(const ColoredBox(color: Color(0xFF101114)));
+    return;
+  }
   final lp = LaunchParams.read();
   // Windows: semua di dalam proses. Preview (web/Linux): sidecar mock.
   final Backend backend = lp.embedded

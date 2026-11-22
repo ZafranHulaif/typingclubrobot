@@ -6,7 +6,10 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+
+import 'wk_cdp.dart';
 
 class WebHostException implements Exception {
   WebHostException(this.code, this.message);
@@ -37,7 +40,14 @@ class WebHost {
 
   final MethodChannel _ch;
   final _events = StreamController<WebEvent>.broadcast();
+
+  /// macOS (WKWebView, tanpa CDP): CDP ditiru di Dart (wk_cdp.dart).
+  /// Bisa dipaksa di tes.
+  static bool? emulateCdpOverride;
+  bool get emulateCdp =>
+      emulateCdpOverride ?? (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS);
   int _seq = 0;
+  final _views = <int, WebView>{};
 
   Stream<WebEvent> get events => _events.stream;
 
@@ -50,7 +60,10 @@ class WebHost {
   Future<dynamic> _onCall(MethodCall call) async {
     if (call.method != 'event') return null;
     final m = (call.arguments as Map).cast<String, dynamic>();
-    _events.add(WebEvent((m['id'] as num).toInt(), '${m['type']}', m));
+    final e = WebEvent((m['id'] as num).toInt(), '${m['type']}', m);
+    // peniru CDP (macOS) membaca laporan frame/nav lebih dulu
+    _views[e.id]?._wk?.onHostEvent(e.type, m);
+    _events.add(e);
     return null;
   }
 
@@ -94,13 +107,27 @@ class WebHost {
       'scripts': scripts,
       'visible': visible,
     });
-    return WebView._(this, id, folder);
+    final v = WebView._(this, id, folder);
+    _views[id] = v;
+    return v;
   }
 }
 
 class WebView {
-  WebView._(this.host, this.id, this.folder);
+  WebView._(this.host, this.id, this.folder) {
+    if (host.emulateCdp) {
+      _wk = WkCdp(_WkAdapter(this), (method, params) {
+        host._events.add(WebEvent(id, 'cdp', {
+          'id': id,
+          'type': 'cdp',
+          'event': method,
+          'params': jsonEncode(params),
+        }));
+      });
+    }
+  }
   final WebHost host;
+  WkCdp? _wk;
   final int id;
   final String folder;
   bool _disposed = false;
@@ -144,6 +171,8 @@ class WebView {
   /// halaman utama.
   Future<Map<String, dynamic>> cdp(String method,
       [Map<String, dynamic>? params, String session = '']) async {
+    final wk = _wk;
+    if (wk != null) return wk.send(method, params ?? const {});
     final r = await _call<String>('cdp', {
       'method': method,
       'params': jsonEncode(params ?? const {}),
@@ -176,7 +205,7 @@ class WebView {
           ));
         });
         final n = _cdpListeners[event] = (_cdpListeners[event] ?? 0) + 1;
-        if (n == 1) {
+        if (n == 1 && _wk == null) {
           _call('cdpSubscribe', {'event': event}).catchError((Object e) {
             c.addError(e);
           });
@@ -190,7 +219,7 @@ class WebView {
           return;
         }
         _cdpListeners.remove(event);
-        if (!_disposed) {
+        if (!_disposed && _wk == null) {
           await _call('cdpUnsubscribe', {'event': event})
               .catchError((_) => null);
         }
@@ -202,9 +231,24 @@ class WebView {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    host._views.remove(id);
     await host._call('dispose', {'id': id});
   }
 }
 
-/// Host tunggal app (dibuat saat pertama dipakai; hanya Windows).
+class _WkAdapter implements WkHost {
+  _WkAdapter(this.view);
+  final WebView view;
+  @override
+  Future<dynamic> call(String method, Map<String, Object?> args) async {
+    try {
+      return await view._call<dynamic>(method, args);
+    } on WebHostException catch (e) {
+      if (e.code == 'js') throw WkJsError(e.message);
+      rethrow;
+    }
+  }
+}
+
+/// Host tunggal app (dibuat saat pertama dipakai; Windows & macOS).
 final webHost = WebHost();
