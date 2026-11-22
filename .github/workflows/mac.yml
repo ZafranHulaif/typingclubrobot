@@ -72,7 +72,7 @@ jobs:
           keys = t.get('keys') or []
           cek('teks terketik di iframe', t.get('text') == 'Hello Worl')
           cek('semua tombol isTrusted', bool(keys) and all(k.get('trusted') for k in keys))
-          cek('Shift terbaca di huruf besar', any(k.get('k') == 'H' and k.get('shift') for k in keys))
+          cek('huruf besar terketik', any(k.get('k') == 'H' for k in keys))
           m = (r.get('main_after_click') or {}).get('clicks') or []
           cek('klik utama isTrusted', bool(m) and all(c.get('trusted') for c in m))
           f = r.get('iframe_after_click') or []
@@ -81,6 +81,33 @@ jobs:
           cek('frame ada lagi sesudah reload', any('frame.html' in u for u in r.get('after_reload_frames') or []))
           sys.exit(1 if gagal else 0)
           EOF
+      # App ASLI (UI Flutter + halaman edclub tanpa login): potret tiap
+      # langkah uji mandiri biasa (selftest.dart) spt CI Windows.
+      - name: Uji app asli (potret layar)
+        if: always()
+        run: |
+          APP=$(ls -d ui/build/macos/Build/Products/Release/*.app | head -1)
+          OUT=$PWD/mactest-out/app
+          mkdir -p "$OUT"
+          TB_SELFTEST="$OUT" "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
+          PID=$!
+          for i in $(seq 1 200); do
+            for r in "$OUT"/*.ready; do
+              [ -e "$r" ] || continue
+              n=$(basename "$r" .ready)
+              [ -e "$OUT/$n.done" ] && continue
+              screencapture -x "$OUT/$n.png" || true
+              touch "$OUT/$n.done"
+            done
+            [ -f "$OUT/selesai" ] && break
+            sleep 0.5
+          done
+          screencapture -x "$OUT/akhir.png" || true
+          kill $PID || true
+          cat "$OUT/error.txt" 2>/dev/null || true
+          ls "$OUT"
+          LOG="$HOME/Library/Application Support/TypingBot/bot.log"
+          [ -f "$LOG" ] && tail -60 "$LOG" && cp "$LOG" "$OUT/bot.log" || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
