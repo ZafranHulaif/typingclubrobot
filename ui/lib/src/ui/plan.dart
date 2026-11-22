@@ -35,7 +35,7 @@ class _PlanPanelState extends State<PlanPanel> {
       _edit = null;
       _draft = Segment(mulai, (mulai + 9).clamp(mulai, AppStore.lastLevel),
           segs.isEmpty ? 5 : segs.last.stars,
-          silver: segs.isNotEmpty && segs.last.silver);
+          silver: segs.isEmpty || segs.last.silver);
     });
   }
 

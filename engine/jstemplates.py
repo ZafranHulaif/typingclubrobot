@@ -469,6 +469,24 @@ for (const [, card] of kartu) {
 return {modal: true};
 """
 
+LESSON_GOAL_JS = r"""
+// Target lesson classic typing (v4 N7, bintang): approuter._lesson.activity
+// berisi goal_wpm/min_wpm/min_accuracy (terverifikasi live 22 Nov). Rumus
+// bintang edclub: rasio = akurasi * akurasi_asli * wpm / (1e4 * goal);
+// 5 >= 1, 4 >= .8, 3 >= .6, 2 >= .4, 1 >= .2; < min_wpm / min_accuracy = 0.
+try {
+    const ar = window.approuter, l = ar && ar._lesson, a = l && l.activity;
+    if (!a || typeof a.goal_wpm !== 'number') return null;
+    const c = window.core;
+    return {goal: a.goal_wpm, min_wpm: a.min_wpm || 0, min_acc: a.min_accuracy || 0,
+            on_error: a.on_error || 'continue', objc: !!l.objective_completion,
+            test: !!l.is_test, diff: ar.difficulty || 0,
+            n: c && c.text ? c.text.length : 0,
+            pos: c ? c.cur_char_index : -1,
+            total: c && c.stats ? c.stats.total_chars : 0};
+} catch (e) { return null; }
+"""
+
 PREMIUM_MODAL_JS = r"""
 // Modal premium: return {x,y} = titik tombol X (edmodal-x) untuk klik
 // mouse asli, atau {zombie:true} kalau modal fullscreen Tanpa X (iframe

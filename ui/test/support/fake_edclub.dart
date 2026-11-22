@@ -171,6 +171,7 @@ class FakeEdclub {
     b.handlers['Input.dispatchKeyEvent'] = (p, s) {
       if (keyCostMs > 0) clock.advance(keyCostMs / 1000);
       keyEvents.add(p);
+      if (p['type'] == 'keyDown') keyTimes.add(clock.now);
       if (p['type'] == 'keyDown' || p['type'] == 'rawKeyDown') _onKey(p);
       return {};
     };
@@ -220,6 +221,10 @@ class FakeEdclub {
   bool premiumSkip = false;
   /// modal 'Upgrade to Pro' tampil (X di 900,80); [proXDead] = X tak mempan
   bool proModal = false;
+  /// target lesson (lessonGoalJs); null = tidak terbaca
+  Map<String, dynamic>? lessonGoal;
+  /// waktu (jam palsu) tiap keyDown
+  final keyTimes = <double>[];
   bool proXDead = false;
   bool scoreShown = false;
 
@@ -381,6 +386,7 @@ class FakeEdclub {
       final m = RegExp(r'\d+').firstMatch(l?.label ?? '');
       return _val(m?[0]);
     }
+    if (e.contains(lessonGoalJs)) return _val(lessonGoal);
     if (e.contains(proModalJs)) {
       if (!proModal) return _val(null);
       return _val(proXDead ? {'modal': true} : {'x': 900, 'y': 80});

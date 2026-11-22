@@ -250,7 +250,24 @@ finds the modal in every edclub frame and returns the X point. The supervisor ch
 top of every loop and never types while it shows. Clicks X (real mouse, frame offset) up to 3x;
 Skip is only the fallback. Waits max 8 s when there is no X and no Skip, and only runs on lesson URLs.
 
-## Owner test checklist (Windows, build 4.0.0-dev9 from the CI artifact)
+### Seventh owner test (dev9) -> dev10: N7 star targets
+Owner: dev9 works (premium X fix confirmed: level 24 unlocked). N7 built from edclub's own code
+(coreclassictyping bundle), verified live on the test account:
+- ratio = accuracy% * real_accuracy% * net_wpm / (1e4 * max(1, goal_wpm + difficulty));
+  stars: >=1 -> 5, >=.8 -> 4, >=.6 -> 3, >=.4 -> 2, >=.2 -> 1; below min_wpm or min_accuracy = 0;
+  perfect (perak/silver) = ratio >= 2 with 100% accuracy. net wpm counts only correct chars.
+- goals come from `approuter._lesson.activity` inside the classic-typing frame (LESSON_GOAL_JS).
+- Live: target .9 -> score 450/1000 = 4 stars; target 1.4 at 85% acc -> 694/1000 = 5 gold.
+- Engine: `planStars()` aims at the middle of the band, uses the lowest safe accuracy
+  (min_accuracy + 5, at least 85%) so the speed for that star is as high as possible, keeps
+  wpm >= 1.2 * min_wpm. `typePaced()` types on a wall-clock schedule with random wrong letters
+  (on_error 'continue' only), checks the page every 6 keys, and falls back to normal typing on stall.
+  Completion lessons, tests and hold-key lessons ignore the target. Silver = full speed as before.
+- Owner rejected nothing; asked about faking the result/time: declined (server sees its own
+  timing; keystroke history is sent with the result), real typing at the needed speed instead.
+- Defaults: free mode and the first new plan segment default to silver (old behaviour).
+
+## Owner test checklist (Windows, build 4.0.0-dev10 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

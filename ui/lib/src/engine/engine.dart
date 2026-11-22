@@ -9,7 +9,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show File, Platform;
-import 'dart:math' show Random, max, min;
+import 'dart:math' show Random, max, min, sqrt;
 import 'dart:typed_data';
 
 import 'clock.dart';
@@ -38,6 +38,7 @@ part 'lessons/holdkey.dart';
 part 'lessons/screenkey.dart';
 part 'lessons/intro.dart';
 part 'lessons/balloon.dart';
+part 'lessons/stars.dart';
 
 const listUrl = 'https://www.edclub.com/sportal/program-3.game';
 const courseUrl = 'https://www.edclub.com/student/course/3';
@@ -73,6 +74,10 @@ class Engine {
   /// Jawaban dialog 'level masih terkunci' dari UI: 'mulai' / 'stop'
   /// (null = tak dijawab -> lanjut dari level terdepan, sama dgn 3.5.x).
   Future<String?> Function(int start, int fallback)? askLocked;
+
+  /// Target bintang level sekarang (N7): 1-5 = atur kecepatan/akurasi,
+  /// 0/null = perak (ketik secepatnya tanpa salah, perilaku lama).
+  int Function()? starTarget;
 
   bool _running = false;
   bool get running => _running;

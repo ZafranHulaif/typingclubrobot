@@ -100,7 +100,8 @@ class NativeBackend implements Backend {
       // target bintang utk Mulai tanpa rencana
       'free': {
         'stars': ((((_settings['free'] as Map?) ?? const {})['stars'] as num?) ?? 5).toInt().clamp(1, 5),
-        'silver': ((_settings['free'] as Map?) ?? const {})['silver'] == true,
+        // default perak (= ketik secepatnya, perilaku sebelum N7)
+        'silver': (((_settings['free'] as Map?) ?? const {})['silver'] ?? true) == true,
       },
     };
     _snap['plan']!['segments'] = _bootPlan;
@@ -1087,6 +1088,7 @@ class NativeBackend implements Backend {
       ..rangeJumpDone = mulai <= 1
       ..rangeReady = true;
     eng.askLocked = _askLocked;
+    eng.starTarget = () => _starTargetFor(eng);
     if (mulai > 1 || akhir > 0) {
       _log('Rentang level aktif: $mulai - ${akhir == 0 ? 'akhir kursus' : akhir}.');
     }
@@ -1148,6 +1150,27 @@ class NativeBackend implements Backend {
 
   /// Tunggu sampai loop bot benar2 selesai (tes / tutup app).
   Future<void> get stopped => _run ?? Future.value();
+
+  /// Target bintang level sekarang: 1-5, atau 0 = perak (secepatnya).
+  int _starTargetFor(Engine e) {
+    Map? sg;
+    if (_mode == 'plan') {
+      final lvl = _levelNow(e);
+      for (final s in _segments) {
+        final to = s['to'] as int;
+        if (lvl >= (s['from'] as int) && (to == 0 || lvl <= to)) {
+          sg = s;
+          break;
+        }
+      }
+      if (sg == null) return 0;
+    } else {
+      sg = _snap['free'];
+    }
+    if (sg == null || sg['silver'] == true) return 0;
+    final n = ((sg['stars'] as num?) ?? 5).toInt();
+    return n.clamp(1, 5);
+  }
 
   int _levelNow(Engine e) {
     final lbl = e.st.statusLabel;
@@ -1219,7 +1242,6 @@ class NativeBackend implements Backend {
       'done_in_active': seg == null ? 0 : (lvl - (seg['from'] as int)).clamp(0, 1 << 30),
       'lock_until': lvl + lockDistance,
     });
-    // TODO(N7): target bintang per bagian -> atur kecepatan/akurasi
   }
 
   void _askTick(Engine e) {

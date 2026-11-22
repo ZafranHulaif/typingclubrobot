@@ -93,6 +93,18 @@ extension StandardLesson on Engine {
               '- lanjut, akurasi lesson ini bisa < 100%');
         }
       }
+      // target bintang (N7): ketik secepat yang dibutuhkan bintangnya
+      final pace = holdKey == null ? await starPace(frame) : null;
+      if (pace != null) {
+        final hasil = await typePaced(frame, rem, pace);
+        typedAny = true;
+        if (hasil == 'stall') {
+          log('[Bintang] ketikan tidak masuk - sisa lesson diketik biasa');
+          rem = await readRemaining(frame) ?? '';
+        } else {
+          rem = '';
+        }
+      }
       var stall = 0;
       var verified = 0;
       var bsOk = true;
