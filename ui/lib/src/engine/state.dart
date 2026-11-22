@@ -79,6 +79,8 @@ class EngineState {
   int proXTries = 0;
   /// wpm bersih yang sedang dipakai target bintang (0 = tidak diatur)
   double paceWpm = 0;
+  /// [Video] hiasan terakhir yang dilaporkan (log sekali saja).
+  String videoIgnored = '';
   double proWaitSince = 0;
 
   // ---- pop-up

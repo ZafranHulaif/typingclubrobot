@@ -6,6 +6,17 @@ extension VideoLesson on Engine {
     for (final fr in await edclubFrames()) {
       final info = await runJs(videoStateJs, fr);
       if (info is! Map || info.isEmpty) continue;
+      if (!_truthy(info['splash'])) {
+        final hiasan = await runJs(videoHiasanJs, fr);
+        if (hiasan is String) {
+          final k = '${frameLabel(fr)} $hiasan';
+          if (st.videoIgnored != k) {
+            st.videoIgnored = k;
+            log('[Video] ${frameLabel(fr)}: video hiasan diabaikan ($hiasan)');
+          }
+          continue;
+        }
+      }
       if (_truthy(info['splash'])) {
         // pemain belum mount: klik splash play besar dulu
         try {
