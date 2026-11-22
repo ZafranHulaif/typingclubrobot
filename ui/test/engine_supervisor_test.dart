@@ -133,11 +133,23 @@ void main() {
     expect(logs.any((l) => l.contains('dibajak Stripe')), isTrue);
   });
 
-  test('modal premium baru ditutup kapan pun', () async {
-    final (fake, eng, logs) = await _setup(lesson: null);
+  test("modal 'Upgrade to Pro': X diklik dulu, tidak mengetik menembus modal", () async {
+    final (fake, eng, logs) = await _setup(lesson: FakeLesson('abc def'));
+    fake.proModal = true;
+    await _runUntil(fake, eng, () => !fake.proModal, budget: 5000);
+    expect(logs.any((l) => l.contains("tombol X diklik")), isTrue);
+    expect(logs.any((l) => l.contains('Skip this lesson')), isFalse);
+    expect(fake.typed, isEmpty);
+  });
+
+  test("modal 'Upgrade to Pro' tanpa X: Skip jadi cadangan", () async {
+    final (fake, eng, logs) = await _setup(lesson: FakeLesson('abc def'));
+    fake.proModal = true;
+    fake.proXDead = true;
     fake.premiumSkip = true;
-    await _runUntil(fake, eng, () => logs.any((l) => l.contains('kapan pun')), budget: 5000);
-    expect(logs.any((l) => l.contains("'Skip this lesson' (kapan pun)")), isTrue);
+    await _runUntil(fake, eng, () => !fake.proModal, budget: 5000);
+    expect(logs.any((l) => l.contains("'Skip this lesson' diklik")), isTrue);
+    expect(fake.typed, isEmpty);
   });
 
   test('payload yang dikirim = JS verbatim dari python', () async {

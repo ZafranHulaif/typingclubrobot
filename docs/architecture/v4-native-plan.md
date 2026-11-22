@@ -242,7 +242,15 @@ Owner: start/stop no longer janky; levels continue fast. Engine speed fixes (Fab
 - App: menu close only refocuses/hands over while really typing (not while Dijeda); cover uses
   the account name; plan panel explanation text removed.
 
-## Owner test checklist (Windows, build 4.0.0-dev8 from the CI artifact)
+### Sixth owner test (dev8) -> dev9
+Owner: everything works except premium levels. Level 23 (balloon minigame) shows the
+"Upgrade to Pro to unlock lesson" modal; the bot fed the game through it for ~5 s, then clicked
+"Skip this lesson", so level 24 stayed locked (owner: X = next level unlocked). New PRO_MODAL_JS
+finds the modal in every edclub frame and returns the X point. The supervisor checks it at the
+top of every loop and never types while it shows. Clicks X (real mouse, frame offset) up to 3x;
+Skip is only the fallback. Waits max 8 s when there is no X and no Skip, and only runs on lesson URLs.
+
+## Owner test checklist (Windows, build 4.0.0-dev9 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

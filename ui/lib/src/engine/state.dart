@@ -75,6 +75,9 @@ class EngineState {
   double unlockCk = 0;
   double popupT = 0;
   double premSkipT = 0;
+  // modal 'Upgrade to Pro': berapa kali X sudah diklik (reset saat modal hilang)
+  int proXTries = 0;
+  double proWaitSince = 0;
 
   // ---- pop-up
   String repeatLabel = '';

@@ -142,8 +142,7 @@ extension JsUtil on Engine {
         }
       }
     } catch (_) {}
-    if (_truthy(await runJs(premiumSkipJs, page.mainFrame))) {
-      log("[Pop-up] modal premium baru - 'Skip this lesson' diklik");
+    if (await proModalAction() != null) {
       st.lastActionTime = now;
       total += 1;
     }
@@ -215,6 +214,59 @@ extension JsUtil on Engine {
       }
     }
     return total;
+  }
+
+  /// Modal 'Upgrade to Pro to unlock lesson' (level premium). Klik X
+  /// dulu (kata owner: X = level berikutnya ikut terbuka); 'Skip this
+  /// lesson' cuma cadangan kalau X gagal 3x. Selama modal tampil return
+  /// bukan-null -> pemanggil TIDAK mengetik (game di belakang tetap hidup,
+  /// dulu bot memainkan level 23 menembus modal).
+  Future<String?> proModalAction() async {
+    if (!diLesson(st.statusUrl.isNotEmpty ? st.statusUrl : page.url)) {
+      st.proXTries = 0;
+      st.proWaitSince = 0;
+      return null;
+    }
+    for (final fr in await edclubFrames()) {
+      final r = await runJs(proModalJs, fr);
+      if (r is! Map) continue;
+      if (r['x'] != null && st.proXTries < 3) {
+        st.proXTries += 1;
+        try {
+          final off = await page.frameOffset(fr);
+          await markBotClick();
+          await page.mouse.click(
+              (r['x'] as num) + off.x, (r['y'] as num) + off.y);
+          log("[Premium] modal 'Upgrade to Pro' - tombol X diklik "
+              '(coba ${st.proXTries})');
+          st.bump('popup');
+          return 'x';
+        } catch (_) {}
+      }
+      if (_truthy(r['js']) && st.proXTries < 3) {
+        st.proXTries += 1;
+        log("[Premium] modal 'Upgrade to Pro' - tombol X diklik lewat JS "
+            '(coba ${st.proXTries})');
+        st.bump('popup');
+        return 'x';
+      }
+      if (_truthy(await runJs(premiumSkipJs, fr))) {
+        log("[Premium] X tidak mempan - 'Skip this lesson' diklik");
+        st.proXTries = 0;
+        return 'skip';
+      }
+      // modal tanpa X & tanpa Skip: tahan sebentar, lalu serahkan ke
+      // penutup lain supaya bot tidak beku selamanya
+      if (st.proWaitSince == 0) {
+        st.proWaitSince = now;
+        log("[Premium] modal 'Upgrade to Pro' tanpa tombol X - menunggu...");
+      }
+      if (now - st.proWaitSince > 8) return null;
+      return 'wait';
+    }
+    st.proXTries = 0;
+    st.proWaitSince = 0;
+    return null;
   }
 
   /// Modal iklan / ajakan langganan di TENGAH lesson: tutup sekarang

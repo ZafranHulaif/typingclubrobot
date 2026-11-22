@@ -175,7 +175,11 @@ class FakeEdclub {
       return {};
     };
     b.handlers['Input.dispatchMouseEvent'] = (p, s) {
-      if (p['type'] == 'mousePressed') clicks.add(Point(p['x'] as num, p['y'] as num));
+      if (p['type'] == 'mousePressed') {
+        clicks.add(Point(p['x'] as num, p['y'] as num));
+        // klik di X modal 'Upgrade to Pro' = modal tertutup
+        if (proModal && (p['x'] as num) == 900 && (p['y'] as num) == 80) proModal = false;
+      }
       return {};
     };
     b.handlers['Page.navigate'] = (p, s) {
@@ -214,6 +218,9 @@ class FakeEdclub {
   String? profile = 'in';
   bool alive = true;
   bool premiumSkip = false;
+  /// modal 'Upgrade to Pro' tampil (X di 900,80); [proXDead] = X tak mempan
+  bool proModal = false;
+  bool proXDead = false;
   bool scoreShown = false;
 
   /// lesson berikutnya saat Enter ditekan di layar skor
@@ -374,7 +381,12 @@ class FakeEdclub {
       final m = RegExp(r'\d+').firstMatch(l?.label ?? '');
       return _val(m?[0]);
     }
+    if (e.contains(proModalJs)) {
+      if (!proModal) return _val(null);
+      return _val(proXDead ? {'modal': true} : {'x': 900, 'y': 80});
+    }
     if (e.contains(premiumSkipJs)) {
+      if (proModal && premiumSkip) proModal = false;
       final v = premiumSkip;
       premiumSkip = false;
       return _val(v);

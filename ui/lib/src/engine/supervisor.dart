@@ -143,13 +143,12 @@ extension Supervisor on Engine {
           return;
         }
 
-        // modal premium baru: tutup kapan pun (throttle 10 dtk)
-        if (now - st.premSkipT > 10 &&
-            _truthy(await runJs(premiumSkipJs, page.mainFrame))) {
-          st.premSkipT = now;
+        // modal 'Upgrade to Pro': tutup lewat X sebelum apa pun. Selama
+        // modal tampil jangan mengetik (game di belakangnya tetap hidup).
+        final pro = await proModalAction();
+        if (pro != null) {
           st.lastActionTime = now;
-          log("[Pop-up] modal premium - 'Skip this lesson' (kapan pun)");
-          await sleep(0.3);
+          await sleep(pro == 'wait' ? 0.5 : 0.8);
           continue;
         }
 

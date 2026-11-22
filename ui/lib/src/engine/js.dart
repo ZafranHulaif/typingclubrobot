@@ -404,6 +404,61 @@ btn.click();
 return true;
 ''';
 
+/// engine/jstemplates.py :: PRO_MODAL_JS
+const proModalJs = r'''
+// Modal 'Upgrade to Pro to unlock lesson' (level premium, mis. level 23
+// minigame balon). Kata owner (22 Nov): klik X = level berikutnya ikut
+// TERBUKA, sedangkan 'Skip this lesson' cuma pindah halaman (level
+// berikutnya tetap terkunci). Game di belakang modal tetap hidup, jadi
+// selama modal ini tampil bot TIDAK BOLEH mengetik apa pun.
+// Return null = tak ada modal; {x,y} = titik tombol X (koordinat frame);
+// {modal:true} = modal tampil tapi X tak ketemu.
+const RE = /upgrade to pro|unlock this lesson|unlock lesson/i;
+if (!RE.test((document.body && document.body.innerText) || '')) return null;
+const box = e => e.getBoundingClientRect();
+const kartu = [];
+for (const d of document.querySelectorAll('div, section, [role="dialog"]')) {
+    const t = d.innerText || '';
+    if (t.length > 2500 || !RE.test(t)) continue;
+    const r = box(d);
+    if (r.width < 250 || r.height < 150) continue;
+    kartu.push([r.width * r.height, d]);
+}
+if (!kartu.length) return null;
+kartu.sort((a, b) => a[0] - b[0]);
+const tutup = el => {
+    const lbl = ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '') + ' ' +
+                 ((el.className && el.className.baseVal !== undefined) ? el.className.baseVal : (el.className || ''))).toLowerCase();
+    if (/close|dismiss|tutup/.test(lbl)) return true;
+    const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+    return t === '×' || t === '✕' || t === '✖' || t === 'x' ||
+           (t === '' && !!el.querySelector('svg') && (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button'));
+};
+for (const [, card] of kartu) {
+    const cr = box(card);
+    let best = null, bestSkor = -1e9;
+    for (const el of card.querySelectorAll('button, a, [role="button"], span, div, i, svg')) {
+        const r = box(el);
+        if (r.width < 6 || r.height < 6 || r.width > 64 || r.height > 64) continue;
+        if (r.top - cr.top > 140 || cr.right - r.right > 140) continue;
+        if (!tutup(el)) continue;
+        const skor = (r.right - cr.right) - (r.top - cr.top);
+        if (skor > bestSkor) { bestSkor = skor; best = el; }
+    }
+    if (best) {
+        const r = box(best);
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const top = document.elementFromPoint(cx, cy);
+        if (top && (top === best || best.contains(top) || top.contains(best) ||
+                    (top.closest && top.closest('button, a, [role="button"]') === best.closest('button, a, [role="button"]'))))
+            return {x: cx, y: cy};
+        try { best.click(); } catch (e) {}
+        return {js: true};
+    }
+}
+return {modal: true};
+''';
+
 /// engine/jstemplates.py :: PREMIUM_MODAL_JS
 const premiumModalJs = r'''
 // Modal premium: return {x,y} = titik tombol X (edmodal-x) untuk klik
