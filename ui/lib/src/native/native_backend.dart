@@ -1463,6 +1463,7 @@ class NativeBackend implements Backend {
   // lagi = token masih ada (dan server tetap menyetujuinya).
   String get _acctLicPath => '$_base${Platform.pathSeparator}lisensi-akun.json';
   String? _licAid; // id akun yang sedang diperiksa / diminta
+  String _edclubName = ''; // nama akun edclub (utk halaman admin)
 
   Map<String, dynamic> _acctToks() {
     try {
@@ -1500,13 +1501,18 @@ class NativeBackend implements Backend {
             "'https://api.edclub.com/j/auth/refresh-tokens', {method: 'POST', "
             "credentials: 'include', headers: {'content-type': 'application/json'}, "
             "body: JSON.stringify({domain: 'www'})}); const j = await r.json(); "
-            'return Array.isArray(j) && j[0] && j[0].user_id ? j[0].user_id : 0; '
-            '} catch (e) { return 0; } })()',
+            'return Array.isArray(j) && j[0] && j[0].user_id ? '
+            "{id: j[0].user_id, name: j[0].name || ''} : null; "
+            '} catch (e) { return null; } })()',
         'awaitPromise': true,
         'returnByValue': true,
       });
       final val = (r['result'] as Map?)?['value'];
-      if (val is num && val > 0) return 'a${val.toInt()}';
+      final id = val is Map ? val['id'] : null;
+      if (id is num && id > 0) {
+        _edclubName = '${(val as Map)['name'] ?? ''}';
+        return 'a${id.toInt()}';
+      }
     } catch (_) {}
     return null;
   }
@@ -1565,7 +1571,8 @@ class NativeBackend implements Backend {
       final m = _tok;
       final (_, d) = await _api.json('POST', '/api/license/request', body: {
         'mc': aid,
-        'nickname': '$nick ($label)',
+        'nickname': nick,
+        'account_name': _edclubName.isNotEmpty ? _edclubName : label,
         'app_version': _version,
         if (m != null && lic.verifyToken(m)) 'mtok': m,
       });

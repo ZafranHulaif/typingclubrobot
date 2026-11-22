@@ -146,7 +146,7 @@ void main() {
         case 'cdp':
           // user_id edclub dari refresh-tokens
           if ((c.arguments as Map)['method'] == 'Runtime.evaluate') {
-            return '{"result": {"type": "number", "value": 854363933}}';
+            return '{"result": {"type": "object", "value": {"id": 854363933, "name": "Zafran Tes"}}}';
           }
           return '{}';
         case 'eval':
@@ -175,7 +175,8 @@ void main() {
     await waitFor(() => licState()['state'] == 'pending');
     final req = hits.lastWhere((h) => h.contains('/api/license/request'));
     expect(req, contains('"mc":"a854363933"'));
-    expect(req, contains('Ucok'));
+    expect(req, contains('"nickname":"Ucok"'));
+    expect(req, contains('"account_name":"Zafran Tes"'));
     expect(jsonDecode(File('${tmp.path}/typingbot_settings.json').readAsStringSync())['nickname'], 'Ucok');
     be.close();
   });

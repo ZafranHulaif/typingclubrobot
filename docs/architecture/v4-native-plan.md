@@ -360,7 +360,16 @@ dev18: users with a broken swapper download TypingBot.exe from GitHub (any folde
 launcher reads the old Start Menu `TypingBot.lnk` target (3.5.x points it at the exe the user ran)
 BEFORE repointing it, and cleans that folder too (CI covers it).
 
-## Owner test checklist (Windows, build 4.0.0-dev18 from the CI artifact)
+### dev19: admin page redesign + account names
+Requests send `nickname` and `account_name` (edclub name from the refresh-tokens response) as
+separate fields; the worker stores `account_name`. Admin page rebuilt: mobile-friendly cards,
+tabs Menunggu / Akun edclub / PC lama (3.5) / Ditolak-dicabut, search, relative "last seen",
+notes "otomatis dari lisensi PC lama" / "sudah dipakai akun X" / "jatah 1 akun belum dipakai",
+delete asks for confirmation, auto refresh keeps the tab and pauses while typing a search.
+Worker is backward compatible with 3.5.x (machine requests unchanged): safe to deploy before the
+release. Deploy = paste server/worker.js into the Cloudflare worker editor (DEPLOY.md step 2).
+
+## Owner test checklist (Windows, build 4.0.0-dev19 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

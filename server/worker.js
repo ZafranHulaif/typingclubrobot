@@ -68,84 +68,142 @@ const esc = (s) =>
   }[c]));
 
 function adminPage(machines, key) {
-  const baris = (m) => {
-    const st = m.status;
-    let btn;
-    if (st === "pending") {
-      btn = [["Setujui", "approve", "#238636"], ["Tolak", "deny", "#b62324"]];
-    } else if (st === "approved") {
-      btn = [["Cabut akses", "revoke", "#b62324"], ["Hapus", "delete", "#444a56"]];
-    } else {
-      btn = [["Setujui ulang", "approve", "#238636"], ["Hapus", "delete", "#444a56"]];
-    }
-    const tombol = btn.map(([txt, act, col]) =>
-      `<form method="post" action="/admin/action" class="inl">
-<input type="hidden" name="key" value="${esc(key)}">
-<input type="hidden" name="mc" value="${esc(m.mc)}">
-<input type="hidden" name="act" value="${act}">
-<button class="b" style="background:${col}">${txt}</button></form>`).join("");
-    const kapan = m.last_seen
-      ? new Date(m.last_seen * 1000).toLocaleString("id-ID",
-          { timeZone: "Asia/Jakarta", day: "2-digit", month: "2-digit",
-            year: "numeric", hour: "2-digit", minute: "2-digit" }) + " WIB"
-      : "-";
-    // akun edclub (v4) vs mesin (3.5.x); mesin yang jatahnya terpakai
-    const jenis = String(m.mc).startsWith("a")
-      ? `akun edclub ${esc(String(m.mc).slice(1))}${m.via ? " (dari lisensi mesin)" : ""}`
-      : `mesin ${esc(m.mc)}${m.claimed ? " &middot; akun pertama: " + esc(String(m.claimed).slice(1)) : ""}`;
-    return `<tr><td><b>${esc(m.nickname || "?")}</b>
-<div class="dim">${jenis}</div></td>
-<td class="dim">${esc(m.app_version || "-")}</td>
-<td class="dim">${kapan}</td><td>${tombol}</td></tr>`;
-  };
-  const tabel = (daftar) => daftar.length
-    ? `<table><tr><th>Mesin</th><th>Versi</th><th>Terakhir</th><th>Aksi</th></tr>`
-      + daftar.map(baris).join("") + "</table>"
-    : '<div class="dim kosong">tidak ada</div>';
   const semua = Object.values(machines).sort((a, b) =>
     (b.last_seen || 0) - (a.last_seen || 0));
-  const menunggu = semua.filter((m) => m.status === "pending");
-  const oke = semua.filter((m) => m.status === "approved");
-  const buruk = semua.filter((m) => m.status === "denied" || m.status === "revoked");
-  return `<!doctype html><html><head><meta charset="utf-8">
+  const akunNama = (id) => {
+    const a = machines[id];
+    return a ? (a.account_name || a.nickname || id.slice(1)) : String(id).slice(1);
+  };
+  const grup = (m) => m.status === "pending" ? "tunggu"
+    : (m.status === "denied" || m.status === "revoked") ? "cabut"
+    : String(m.mc).startsWith("a") ? "akun" : "mesin";
+  const kartu = (m) => {
+    const akun = String(m.mc).startsWith("a");
+    const st = m.status;
+    let btn;
+    if (st === "pending") btn = [["Setujui", "approve", "utama"], ["Tolak", "deny", "bahaya"]];
+    else if (st === "approved") btn = [["Cabut", "revoke", "bahaya"], ["Hapus", "delete", "hantu"]];
+    else btn = [["Setujui lagi", "approve", "utama"], ["Hapus", "delete", "hantu"]];
+    const tombol = btn.map(([txt, act, gaya]) =>
+      `<form method="post" action="/admin/action"${act === "delete" ? ' onsubmit="return confirm(\'Hapus ' + esc(m.nickname || m.mc).replace(/'/g, "") + '?\')"' : ""}>
+<input type="hidden" name="key" value="${esc(key)}"><input type="hidden" name="mc" value="${esc(m.mc)}">
+<input type="hidden" name="act" value="${act}"><button class="b ${gaya}">${txt}</button></form>`).join("");
+    const nama = m.nickname || "?";
+    const sub = akun
+      ? `<span class="tag akun">edclub</span> ${esc(m.account_name || "-")} <span class="id">#${esc(String(m.mc).slice(1))}</span>`
+      : `<span class="tag mesin">PC lama</span> <span class="id">${esc(m.mc)}</span>`;
+    const catatan = [];
+    if (akun && m.via) catatan.push("otomatis dari lisensi PC lama");
+    if (!akun && m.claimed) catatan.push("sudah dipakai akun " + esc(akunNama(m.claimed)));
+    if (!akun && st === "approved" && !m.claimed) catatan.push("jatah 1 akun belum dipakai");
+    const cari = `${nama} ${m.account_name || ""} ${m.mc}`.toLowerCase();
+    return `<div class="kartu" data-g="${grup(m)}" data-cari="${esc(cari)}">
+<div class="ava ${akun ? "a" : "m"}">${esc(nama.trim().charAt(0).toUpperCase() || "?")}</div>
+<div class="isi"><div class="nama">${esc(nama)}</div><div class="sub">${sub}</div>
+<div class="meta">${m.app_version ? "v" + esc(m.app_version) + " &middot; " : ""}<span data-ts="${m.last_seen || 0}"></span>${catatan.length ? " &middot; " + catatan.join(" &middot; ") : ""}</div></div>
+<div class="aksi">${tombol}</div></div>`;
+  };
+  const n = { tunggu: 0, akun: 0, mesin: 0, cabut: 0 };
+  for (const m of semua) n[grup(m)]++;
+  return `<!doctype html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>TypingBot Admin</title><style>
-body{background:#141519;color:#e9eaee;font:14px/1.5 system-ui;margin:0;padding:20px}
-h1{font-size:20px;margin:0 0 10px}
-.atas{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
-.chip{border-radius:12px;padding:3px 12px;font-size:12px;font-weight:600}
-.k{background:#d2992222;color:#d29922} .h{background:#3fb95022;color:#3fb950}
-.x{background:#f8514922;color:#f85149}
-.muat{color:#e9eaee;background:#20232b;border:1px solid #2c303b;border-radius:8px;
-padding:5px 12px;font-size:12px;cursor:pointer;text-decoration:none}
-.dim{color:#9aa0ab;font-size:12px} .kosong{padding:10px 2px}
-.judul{margin:18px 0 4px;font-weight:700;font-size:15px}
-table{border-collapse:collapse;width:100%}
-td,th{padding:8px 10px;border-bottom:1px solid #2c303b;text-align:left;vertical-align:top}
-.inl{display:inline-block;margin:1px} .b{color:#fff;border:0;border-radius:6px;
-padding:5px 10px;font-size:12px;cursor:pointer}
-</style></head><body>
-<h1>⚡ TypingBot Admin</h1>
-<div class="atas">
-<span class="chip k">⏳ ${menunggu.length} menunggu</span>
-<span class="chip h">✅ ${oke.length} disetujui</span>
-<span class="chip x">⛔ ${buruk.length} ditolak/dicabut</span>
-<a class="muat" href="/admin?key=${encodeURIComponent(key)}">↻ Muat ulang</a>
-<span class="dim">otomatis setiap 8 detik</span>
+:root{--bg:#0e0f12;--kartu:#17191e;--garis:#262931;--teks:#eceef2;--redup:#8d93a0;
+--lime:#c6f135;--lime-teks:#14170a;--merah:#ff6b6b;--kuning:#f5c451;--biru:#7cb7ff}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--teks);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;margin:0}
+.wrap{max-width:860px;margin:0 auto;padding:20px 16px 60px}
+header{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.logo{width:30px;height:30px;border-radius:9px;background:var(--lime);color:var(--lime-teks);
+display:grid;place-items:center;font-weight:800}
+h1{font-size:18px;margin:0;flex:1}
+.redup{color:var(--redup);font-size:12px}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:10px}
+.tab{flex:none;border:1px solid var(--garis);background:transparent;color:var(--redup);
+border-radius:999px;padding:6px 12px;font:600 13px system-ui;cursor:pointer}
+.tab b{color:var(--teks);margin-left:4px}
+.tab.on{background:var(--teks);color:var(--bg);border-color:var(--teks)}.tab.on b{color:var(--bg)}
+.tab.tunggu b{color:var(--kuning)}
+.tab.tunggu.on{background:var(--kuning);border-color:var(--kuning);color:#1d1600}.tab.tunggu.on b{color:#1d1600}
+input[type=search]{width:100%;background:var(--kartu);border:1px solid var(--garis);color:var(--teks);
+border-radius:10px;padding:9px 12px;font:14px system-ui;margin-bottom:12px;outline:none}
+input[type=search]:focus{border-color:var(--redup)}
+.kartu{display:flex;gap:12px;align-items:center;background:var(--kartu);border:1px solid var(--garis);
+border-radius:14px;padding:12px 14px;margin-bottom:8px}
+.ava{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:700}
+.ava.a{background:#c6f13522;color:var(--lime)}.ava.m{background:#7cb7ff1f;color:var(--biru)}
+.isi{flex:1;min-width:0}
+.nama{font-weight:650;font-size:15px}
+.sub{font-size:13px;color:var(--teks);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.id{color:var(--redup);font-size:12px}
+.tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;border-radius:5px;padding:1px 6px;margin-right:2px}
+.tag.akun{background:#c6f13522;color:var(--lime)}.tag.mesin{background:#7cb7ff1f;color:var(--biru)}
+.meta{color:var(--redup);font-size:12px;margin-top:2px}
+.aksi{display:flex;gap:6px;flex:none}
+.aksi form{margin:0}
+.b{border:0;border-radius:8px;padding:7px 12px;font:600 13px system-ui;cursor:pointer}
+.b.utama{background:var(--lime);color:var(--lime-teks)}
+.b.bahaya{background:#ff6b6b1f;color:var(--merah)}
+.b.hantu{background:transparent;color:var(--redup);border:1px solid var(--garis)}
+.b:hover{filter:brightness(1.12)}
+.kosong{color:var(--redup);text-align:center;padding:40px 0}
+[hidden]{display:none !important}
+@media (max-width:560px){.kartu{flex-wrap:wrap}.aksi{width:100%;justify-content:flex-end}}
+</style></head><body><div class="wrap">
+<header><div class="logo">T</div><h1>TypingBot Admin</h1><span class="redup" id="jam">diperbarui otomatis</span></header>
+<div id="isi" data-n='${JSON.stringify(n)}'>
+<div class="tabs">
+<button class="tab tunggu" data-t="tunggu">Menunggu<b>${n.tunggu}</b></button>
+<button class="tab" data-t="akun">Akun edclub<b>${n.akun}</b></button>
+<button class="tab" data-t="mesin">PC lama (3.5)<b>${n.mesin}</b></button>
+<button class="tab" data-t="cabut">Ditolak / dicabut<b>${n.cabut}</b></button>
 </div>
-<div id="isi">
-<div class="judul">⏳ Menunggu persetujuan</div>${tabel(menunggu)}
-<div class="judul">✅ Disetujui</div>${tabel(oke)}
-<div class="judul">⛔ Ditolak / dicabut</div>${tabel(buruk)}
-</div>
+<input type="search" id="q" placeholder="Cari nama, nama edclub, atau kode">
+<div id="daftar">${semua.map(kartu).join("")}</div>
+<div class="kosong" id="kosong" hidden>Tidak ada di sini.</div>
+</div></div>
 <script>
-setInterval(async()=>{try{
-const r=await fetch(location.href);
-const t=await r.text();
-const d=new DOMParser().parseFromString(t,'text/html');
-const n=d.getElementById('isi');
-if(n)document.getElementById('isi').replaceWith(n);
-}catch(e){}},8000);
+let tab = null;
+try { tab = localStorage.getItem('tb_tab'); } catch (e) {}
+function relatif(ts) {
+  if (!ts) return 'belum pernah';
+  const d = Math.max(0, Date.now() / 1000 - ts);
+  if (d < 60) return 'baru saja';
+  if (d < 3600) return Math.floor(d / 60) + ' menit lalu';
+  if (d < 86400) return Math.floor(d / 3600) + ' jam lalu';
+  return Math.floor(d / 86400) + ' hari lalu';
+}
+function terap() {
+  const n = JSON.parse(document.getElementById('isi').dataset.n);
+  if (!tab || (tab === 'tunggu' && !n.tunggu)) tab = n.tunggu ? 'tunggu' : 'akun';
+  const q = (document.getElementById('q').value || '').toLowerCase().trim();
+  let ada = 0;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.t === tab));
+  document.querySelectorAll('.kartu').forEach(k => {
+    const ok = (q ? k.dataset.cari.includes(q) : k.dataset.g === tab);
+    k.hidden = !ok; if (ok) ada++;
+  });
+  document.getElementById('kosong').hidden = ada > 0;
+  document.querySelectorAll('[data-ts]').forEach(e => e.textContent = 'terakhir ' + relatif(+e.dataset.ts));
+}
+function pasang() {
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+    tab = t.dataset.t; document.getElementById('q').value = '';
+    try { localStorage.setItem('tb_tab', tab); } catch (e) {}
+    terap();
+  });
+  document.getElementById('q').oninput = terap;
+  terap();
+}
+pasang();
+setInterval(async () => { try {
+  if (document.activeElement && document.activeElement.id === 'q') return;
+  const r = await fetch(location.href);
+  const d = new DOMParser().parseFromString(await r.text(), 'text/html');
+  const baru = d.getElementById('isi');
+  if (baru) { document.getElementById('isi').replaceWith(baru); pasang(); }
+} catch (e) {} }, 8000);
 </script></body></html>`;
 }
 
@@ -303,6 +361,7 @@ async function handle(request, ctx) {
       m.status = "pending";
     }
     m.nickname = String(d.nickname || "?").slice(0, 40) || m.nickname || "?";
+    if (d.account_name) m.account_name = String(d.account_name).slice(0, 60);
     m.app_version = String(d.app_version || "").slice(0, 16);
     m.last_seen = Math.floor(Date.now() / 1000);
     // v4: lisensi per akun edclub, id = 'a' + user_id. Lisensi MESIN 3.5.x
