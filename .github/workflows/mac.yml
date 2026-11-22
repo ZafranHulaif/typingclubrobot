@@ -83,6 +83,7 @@ jobs:
           cek('teks terketik di iframe', t.get('text') == 'Hello Worl')
           cek('semua tombol isTrusted', bool(keys) and all(k.get('trusted') for k in keys))
           cek('huruf besar terketik', any(k.get('k') == 'H' for k in keys))
+          cek('ketik cepat langsung terbaca utuh', r.get('fast_text') == 'the quick brown fox jumps over the lazy dog')
           m = (r.get('main_after_click') or {}).get('clicks') or []
           cek('klik utama isTrusted', bool(m) and all(c.get('trusted') for c in m))
           f = r.get('iframe_after_click') or []

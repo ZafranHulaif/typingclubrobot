@@ -66,6 +66,13 @@ Future<void> runMacSelfTest(String dir) async {
       await page.keyboard.press('Enter');
       await tunggu(0.5);
       out['iframe_typing'] = await iframe.evaluate('() => window.hasil');
+      // ketik cepat lalu LANGSUNG baca: teks harus sudah lengkap (antrean
+      // tombol WebKit tidak boleh disalip evaluasi)
+      await iframe.evaluate('() => { const i = document.getElementById("ketik"); i.value = ""; i.focus(); }');
+      await tunggu(0.2);
+      const cepat = 'the quick brown fox jumps over the lazy dog';
+      await page.keyboard.type(cepat);
+      out['fast_text'] = await iframe.evaluate('() => document.getElementById("ketik").value');
     }
 
     // 2) klik mouse asli pada tombol halaman utama

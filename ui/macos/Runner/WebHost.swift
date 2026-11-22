@@ -27,6 +27,12 @@ private let frameReporterJS = """
     } catch (e) {}
   };
   post('hello');
+  // ack tiap event tombol yang benar2 diproses halaman: host baru
+  // menjawab panggilan 'key' sesudah ack (antrean tombol WebKit bisa
+  // disalip evaluasi -> bot membaca teks basi lalu mengetik ulang)
+  const ack = () => { try { window.webkit.messageHandlers.tbkey.postMessage(1); } catch (e) {} };
+  addEventListener('keydown', ack, true);
+  addEventListener('keyup', ack, true);
   addEventListener('pagehide', () => post('bye'));
   const wrap = (k) => {
     const o = history[k];
@@ -66,6 +72,26 @@ final class WebHostView: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
   var frames: [String: WKFrameInfo] = [:]
   var obs: [NSKeyValueObservation] = []
   var sidSeq = 0
+  var keyWaiters: [(id: Int, done: FlutterResult)] = []
+  var keySeq = 0
+
+  /// Jawab panggilan 'key' sesudah halaman memproses event-nya (atau
+  /// batas waktu: tombol yang tidak memicu event DOM tidak menggantung).
+  func waitKeyAck(_ result: @escaping FlutterResult) {
+    keySeq += 1
+    let k = keySeq
+    keyWaiters.append((id: k, done: result))
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+      guard let s = self, let i = s.keyWaiters.firstIndex(where: { $0.id == k }) else { return }
+      let w = s.keyWaiters.remove(at: i)
+      w.done(nil)
+    }
+  }
+
+  func keyAcked() {
+    guard !keyWaiters.isEmpty else { return }
+    keyWaiters.removeFirst().done(nil)
+  }
 
   init(id: Int, folder: String, scripts: [String], host: WebHost) {
     self.id = id
@@ -86,6 +112,7 @@ final class WebHostView: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
     web.customUserAgent = WebHost.safariUA
     super.init()
     cfg.userContentController.add(WeakHandler(self), name: "tbframe")
+    cfg.userContentController.add(WeakHandler(self), name: "tbkey")
     reinstallScripts()
     web.navigationDelegate = self
     web.uiDelegate = self
@@ -119,6 +146,8 @@ final class WebHostView: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
   func dispose() {
     obs.removeAll()
     web.configuration.userContentController.removeScriptMessageHandler(forName: "tbframe")
+    web.configuration.userContentController.removeScriptMessageHandler(forName: "tbkey")
+    while !keyWaiters.isEmpty { keyWaiters.removeFirst().done(nil) }
     web.stopLoading()
     web.navigationDelegate = nil
     web.uiDelegate = nil
@@ -127,6 +156,10 @@ final class WebHostView: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
 
   // ---------------------------------------------------------------- frame
   func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
+    if m.name == "tbkey" {
+      keyAcked()
+      return
+    }
     guard m.name == "tbframe", let b = m.body as? [String: Any],
           let fid = b["fid"] as? String else { return }
     let phase = b["phase"] as? String ?? ""
@@ -396,13 +429,15 @@ final class WebHost: NSObject {
       }
     case "key":
       ensureFocus(w)
+      v.waitKeyAck(result)
       Keys.send(to: w, down: str("type") == "down", key: str("key"), code: str("code"),
                 text: str("text"), mods: Int(num("mods")), repeat: a["repeat"] as? Bool ?? false)
-      result(nil)
     case "insertText":
       ensureFocus(w)
+      // keyDown + keyUp = dua ack; yang kedua yang menutup panggilan
+      v.waitKeyAck({ _ in })
+      v.waitKeyAck(result)
       Keys.insert(to: w, text: str("text"))
-      result(nil)
     case "mouse":
       mouse(w, str("type"), num("x"), num("y"), Int(num("count")))
       result(nil)
