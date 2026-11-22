@@ -356,8 +356,11 @@ but the downloaded bundle runs under any name: running that `.new.exe` once (or 
 TypingBot.exe from the release) installs v4. The launcher then deletes the old copies and, when
 it deleted any, writes a Desktop `TypingBot.lnk` to the installed app (old desktop links pointed at
 the deleted copies). v4's own updater never uses that script.
+dev18: users with a broken swapper download TypingBot.exe from GitHub (any folder). On install the
+launcher reads the old Start Menu `TypingBot.lnk` target (3.5.x points it at the exe the user ran)
+BEFORE repointing it, and cleans that folder too (CI covers it).
 
-## Owner test checklist (Windows, build 4.0.0-dev17 from the CI artifact)
+## Owner test checklist (Windows, build 4.0.0-dev18 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

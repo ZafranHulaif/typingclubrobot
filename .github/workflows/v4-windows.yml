@@ -68,8 +68,18 @@ jobs:
           $env:LOCALAPPDATA = $tmp
           $env:TB_SETUP_NO_LAUNCH = '1'
           $env:TB_SETUP_SILENT = '1'
+          # 3.5.x: shortcut Start Menu menunjuk ke salinan lama di folder lain
+          $old = Join-Path $env:RUNNER_TEMP 'tb-lama'
+          New-Item -ItemType Directory -Force $old | Out-Null
+          Set-Content (Join-Path $old 'TypingBot (2).exe') 'x'
+          Set-Content (Join-Path $old 'TypingBot (2).exe.new.exe') 'x'
+          $lnkPath = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\TypingBot.lnk'
+          $ws = New-Object -ComObject WScript.Shell
+          $l = $ws.CreateShortcut($lnkPath); $l.TargetPath = (Join-Path $old 'TypingBot (2).exe'); $l.Save()
           $p = Start-Process -FilePath dist/TypingBot.exe -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content "$tmp/TypingBot/setup.log" -ErrorAction SilentlyContinue; throw "pasang gagal: $($p.ExitCode)" }
+          if ((Get-ChildItem $old).Count -ne 0) { throw "folder lama tidak dibersihkan: $(Get-ChildItem $old | ForEach-Object Name)" }
+          if ($ws.CreateShortcut($lnkPath).TargetPath -notlike '*tb-install*TypingBot*app*TypingBot.exe') { throw "shortcut tidak diarahkan ke app: $($ws.CreateShortcut($lnkPath).TargetPath)" }
           $app = "$tmp/TypingBot/app"
           if (-not (Test-Path "$app/TypingBot.exe")) { throw 'app/TypingBot.exe tidak ada' }
           if (-not (Test-Path "$app/vcruntime140.dll")) { throw 'vcruntime ikut dibawa?' }
