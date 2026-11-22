@@ -6,7 +6,8 @@ name: mac
 # Tanpa akun edclub (kredensial tidak ditaruh di CI).
 on:
   push:
-    branches: [mac]
+    # mac-live = uji live dgn akun tes (token CI tidak bisa dispatch)
+    branches: [mac, mac-live]
   workflow_dispatch:
     inputs:
       live:
@@ -19,7 +20,7 @@ on:
 
 jobs:
   macos:
-    if: ${{ !inputs.live }}
+    if: ${{ !inputs.live && github.ref != 'refs/heads/mac-live' }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -139,7 +140,7 @@ jobs:
   # sesi yang sudah berputar dikirim balik terenkripsi ke kunci penerima
   # (tool/mactest/kunci_penerima.pem; kunci privatnya hanya di VPS).
   live:
-    if: ${{ inputs.live }}
+    if: ${{ inputs.live || github.ref == 'refs/heads/mac-live' }}
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
@@ -183,7 +184,7 @@ jobs:
           APP=$(ls -d ui/build/macos/Build/Products/Release/*.app | head -1)
           OUT=$PWD/live-out
           mkdir -p "$OUT"
-          TB_SELFTEST="$OUT" TB_SELFTEST_RUN="${{ inputs.detik }}" "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
+          TB_SELFTEST="$OUT" TB_SELFTEST_RUN="${{ inputs.detik || '180' }}" "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
           PID=$!
           for i in $(seq 1 1600); do
             for r in "$OUT"/*.ready; do
