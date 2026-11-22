@@ -340,7 +340,13 @@ covers the first account automatically.
   machine token with no `claimed` yet; admin page labels accounts vs machines. Tested in Node
   with a fake KV. **Needs `wrangler deploy` before the release.**
 
-## Owner test checklist (Windows, build 4.0.0-dev15 from the CI artifact)
+### dev16: launcher cleans 3.5.x leftovers
+Owner: a friend's folder is full of "TypingBot (1).exe", "TypingBot.exe.new.exe.new.exe" etc. from
+failed 3.5.x updates. Every launcher run (after starting the app) deletes, in ITS OWN folder only,
+files named typingbot*.exe / typingbot*.part plus `_update.cmd` and `update_pending.json`, never
+itself, never under %LOCALAPPDATA%/TypingBot; locked (running) files are skipped. CI checks it.
+
+## Owner test checklist (Windows, build 4.0.0-dev16 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
    account switch (menu) opens the other account's edclub, logout lands on /signin.

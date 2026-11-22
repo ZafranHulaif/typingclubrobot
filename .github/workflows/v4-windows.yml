@@ -75,11 +75,17 @@ jobs:
           if (-not (Test-Path "$app/vcruntime140.dll")) { throw 'vcruntime ikut dibawa?' }
           $iv = (Get-Content "$app/version.txt" -Raw).Trim()
           if ($iv -ne $v) { throw "version.txt $iv != $v" }
+          # sisa updater 3.5.x di folder yang sama dibersihkan, file lain aman
+          foreach ($f in 'TypingBot (1).exe', 'TypingBot.exe.new.exe.new.exe', 'TypingBot.exe.new.exe.part', '_update.cmd', 'catatan.txt') { Set-Content (Join-Path dist $f) 'x' }
           # jalan kedua: sudah terpasang, tidak memasang ulang
           $stamp = (Get-Item "$app/TypingBot.exe").LastWriteTimeUtc
           $p = Start-Process -FilePath dist/TypingBot.exe -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw 'jalan kedua gagal' }
           if ((Get-Item "$app/TypingBot.exe").LastWriteTimeUtc -ne $stamp) { throw 'terpasang ulang padahal versi sama' }
+          $sisa = Get-ChildItem dist | ForEach-Object Name
+          if (($sisa | Where-Object { $_ -ne 'TypingBot.exe' -and $_ -ne 'catatan.txt' }).Count -gt 0) { throw "sisa tidak dibersihkan: $sisa" }
+          if (-not (Test-Path dist/catatan.txt)) { throw 'file lain ikut terhapus' }
+          Remove-Item dist/catatan.txt
           # versi terpasang lebih lama -> diperbarui
           Set-Content "$app/version.txt" '3.9.0'
           $p = Start-Process -FilePath dist/TypingBot.exe -ArgumentList '--update' -Wait -PassThru

@@ -17,6 +17,7 @@
 #include <shlobj.h>
 #include <objbase.h>
 #include <shobjidl.h>
+#include <cwctype>
 #include <string>
 #include <vector>
 
@@ -266,6 +267,47 @@ static void Shortcut(const std::wstring& target, const std::wstring& workdir) {
   sl->Release();
 }
 
+static std::wstring Lower(std::wstring s) {
+  for (auto& ch : s) ch = (wchar_t)towlower(ch);
+  return s;
+}
+
+static bool EndsWith(const std::wstring& s, const std::wstring& suf) {
+  return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
+}
+
+// Sisa updater 3.5.x yang gagal di folder file ini: "TypingBot (1).exe",
+// "TypingBot.exe.new.exe.new.exe", ".part", ".lama.exe", _update.cmd,
+// update_pending.json. App kini terpasang di LOCALAPPDATA, jadi salinan2
+// itu tidak dipakai lagi. File ini sendiri tidak disentuh; yang sedang
+// jalan (terkunci) dilewati diam-diam.
+static void CleanDups(const std::wstring& self) {
+  size_t slash = self.find_last_of(L"\\/");
+  if (slash == std::wstring::npos) return;
+  std::wstring dir = self.substr(0, slash);
+  std::wstring selfLow = Lower(self);
+  // jangan pernah bersih2 di folder app terpasang
+  std::wstring local = Lower(Env(L"LOCALAPPDATA") + L"\\TypingBot");
+  if (Lower(dir).rfind(local, 0) == 0) return;
+  WIN32_FIND_DATAW fd;
+  HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
+  if (h == INVALID_HANDLE_VALUE) return;
+  int n = 0;
+  do {
+    if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+    std::wstring name = Lower(fd.cFileName);
+    bool sisa = name == L"_update.cmd" || name == L"update_pending.json" ||
+                (name.rfind(L"typingbot", 0) == 0 &&
+                 (EndsWith(name, L".exe") || EndsWith(name, L".part")));
+    if (!sisa) continue;
+    std::wstring full = dir + L"\\" + fd.cFileName;
+    if (Lower(full) == selfLow) continue;
+    if (DeleteFileW(full.c_str())) n++;
+  } while (FindNextFileW(h, &fd));
+  FindClose(h);
+  if (n) Log(L"sisa lama dihapus: " + std::to_wstring(n));
+}
+
 static bool Launch(const std::wstring& exe, const std::wstring& dir) {
   std::wstring cmd = L"\"" + exe + L"\"";
   STARTUPINFOW si = {sizeof(si)};
@@ -395,11 +437,15 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     CoUninitialize();
   }
 
-  if (!Env(L"TB_SETUP_NO_LAUNCH").empty()) return 0;
+  if (!Env(L"TB_SETUP_NO_LAUNCH").empty()) {
+    CleanDups(self);
+    return 0;
+  }
   if (!Launch(appExe, app)) {
     Fail(L"TypingBot terpasang tapi gagal dibuka.");
     return 1;
   }
+  CleanDups(self);
   ReleaseMutex(mutex);
   return 0;
 }
