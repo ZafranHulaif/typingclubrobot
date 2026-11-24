@@ -407,6 +407,19 @@ Faster recovery when edclub opens a lesson page without mounting the lesson ifra
 main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 recovered only at
 05:37:14). Owner approved the release after testing dev24.
 
+### 4.0.1: edclub UI change (24 Nov)
+- Pop-up closer rule `[class*="popup"] [class*="x" i]` matched almost every element of edclub's
+  new UI (flex, text-xs, max-w). Once a container with class "popup" appeared, the bot clicked
+  the account button every second (Profile menu, sometimes the profile page, lesson focus lost,
+  "ketikan tidak masuk"). Now: header/nav and dropdown openers ([aria-haspopup]/[aria-expanded])
+  are never clicked by the closer, and that rule only accepts a real X (<=48px, text x/×/empty,
+  whole class token x/close-x/btn-x). Verified on a mock page: old rule clicked the account
+  button, new rule only the modal's ×.
+- edclub now shows the level list to guests (Sign up / Log in in the header). If the login gate
+  was skipped (slow internet: the cover timed out first), the app sat on the guest page with
+  status "Siap" (friend's report: "gak bisa login"). `_guestCheck` (every 3 s in `_rtTick`): no
+  rt cookie + profile 'out' twice on a /student page while idle -> open the login page.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,

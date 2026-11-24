@@ -25,6 +25,8 @@ class FakeNative {
   final cdpParams = <String>[];
   String? rt; // kuki rt di jar palsu
   String displayName = '';
+  String profile = 'in'; // hasil cek login DOM
+  String url = 'https://www.edclub.com/';
 
   Future<Object?> _handle(MethodCall c) async {
     calls.add(c);
@@ -44,11 +46,11 @@ class FakeNative {
       case 'eval':
         // cek login saat webview dibuka: anggap sudah login
         final js = '${(c.arguments as Map)['js']}';
-        if (js.contains('tb:login')) return '"in"';
+        if (js.contains('tb:login')) return jsonEncode(profile);
         if (js.contains('profile-name')) return jsonEncode(displayName);
         return '42';
       case 'info':
-        return {'url': 'https://www.edclub.com/', 'title': 't'};
+        return {'url': url, 'title': 't'};
     }
     return null;
   }
@@ -148,6 +150,37 @@ void main() {
       await _flush();
       expect(cover()['visible'], false);
       expect(fake.named('setVisible').last.arguments['on'], true);
+    });
+
+    test('halaman tamu edclub (belum login, cover sudah turun) -> ke halaman login',
+        () async {
+      _listen(be);
+      await be.connect();
+      await _flush();
+      await fake.emit(1, 'nav', {'phase': 'done', 'ok': true, 'url': homeUrl});
+      await _flush();
+      expect(cover()['visible'], false);
+      fake.profile = 'out';
+      final nav0 = fake.named('navigate').length;
+      await be.rtTickForTest();
+      expect(fake.named('navigate').length, nav0); // sekali 'out' belum cukup
+      await be.rtTickForTest();
+      await _flush();
+      expect(fake.named('navigate').last.arguments['url'], signinUrl);
+      expect((_last['bot'] as Map)['needs_login'], true);
+    });
+
+    test('sudah login: tidak dilempar ke halaman login', () async {
+      _listen(be);
+      await be.connect();
+      await _flush();
+      await fake.emit(1, 'nav', {'phase': 'done', 'ok': true, 'url': homeUrl});
+      await _flush();
+      final nav0 = fake.named('navigate').length;
+      for (var i = 0; i < 3; i++) {
+        await be.rtTickForTest();
+      }
+      expect(fake.named('navigate').length, nav0);
     });
 
     test('target bintang selain perak mengunci kecepatan', () async {

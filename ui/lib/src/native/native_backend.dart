@@ -11,6 +11,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../bridge/bridge.dart';
 import '../engine/clock.dart';
 import '../engine/engine.dart';
@@ -659,6 +661,32 @@ class NativeBackend implements Backend {
 
   /// rt berputar tiap refresh: simpan tiap berubah, HANYA saat pasti login
   /// (boot anonim juga dapat rt, itu tidak boleh menimpa yang bagus).
+  int _guestN = 0;
+
+  /// edclub kini menampilkan daftar level ke TAMU (belum login, tombol
+  /// 'Log in' di header). Kalau gerbang login terlewat (mis. internet
+  /// lambat: cover sudah turun karena batas waktu sebelum halaman siap),
+  /// app diam di halaman tamu dgn status 'Siap' (laporan 24 Nov). Tamu
+  /// yang bertahan ~6 dtk di halaman /student = buka halaman login.
+  Future<void> _guestCheck(WebView v, Uri u) async {
+    if (running || _coverOn || _oauthHold || !u.path.startsWith('/student')) {
+      _guestN = 0;
+      return;
+    }
+    if (await _profile() != 'out' || v != _view) {
+      _guestN = 0;
+      return;
+    }
+    if (++_guestN < 2) return;
+    _guestN = 0;
+    _log('[LOGIN] Halaman tamu (belum login) - membuka halaman login.');
+    _set('bot', {'needs_login': true});
+    await v.navigate(signinUrl).catchError((_) {});
+  }
+
+  @visibleForTesting
+  Future<void> rtTickForTest() => _rtTick();
+
   Future<void> _rtTick() async {
     final v = _view;
     if (v == null || v.disposed || _rtBusy) return;
@@ -672,7 +700,12 @@ class NativeBackend implements Backend {
     _rtBusy = true;
     try {
       final rt = await _rtNow(v);
-      if (rt == null || rt.isEmpty || rt == _rtSaved) return;
+      if (rt == null || rt.isEmpty) {
+        await _guestCheck(v, u);
+        return;
+      }
+      _guestN = 0;
+      if (rt == _rtSaved) return;
       final masuk = (diLesson(url) && _seenIn) || await _profile() == 'in';
       if (!masuk || v != _view) return;
       _seenIn = true;
