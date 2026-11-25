@@ -257,6 +257,33 @@ void main() {
       expect(fake.cdpCalls.where((m) => m == 'Network.setCookie'), isEmpty);
     });
 
+    test('iklan diblokir sebelum halaman pertama (CDP + daftar utk macOS)', () async {
+      _listen(be);
+      await be.connect();
+      await _flush();
+      final i = fake.cdpCalls.indexOf('Network.setBlockedURLs');
+      expect(i, greaterThanOrEqualTo(0));
+      expect(fake.cdpParams[i], contains('*://*.doubleclick.net/*'));
+      expect(fake.cdpParams[i], isNot(contains('accounts.google.com')));
+      final names = fake.calls.map((c) => c.method).toList();
+      expect(names.indexOf('cdp'), lessThan(names.indexOf('navigate')));
+      final create = fake.calls.firstWhere((c) => c.method == 'create');
+      expect((create.arguments as Map)['block'], contains('intergient.com'));
+    });
+
+    test('blokir iklan bisa dimatikan lewat pengaturan', () async {
+      File('${tmp.path}/typingbot_settings.json').writeAsStringSync('{"adblock": false}');
+      final b2 = NativeBackend(
+          version: 't', host: WebHost(), accounts: AccountStore(tmp.path),
+          checkLicense: false, revealTimeout: const Duration(seconds: 5));
+      await b2.connect();
+      await _flush();
+      expect(fake.cdpCalls, isNot(contains('Network.setBlockedURLs')));
+      final create = fake.calls.firstWhere((c) => c.method == 'create');
+      expect((create.arguments as Map)['block'], isEmpty);
+      b2.close();
+    });
+
     test('bisu: halaman dibisukan, disimpan, tetap bisu saat dibuka lagi', () async {
       _listen(be);
       await be.connect();
@@ -430,6 +457,7 @@ void main() {
       _listen(be);
       await be.connect();
       await _flush();
+      fake.cdpCalls.clear(); // panggilan saat buka (blokir iklan) bukan urusan tes ini
       await be.request('acct.logout');
       await _flush();
       expect(fake.cdpCalls.first, 'Network.clearBrowserCookies');

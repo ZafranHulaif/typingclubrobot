@@ -89,6 +89,7 @@ class WebHost {
     String url = '',
     List<String> scripts = const [],
     bool visible = false,
+    List<String> blockHosts = const [],
   }) async {
     final id = ++_seq;
     await _call('create', {
@@ -97,6 +98,8 @@ class WebHost {
       'url': url,
       'scripts': scripts,
       'visible': visible,
+      // macOS: content blocker WebKit; Windows: lewat CDP (native_backend)
+      'block': blockHosts,
     });
     return WebView._(this, id, folder);
   }

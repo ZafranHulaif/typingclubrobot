@@ -28,6 +28,7 @@ import '../net/report.dart';
 import '../net/updater.dart';
 import '../web/js_init.dart';
 import '../web/js_back.dart';
+import '../web/ad_block.dart';
 import '../web/js_hidden.dart';
 import '../web/web_host.dart';
 import 'accounts.dart';
@@ -329,6 +330,30 @@ class NativeBackend implements Backend {
     });
   }
 
+  /// Buffer Network CDP kecil: tanpa batas, Chromium menyimpan salinan isi
+  /// respons (utk DevTools) sampai ratusan MB, padahal yang dibaca cuma
+  /// status + URL (sentinel login).
+  static const _netBuffers = {
+    'maxTotalBufferSize': 1000000,
+    'maxResourceBufferSize': 100000,
+    'maxPostDataSize': 0,
+  };
+
+  /// Blokir iklan (default nyala; settings 'adblock': false = mati).
+  bool get _adBlockOn => _settings['adblock'] != false;
+
+  /// Windows: blokir domain iklan lewat CDP sebelum halaman pertama.
+  /// (macOS memakai content blocker WebKit dari argumen 'block' saat create.)
+  Future<void> _adBlock(WebView v) async {
+    if (!_adBlockOn) return;
+    try {
+      await v.cdp('Network.enable', _netBuffers);
+      await v.cdp('Network.setBlockedURLs', {'urls': adBlockPatterns()});
+    } catch (e) {
+      _log('[web] blokir iklan gagal: $e');
+    }
+  }
+
   void _applyMute(WebView v) {
     v.setMuted(_snap['sound']!['muted'] == true).catchError((Object e) {
       _log('[web] bisu gagal: $e');
@@ -435,7 +460,8 @@ class NativeBackend implements Backend {
     try {
       // tanpa URL dulu: kuki sesi dipasang sebelum halaman pertama
       v = await host.create(
-          folder: accounts.folderFor(name), url: '', scripts: initScripts);
+          folder: accounts.folderFor(name), url: '', scripts: initScripts,
+          blockHosts: _adBlockOn ? adHosts : const []);
     } on WebHostException catch (e) {
       _cover('Halaman edclub gagal dibuka (${e.code}). Tutup lalu buka '
           'lagi TypingBot ya.');
@@ -455,6 +481,7 @@ class NativeBackend implements Backend {
     _gatePending = !url.contains('/signin');
     _gateRun++;
     _viewSub = v.events.listen(_onWeb);
+    await _adBlock(v);
     await _rtRestore(v, name);
     await v.navigate(url).catchError((_) {});
     _rtT?.cancel();
@@ -1300,14 +1327,7 @@ class NativeBackend implements Backend {
     v.focus().catchError((_) {});
     try {
       await page.attach();
-      // buffer kecil: tanpa batas, Chromium menyimpan salinan isi respons
-      // (utk DevTools) sampai ratusan MB selama bot jalan, padahal sentinel
-      // login cuma butuh status + URL
-      await page.cdp('Network.enable', {
-        'maxTotalBufferSize': 1000000,
-        'maxResourceBufferSize': 100000,
-        'maxPostDataSize': 0,
-      }).catchError((_) => <String, dynamic>{});
+      await page.cdp('Network.enable', _netBuffers).catchError((_) => <String, dynamic>{});
       _netSub = page.bridge
           .listen('Network.responseReceived')
           .listen((e) {
