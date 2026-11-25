@@ -26,9 +26,11 @@ void main() {
   late List<SidecarAsk> asks;
   late List<String> logs;
   var memCalls = 0;
+  final awake = <bool>[];
 
   setUp(() async {
     tmp = Directory.systemTemp.createTempSync('tb_ne_');
+    awake.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_ch, (c) async {
       switch (c.method) {
@@ -38,6 +40,9 @@ void main() {
           return (c.arguments as Map)['id'];
         case 'info':
           return {'url': fake.url, 'title': ''};
+        case 'keepAwake':
+          awake.add((c.arguments as Map)['on'] == true);
+          return null;
         case 'memInfo':
           const mb = 1048576;
           // waktu CPU renderer naik tiap sampel
@@ -140,8 +145,11 @@ void main() {
     await waitFor(() => fake.bridge.named('Network.enable').isNotEmpty);
     final p = fake.bridge.named('Network.enable').first.params;
     expect(p['maxTotalBufferSize'], lessThanOrEqualTo(1000000));
+    // komputer dijaga tetap bangun selama bot jalan
+    expect(awake, [true]);
     await be.request('bot.stop');
     await be.stopped;
+    expect(awake, [true, false]);
     final log = File('${tmp.path}/bot.log');
     await waitFor(() => log.readAsStringSync().contains('[mem]'));
     expect(log.readAsStringSync(),
