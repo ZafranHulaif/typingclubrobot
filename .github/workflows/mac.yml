@@ -235,7 +235,13 @@ jobs:
           done
           echo "sesi tidak datang"; exit 1
       - name: Cek login Google (tanpa sandi)
+        # opt-in (GOOGLE=1 di live.env): tiap uji mengetik email akun tes di
+        # Google dari IP datacenter -> Google mencurigai akun itu dan minta
+        # captcha tanpa henti di perangkat asli (Mac mini, 25 Nov)
         run: |
+          GOOGLE=0
+          [ -f ui/tool/mactest/live.env ] && . ui/tool/mactest/live.env
+          if [ "$GOOGLE" != "1" ]; then echo "lewati cek Google"; exit 0; fi
           APP=$(ls -d ui/build/macos/Build/Products/Release/*.app | head -1)
           OUT=$PWD/live-out/google
           mkdir -p "$OUT"

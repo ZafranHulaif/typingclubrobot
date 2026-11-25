@@ -31,6 +31,7 @@ import '../web/js_init.dart';
 import '../web/js_back.dart';
 import '../web/ad_block.dart';
 import '../web/js_hidden.dart';
+import '../web/js_audio_mac.dart';
 import '../web/js_net_mac.dart';
 import '../web/web_host.dart';
 import 'accounts.dart';
@@ -269,6 +270,17 @@ class NativeBackend implements Backend {
     final v = _view;
     if (v == null || v.disposed) return;
     try {
+      if (Platform.isMacOS && !quiet) {
+        // macOS: proses WebKit tak terbaca; gantinya diagnosa suara
+        try {
+          final r = await v.cdp('Runtime.evaluate',
+              {'expression': audioStateJs, 'returnByValue': true});
+          _log('[audio] ${(r['result'] as Map?)?['value'] ?? '?'}'
+              '${_snap['sound']!['muted'] == true ? ' (dibisukan di app)' : ''}');
+        } catch (e) {
+          _log('[audio] gagal baca: $e');
+        }
+      }
       final l = await v.memInfo();
       if (l.isEmpty) return;
       final kini = DateTime.now();
@@ -467,6 +479,7 @@ class NativeBackend implements Backend {
           scripts: [
             ...initScripts,
             if (Platform.isMacOS) netWatchJs, // sentinel login (tanpa CDP Network)
+            if (Platform.isMacOS) audioWatchJs, // diagnosa suara
             if (Engine.keyLog) keyLogJs,
           ],
           blockHosts: _adBlockOn ? adHosts : const []);
