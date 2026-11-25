@@ -47,6 +47,20 @@ private let frameReporterJS = """
 /// WKWebView yang lapor saat diklik/difokus user (popup Flutter tutup).
 final class TBWebView: WKWebView {
   var onFocus: (() -> Void)?
+  /// Lubang popup/panel Flutter (koordinat lokal view). Mask layer cuma
+  /// menyembunyikan gambar; klik tetap ditangkap webview -> klik di dalam
+  /// popup terbaca 'klik halaman' dan popup malah tertutup (uji Mac mini:
+  /// isi popup & tombol Tambah di Rencana tak bisa diklik). Di lubang,
+  /// klik diteruskan ke FlutterView di bawahnya (spt lubang jendela Windows).
+  var holeRects: [CGRect] = []
+
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    if !holeRects.isEmpty {
+      let p = convert(point, from: superview)
+      if holeRects.contains(where: { $0.contains(p) }) { return nil }
+    }
+    return super.hitTest(point)
+  }
   override func becomeFirstResponder() -> Bool {
     let ok = super.becomeFirstResponder()
     if ok { onFocus?() }
@@ -440,15 +454,19 @@ final class WebHost: NSObject {
   func applyMask(_ w: WKWebView) {
     w.wantsLayer = true
     guard let layer = w.layer else { return }
+    let tb = w as? TBWebView
     if diparkir {
       // diparkir: tak ada popup Flutter di atasnya
       layer.mask = nil
+      tb?.holeRects = []
       return
     }
     if holes.isEmpty {
       layer.mask = nil
+      tb?.holeRects = []
       return
     }
+    var lubang: [CGRect] = []
     let s = scale
     let path = CGMutablePath()
     path.addRect(w.bounds)
@@ -459,6 +477,7 @@ final class WebHost: NSObject {
       let hw = h.width / s, hh = h.height / s
       let y = w.isFlipped ? ly : w.bounds.height - ly - hh
       let r = CGRect(x: lx, y: y, width: hw, height: hh)
+      lubang.append(r)
       let rad = min(holeRadius / s, hw / 2, hh / 2)
       path.addRoundedRect(in: r, cornerWidth: rad, cornerHeight: rad)
     }
@@ -467,6 +486,7 @@ final class WebHost: NSObject {
     m.path = path
     m.fillRule = .evenOdd
     layer.mask = m
+    tb?.holeRects = lubang
   }
 
   // ================================================================ dispatch
