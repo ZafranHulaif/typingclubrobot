@@ -25,6 +25,7 @@ void main() {
   late Map<String, dynamic> last;
   late List<SidecarAsk> asks;
   late List<String> logs;
+  var memCalls = 0;
 
   setUp(() async {
     tmp = Directory.systemTemp.createTempSync('tb_ne_');
@@ -37,6 +38,16 @@ void main() {
           return (c.arguments as Map)['id'];
         case 'info':
           return {'url': fake.url, 'title': ''};
+        case 'memInfo':
+          const mb = 1048576;
+          // waktu CPU renderer naik tiap sampel
+          final cpu = 1000000 * ++memCalls;
+          return [
+            {'kind': 'browser', 'pid': 1, 'private': 100 * mb, 'ws': 0, 'cpu': 0},
+            {'kind': 'renderer', 'pid': 2, 'private': 300 * mb, 'ws': 0, 'cpu': cpu},
+            {'kind': 'renderer', 'pid': 3, 'private': 200 * mb, 'ws': 0, 'cpu': 0},
+            {'kind': 'gpu', 'pid': 4, 'private': 150 * mb, 'ws': 0, 'cpu': 0},
+          ];
         case 'eval':
           // cek login (penanda DOM) mengikuti edclub palsu
           if ('${(c.arguments as Map)['js']}'.contains('tb:login')) {
@@ -116,6 +127,26 @@ void main() {
     expect(plan()['lock_until'], isNull);
     expect(logs.any((l) => l.startsWith('[Standard]')), isTrue);
     expect(File('${tmp.path}/bot.log').readAsStringSync(), contains('Bot berhenti.'));
+  });
+
+  test('memori: buffer Network kecil, rincian memori WebView2 masuk bot.log', () async {
+    fake.lesson = FakeLesson('hello world', label: 'L1');
+    await be.request('plan.set', {
+      'segments': [
+        {'from': 1, 'to': 5, 'stars': 5},
+      ]
+    });
+    await be.request('bot.start', {'mode': 'plan'});
+    await waitFor(() => fake.bridge.named('Network.enable').isNotEmpty);
+    final p = fake.bridge.named('Network.enable').first.params;
+    expect(p['maxTotalBufferSize'], lessThanOrEqualTo(1000000));
+    await be.request('bot.stop');
+    await be.stopped;
+    final log = File('${tmp.path}/bot.log');
+    await waitFor(() => log.readAsStringSync().contains('[mem]'));
+    expect(log.readAsStringSync(),
+        contains('[mem] WebView2 750 MB: renderer 2x 500, gpu 150, browser 100'));
+    expect(log.readAsStringSync(), matches(RegExp(r'\[cpu\] WebView2 \d+%: renderer \d+')));
   });
 
   test('kunci rencana: bagian aktif + 2 level ke depan tak boleh diubah', () async {

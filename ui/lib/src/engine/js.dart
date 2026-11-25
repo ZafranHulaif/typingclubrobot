@@ -267,10 +267,31 @@ const closeSels = ['.modal-close', '.close-btn', '.pop-close', 'button[class*="c
                    '[aria-label*="dismiss" i]', '[data-dismiss]', '[class*="dismiss" i]',
                    '[class*="achievement"] [class*="close" i]', 'svg[class*="close" i]',
                    '[class*="close" i][class*="icon" i]', '[class*="popup"] [class*="x" i]'];
+// v4 (24 Nov): '[class*="x" i]' cocok dgn hampir SEMUA elemen UI baru
+// edclub (fle-x, te-x-t-xs, ma-x-w). Begitu ada wadah ber-class "popup",
+// bot terus mengklik tombol akun di header (menu Profile terbuka, kadang
+// pindah ke halaman profil, fokus lesson hilang). Tombol X sungguhan =
+// kecil, teksnya x/×/kosong, dan class-nya punya token x utuh.
+const xAsli = el => {
+    const r = el.getBoundingClientRect();
+    if (r.width > 48 || r.height > 48) return false;
+    const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+    if (!['', 'x', '×', '✕', '✖'].includes(t)) return false;
+    const c = (el.className && el.className.baseVal !== undefined) ? el.className.baseVal : String(el.className || '');
+    return /(^|[\s_-])(x|close-x|x-close|btn-x|x-btn)($|[\s_-])/i.test(c);
+};
+// tombol/menu di header & pembuka dropdown (tombol akun) bukan penutup popup
+const bukanPenutup = el => {
+    try {
+        return !!el.closest('header, nav, [aria-haspopup], [aria-expanded]');
+    } catch (e) { return false; }
+};
 outer1:
 for (const sel of closeSels) {
     for (const el of document.querySelectorAll(sel)) {
-        if (visible(el) && doClick(el, 'tutup:' + sel)) break outer1;
+        if (!visible(el) || bukanPenutup(el)) continue;
+        if (sel === '[class*="popup"] [class*="x" i]' && !xAsli(el)) continue;
+        if (doClick(el, 'tutup:' + sel)) break outer1;
     }
 }
 

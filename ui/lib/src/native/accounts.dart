@@ -42,7 +42,12 @@ class AccountStore {
   /// N5: kuki edclub akun ini dari 3.5.x (akun/akun-NAMA.json, cocok
   /// lewat "nama"), atau sesi_edclub.json untuk akun yang terakhir aktif
   /// (maks 60 hari). null = tidak ada.
+  /// Akun yang baru ditambah (pending) TIDAK PERNAH dapat kuki lama:
+  /// dulu sesi_edclub.json (sesi 3.5.x, satu utk semua) ikut terpasang ke
+  /// "Akun baru" karena akun itu sedang aktif -> akun baru langsung login
+  /// sbg akun lama (keluhan owner 25 Nov).
   List<Map<String, dynamic>>? legacyCookies(String? name) {
+    if (name != null && isPending(name)) return null;
     String norm(String x) => x.replaceAll(RegExp(r'\s+'), ' ').trim().toLowerCase();
     List<Map<String, dynamic>>? ambil(dynamic m) {
       final c = m is Map ? m['cookies'] : null;

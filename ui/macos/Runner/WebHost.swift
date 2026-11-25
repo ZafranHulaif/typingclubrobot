@@ -384,6 +384,22 @@ final class WebHost: NSObject {
       let l = w.backForwardList
       result(["index": l.backList.count,
               "count": l.backList.count + 1 + l.forwardList.count])
+    case "setMuted":
+      // bisu seluruh halaman: WKWebView tak punya API publik, pakai
+      // _setPageMuted: (dipakai Safari sendiri). 1 = audio dibisukan.
+      let sel = NSSelectorFromString("_setPageMuted:")
+      if w.responds(to: sel) {
+        typealias Fn = @convention(c) (AnyObject, Selector, UInt) -> Void
+        let f = unsafeBitCast(w.method(for: sel), to: Fn.self)
+        f(w, sel, (a["on"] as? Bool ?? false) ? 1 : 0)
+        result(nil)
+      } else {
+        result(FlutterError(code: "mute_unsupported",
+                            message: "WebKit ini tidak bisa dibisukan", details: nil))
+      }
+    case "memInfo":
+      // proses WebKit tidak terbaca dari app (sandbox): kosong = log dilewati
+      result([Any]())
     case "focus":
       w.window?.makeFirstResponder(w)
       result(nil)

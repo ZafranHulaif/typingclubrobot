@@ -176,43 +176,162 @@ static bool ReadPayload(const std::wstring& self, Payload& out) {
 }
 
 // ---------------------------------------------------------------- splash
+// Gaya sama dgn layar tunggu app (cover): gelap, logo, teks, bar volt.
+// DPI-aware (dulu buram: Windows membesarkan bitmap 100% di layar 125/150%).
 static HWND g_splash = nullptr;
+static HICON g_logo = nullptr;
+static UINT g_dpi = 96;
+static bool g_dwmRound = false;
+static std::wstring g_judul = L"Memasang TypingBot";
+static std::wstring g_sub;
+static DWORD g_t0 = 0;
+
+static const COLORREF kBg = RGB(0x10, 0x12, 0x17);      // surfaceContainerLow
+static const COLORREF kBorder = RGB(0x25, 0x28, 0x30);  // outlineVariant
+static const COLORREF kText = RGB(0xEC, 0xEE, 0xF2);    // onSurface
+static const COLORREF kDim = RGB(0x9A, 0xA0, 0xAC);     // onSurfaceVariant
+static const COLORREF kTrack = RGB(0x22, 0x25, 0x2D);   // surfaceContainerHighest
+static const COLORREF kVolt = RGB(0xC8, 0xF2, 0x5A);    // Brand.volt
+
+static int Px(int v) { return MulDiv(v, (int)g_dpi, 96); }
+
+static void SetDpiAware() {
+  HMODULE u = GetModuleHandleW(L"user32.dll");
+  typedef BOOL(WINAPI * CtxFn)(HANDLE);
+  CtxFn ctx = u ? (CtxFn)GetProcAddress(u, "SetProcessDpiAwarenessContext") : nullptr;
+  // -4 = DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (Win10 1703+)
+  if (!(ctx && ctx((HANDLE)(LONG_PTR)-4))) SetProcessDPIAware();
+}
+
+static UINT DpiFor(HWND w) {
+  HMODULE u = GetModuleHandleW(L"user32.dll");
+  typedef UINT(WINAPI * DpiFn)(HWND);
+  DpiFn f = u ? (DpiFn)GetProcAddress(u, "GetDpiForWindow") : nullptr;
+  if (f && w) return f(w);
+  HDC dc = GetDC(nullptr);
+  UINT d = (UINT)GetDeviceCaps(dc, LOGPIXELSX);
+  ReleaseDC(nullptr, dc);
+  return d ? d : 96;
+}
+
+static void Bulat(HDC dc, int x, int y, int w, int h, COLORREF c) {
+  HBRUSH b = CreateSolidBrush(c);
+  HGDIOBJ ob = SelectObject(dc, b);
+  HGDIOBJ op = SelectObject(dc, GetStockObject(NULL_PEN));
+  RoundRect(dc, x, y, x + w + 1, y + h + 1, h, h);
+  SelectObject(dc, op);
+  SelectObject(dc, ob);
+  DeleteObject(b);
+}
+
+static void Teks(HDC dc, const std::wstring& t, int y, int h, int size, int weight, COLORREF c, int cw) {
+  HFONT f = CreateFontW(-Px(size), 0, 0, 0, weight, 0, 0, 0, DEFAULT_CHARSET, OUT_TT_PRECIS, 0, CLEARTYPE_QUALITY,
+                        0, L"Segoe UI");
+  HGDIOBJ old = SelectObject(dc, f);
+  SetTextColor(dc, c);
+  RECT r = {0, y, cw, y + h};
+  DrawTextW(dc, t.c_str(), -1, &r, DT_CENTER | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+  SelectObject(dc, old);
+  DeleteObject(f);
+}
+
+static void LukisSplash(HWND w, HDC out) {
+  RECT r;
+  GetClientRect(w, &r);
+  int cw = r.right, ch = r.bottom;
+  // gambar di buffer dulu (bar bergerak tanpa kedip)
+  HDC dc = CreateCompatibleDC(out);
+  HBITMAP bmp = CreateCompatibleBitmap(out, cw, ch);
+  HGDIOBJ ob = SelectObject(dc, bmp);
+  HBRUSH bg = CreateSolidBrush(kBg);
+  FillRect(dc, &r, bg);
+  DeleteObject(bg);
+  if (!g_dwmRound) {  // Win10: garis tepi sendiri (Win11 dari DWM)
+    HPEN pen = CreatePen(PS_SOLID, 1, kBorder);
+    HGDIOBJ op = SelectObject(dc, pen);
+    HGDIOBJ obr = SelectObject(dc, GetStockObject(NULL_BRUSH));
+    RoundRect(dc, 0, 0, cw, ch, Px(16), Px(16));
+    SelectObject(dc, obr);
+    SelectObject(dc, op);
+    DeleteObject(pen);
+  }
+  SetBkMode(dc, TRANSPARENT);
+  int logo = Px(52);
+  int y = Px(30);
+  if (g_logo) DrawIconEx(dc, (cw - logo) / 2, y, g_logo, logo, logo, 0, nullptr, DI_NORMAL);
+  y += logo + Px(18);
+  Teks(dc, g_judul, y, Px(24), 16, FW_SEMIBOLD, kText, cw);
+  y += Px(24);
+  if (!g_sub.empty()) Teks(dc, g_sub, y, Px(20), 12, FW_NORMAL, kDim, cw);
+  y += Px(20) + Px(16);
+  // bar tak tentu: potongan volt meluncur bolak-balik di atas jalur
+  int bw = Px(220), bh = Px(4), bx = (cw - bw) / 2;
+  Bulat(dc, bx, y, bw, bh, kTrack);
+  double t = ((GetTickCount() - g_t0) % 1600) / 1600.0;
+  double u = t < 0.5 ? t * 2 : 2 - t * 2;  // 0 -> 1 -> 0
+  double e = u * u * (3 - 2 * u);            // smoothstep
+  int seg = bw * 35 / 100;
+  int sx = bx + (int)((bw - seg) * e);
+  Bulat(dc, sx, y, seg, bh, kVolt);
+  BitBlt(out, 0, 0, cw, ch, dc, 0, 0, SRCCOPY);
+  SelectObject(dc, ob);
+  DeleteObject(bmp);
+  DeleteDC(dc);
+}
 
 static LRESULT CALLBACK SplashProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
-  if (m == WM_PAINT) {
-    PAINTSTRUCT ps;
-    HDC dc = BeginPaint(w, &ps);
-    RECT r;
-    GetClientRect(w, &r);
-    HBRUSH bg = CreateSolidBrush(RGB(0x16, 0x18, 0x1d));
-    FillRect(dc, &r, bg);
-    DeleteObject(bg);
-    SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, RGB(0xe6, 0xe8, 0xee));
-    HFONT f = CreateFontW(-18, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0,
-                          L"Segoe UI");
-    HGDIOBJ old = SelectObject(dc, f);
-    DrawTextW(dc, L"Memasang TypingBot...", -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    SelectObject(dc, old);
-    DeleteObject(f);
-    EndPaint(w, &ps);
-    return 0;
+  switch (m) {
+    case WM_PAINT: {
+      PAINTSTRUCT ps;
+      HDC dc = BeginPaint(w, &ps);
+      LukisSplash(w, dc);
+      EndPaint(w, &ps);
+      return 0;
+    }
+    case WM_ERASEBKGND:
+      return 1;
+    case WM_TIMER:
+      InvalidateRect(w, nullptr, FALSE);
+      return 0;
+    case WM_NCHITTEST:  // bisa digeser
+      return HTCAPTION;
   }
   return DefWindowProcW(w, m, wp, lp);
 }
 
 static void ShowSplash(HINSTANCE inst) {
   WNDCLASSW wc = {};
+  wc.style = CS_DROPSHADOW;
   wc.lpfnWndProc = SplashProc;
   wc.hInstance = inst;
   wc.lpszClassName = L"TypingBotSetupSplash";
-  wc.hCursor = LoadCursor(nullptr, IDC_WAIT);
+  wc.hCursor = LoadCursor(nullptr, IDC_APPSTARTING);
   wc.hIcon = LoadIconW(inst, MAKEINTRESOURCEW(101));
   RegisterClassW(&wc);
-  int w = 340, h = 96;
-  int x = (GetSystemMetrics(SM_CXSCREEN) - w) / 2, y = (GetSystemMetrics(SM_CYSCREEN) - h) / 2;
-  g_splash = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, wc.lpszClassName, L"TypingBot", WS_POPUP | WS_BORDER,
-                             x, y, w, h, nullptr, nullptr, inst, nullptr);
+  g_dpi = DpiFor(nullptr);
+  g_logo = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(101), IMAGE_ICON, Px(52), Px(52), 0);
+  g_t0 = GetTickCount();
+  int w = Px(360), h = Px(200);
+  RECT wa;
+  SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
+  int x = wa.left + (wa.right - wa.left - w) / 2, y = wa.top + (wa.bottom - wa.top - h) / 2;
+  g_splash = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, wc.lpszClassName, L"TypingBot", WS_POPUP, x, y, w, h,
+                             nullptr, nullptr, inst, nullptr);
+  // Win11: sudut bulat + tepi tipis dari DWM (33 = CORNER_PREFERENCE, 34 = BORDER_COLOR)
+  HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+  typedef HRESULT(WINAPI * AttrFn)(HWND, DWORD, LPCVOID, DWORD);
+  AttrFn attr = dwm ? (AttrFn)GetProcAddress(dwm, "DwmSetWindowAttribute") : nullptr;
+  if (attr) {
+    int round = 2;  // DWMWCP_ROUND
+    g_dwmRound = SUCCEEDED(attr(g_splash, 33, &round, sizeof(round)));
+    COLORREF bc = kBorder;
+    if (g_dwmRound) attr(g_splash, 34, &bc, sizeof(bc));
+  }
+  if (!g_dwmRound) {  // Win10: potong sudut sendiri
+    HRGN rg = CreateRoundRectRgn(0, 0, w + 1, h + 1, Px(16), Px(16));
+    SetWindowRgn(g_splash, rg, FALSE);
+  }
+  SetTimer(g_splash, 1, 16, nullptr);
   ShowWindow(g_splash, SW_SHOW);
   UpdateWindow(g_splash);
 }
@@ -222,6 +341,15 @@ static void Pump() {
   while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
     TranslateMessage(&msg);
     DispatchMessageW(&msg);
+  }
+}
+
+// tunggu [ms] sambil memompa pesan (animasi splash tetap jalan)
+static void PumpFor(DWORD ms) {
+  DWORD s = GetTickCount();
+  for (DWORD e = 0; e < ms; e = GetTickCount() - s) {
+    MsgWaitForMultipleObjects(0, nullptr, FALSE, ms - e, QS_ALLINPUT);
+    Pump();
   }
 }
 
@@ -376,7 +504,8 @@ static bool Launch(const std::wstring& exe, const std::wstring& dir) {
   if (Env(L"TB_SETUP_NO_LAUNCH").empty()) {
     CariJendela c = {pi.dwProcessId, nullptr};
     for (int i = 0; i < 200 && !c.hwnd; i++) {
-      if (WaitForSingleObject(pi.hProcess, 100) == WAIT_OBJECT_0) break;
+      if (MsgWaitForMultipleObjects(1, &pi.hProcess, FALSE, 100, QS_ALLINPUT) == WAIT_OBJECT_0) break;
+      Pump();
       EnumWindows(CariProc, (LPARAM)&c);
     }
     if (c.hwnd) {
@@ -412,6 +541,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     if (a == L"--wait" && i + 1 < argc) waitPid = (DWORD)_wtoi(argv[++i]);
   }
 
+  SetDpiAware();
   HANDLE mutex = CreateMutexW(nullptr, TRUE, L"TypingBotSetupMutex");
   if (GetLastError() == ERROR_ALREADY_EXISTS) {
     WaitForSingleObject(mutex, 60000);  // pemasang lain sedang jalan: tunggu selesai
@@ -430,11 +560,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
   std::wstring app = base + L"\\app";
   std::wstring appExe = app + L"\\TypingBot.exe";
   CreateDirectoryW(base.c_str(), nullptr);
+  // JANGAN berdiri di dalam folder app: app lama menjalankan file ini
+  // dgn folder kerja = folder app (warisan), dan folder yang jadi
+  // folder kerja sebuah proses tidak bisa di-rename Windows -> tukar
+  // app -> app.old selalu gagal "TypingBot masih terbuka" (4.0.2, live).
+  SetCurrentDirectoryW(base.c_str());
 
   Payload p;
   if (!ReadPayload(self, p)) {
     // tanpa payload (file rusak / bukan bundel): coba buka yang terpasang
-    if (Exists(appExe) && Launch(appExe, app)) return 0;
+    if (Exists(appExe) && Launch(appExe, base)) return 0;
     Fail(L"File TypingBot ini rusak. Unduh ulang dari halaman rilis ya.");
     return 1;
   }
@@ -451,8 +586,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
       }
     }
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    g_judul = installed.empty() ? L"Memasang TypingBot" : L"Memperbarui TypingBot";
+    g_sub = L"Versi " + Widen(p.version);
     ShowSplash(inst);
     Pump();
+    // uji tampilan (CI screenshot): tahan splash sebentar
+    std::wstring tahan = Env(L"TB_SETUP_SPLASH_HOLD");
+    if (!tahan.empty()) PumpFor((DWORD)_wtoi(tahan.c_str()));
 
     std::wstring zip = base + L"\\app-payload.zip";
     std::wstring baru = base + L"\\app.new";
@@ -482,11 +622,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     bool tukar = true;
     if (Exists(app)) {
       tukar = false;
-      for (int i = 0; i < 40 && !tukar; i++) {
+      for (int i = 0; i < 120 && !tukar; i++) {  // maks ~30 dtk
         tukar = MoveFileExW(app.c_str(), lama.c_str(), 0) != 0;
         if (!tukar) {
-          Pump();
-          Sleep(250);
+          PumpFor(250);
         }
       }
     }
@@ -504,14 +643,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     }
     RemoveTree(lama);
     g_oldDir = OldShortcutDir();
-    Shortcut(appExe, app);
+    Shortcut(appExe, base);
     // splash tetap tampil sampai jendela app muncul (Launch): file ini
     // tetap 'di depan' sehingga boleh menyerahkan fokus ke app
     CoUninitialize();
   }
 
   bool noLaunch = !Env(L"TB_SETUP_NO_LAUNCH").empty();
-  if (!noLaunch && !Launch(appExe, app)) {
+  if (!noLaunch && !Launch(appExe, base)) {
     Fail(L"TypingBot terpasang tapi gagal dibuka.");
     return 1;
   }
@@ -523,7 +662,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
   if (!g_oldDir.empty()) dibersihkan += CleanDups(self, g_oldDir);
   if (dibersihkan > 0 && !noLaunch) {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    DesktopShortcut(appExe, app);
+    DesktopShortcut(appExe, base);
     CoUninitialize();
   }
   if (noLaunch) return 0;

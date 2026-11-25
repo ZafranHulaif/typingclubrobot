@@ -11,6 +11,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../bridge/bridge.dart';
 import '../engine/clock.dart';
 import '../engine/engine.dart';
@@ -26,6 +28,7 @@ import '../net/report.dart';
 import '../net/updater.dart';
 import '../web/js_diag.dart';
 import '../web/js_init.dart';
+import '../web/js_back.dart';
 import '../web/web_host.dart';
 import 'accounts.dart';
 import 'view_bridge.dart';
@@ -56,6 +59,7 @@ const initScripts = [
   loginRedirectJs,
   oauthRelayPageJs,
   oauthMarkerJs,
+  authBackJs, // v4: tombol kembali di halaman login Google/Clever/Microsoft
 ];
 
 /// Bagian rencana yang mulai <= level kini + ini terkunci saat jalan.
@@ -74,6 +78,8 @@ class NativeBackend implements Backend {
     CdpBridge Function(WebView view)? bridgeFor,
     this.clock,
     this.checkLicense = true,
+    this.updateInterval = const Duration(minutes: 20),
+    this.memLogInterval = const Duration(minutes: 5),
     Api? api,
     String Function()? machineCode,
   })  : host = host ?? webHost,
@@ -91,6 +97,8 @@ class NativeBackend implements Backend {
       'level': <String, dynamic>{},
       'range': <String, dynamic>{},
       'speed': {'wpm': wpm},
+      // bisu: semua suara halaman edclub (disimpan, ikut tiap ganti akun)
+      'sound': {'muted': _settings['muted'] == true},
       'account': {'active': '', 'list': <Map<String, dynamic>>[]},
       // N4: diisi _netBoot; checkLicense=false (tes) = tidak dikunci
       // v4: lisensi per akun edclub, diperiksa saat Mulai (bukan saat buka)
@@ -122,6 +130,8 @@ class NativeBackend implements Backend {
 
   /// false = lewati lisensi & jaringan (tes)
   final bool checkLicense;
+  final Duration updateInterval;
+  final Duration memLogInterval;
   final String _version;
   final Api? _apiOverride;
   final String Function() _machineCode;
@@ -151,6 +161,7 @@ class NativeBackend implements Backend {
   // akun di tb_sesi.json & dipasang lagi sebelum navigasi pertama
   String? _viewAcct;
   Timer? _rtT;
+  Timer? _updT;
   bool _rtBusy = false, _seenIn = false;
   String _rtSaved = '';
   // login Google otomatis / tahan cover selama relay OAuth
@@ -172,6 +183,12 @@ class NativeBackend implements Backend {
   Future<void>? _run;
   StreamSubscription<CdpEvent>? _netSub;
   Timer? _poll;
+  Timer? _memT;
+  // diagnosa beban: waktu CPU per pid di sampel sebelumnya + jumlah
+  // respons per host sejak log terakhir
+  Map<int, int> _cpuPrev = {};
+  DateTime? _cpuAt;
+  final _hosts = <String, int>{};
   double _loginNavT = 0;
   int _askSeq = 0;
   final _asking = <String>{};
@@ -239,6 +256,76 @@ class NativeBackend implements Backend {
     final v = _view;
     if (v == null || v.disposed) return;
     v.setVisible(!_coverOn && !_occluded).catchError((_) {});
+  }
+
+  /// Log memori WebView2 per jenis proses, mis.
+  /// `[mem] WebView2 1234 MB: renderer 3x 800, gpu 250, browser 120, ...`
+  /// (private bytes; mirip kolom Memory di Task Manager).
+  Future<void> _memLog({bool quiet = false}) async {
+    final v = _view;
+    if (v == null || v.disposed) return;
+    try {
+      final l = await v.memInfo();
+      if (l.isEmpty) return;
+      final kini = DateTime.now();
+      final cpuKini = <int, int>{};
+      final cpuPer = <String, int>{};
+      for (final p in l) {
+        final pid = (p['pid'] as num?)?.toInt() ?? 0;
+        final c = (p['cpu'] as num?)?.toInt() ?? 0;
+        cpuKini[pid] = c;
+        final lama = _cpuPrev[pid];
+        if (lama != null && c >= lama) {
+          cpuPer['${p['kind']}'] = (cpuPer['${p['kind']}'] ?? 0) + c - lama;
+        }
+      }
+      final dari = _cpuAt;
+      _cpuPrev = cpuKini;
+      _cpuAt = kini;
+      if (quiet) return;
+      if (dari != null) {
+        // % dari seluruh inti CPU (sama dgn kolom CPU di Task Manager)
+        final jendela = kini.difference(dari).inMicroseconds * 10 * Platform.numberOfProcessors;
+        if (jendela > 0) {
+          int pct(int t) => (t * 100 / jendela).round();
+          final tot = cpuPer.values.fold(0, (a, b) => a + b);
+          final rinciCpu = (cpuPer.entries.toList()..sort((a, b) => b.value.compareTo(a.value)))
+              .map((e) => '${e.key} ${pct(e.value)}')
+              .join(', ');
+          _log('[cpu] WebView2 ${pct(tot)}%: $rinciCpu');
+        }
+      }
+      if (_hosts.isNotEmpty) {
+        final top = (_hosts.entries.toList()..sort((a, b) => b.value.compareTo(a.value)))
+            .take(15)
+            .map((e) => '${e.key} ${e.value}')
+            .join(', ');
+        _log('[net] respons per host: $top');
+        _hosts.clear();
+      }
+      final per = <String, List<int>>{};
+      var tot = 0;
+      for (final p in l) {
+        final b = (p['private'] as num?)?.toInt() ?? 0;
+        tot += b;
+        (per['${p['kind']}'] ??= [0, 0])
+          ..[0] += 1
+          ..[1] += b;
+      }
+      int mb(int b) => (b / 1048576).round();
+      final rinci = (per.entries.toList()..sort((a, b) => b.value[1].compareTo(a.value[1])))
+          .map((e) => '${e.key} ${e.value[0] > 1 ? '${e.value[0]}x ' : ''}${mb(e.value[1])}')
+          .join(', ');
+      _log('[mem] WebView2 ${mb(tot)} MB: $rinci');
+    } catch (e) {
+      _log('[mem] gagal baca memori: $e');
+    }
+  }
+
+  void _applyMute(WebView v) {
+    v.setMuted(_snap['sound']!['muted'] == true).catchError((Object e) {
+      _log('[web] bisu gagal: $e');
+    });
   }
 
   // ------------------------------------------------------------ settings
@@ -312,6 +399,9 @@ class NativeBackend implements Backend {
       final tok = lic.loadToken(_licPath);
       if (tok != null && lic.verifyToken(tok)) _tok = tok;
       unawaited(_netBoot());
+      // cek pembaruan berkala: versi baru muncul tanpa buka-tutup app
+      _updT?.cancel();
+      _updT = Timer.periodic(updateInterval, (_) => _updateTick());
     }
     final ver = await host.version().catchError((_) => '');
     if (ver.isEmpty) {
@@ -348,6 +438,7 @@ class NativeBackend implements Backend {
     }
     _view = v;
     _viewAcct = name;
+    if (_snap['sound']!['muted'] == true) _applyMute(v);
     _set('plan', {'segments': _planFor(name ?? '')});
     _set('range', {'unlocked': _unlockedFor(name ?? '')});
     _labelDone = false;
@@ -530,7 +621,17 @@ class NativeBackend implements Backend {
     }
   }
 
-  bool _relayUrl(String u) => u.contains('auth_callback') || u.contains('oauth_relay=');
+  /// Halaman balik OAuth (bukan halaman Google-nya). DULU cukup
+  /// `contains('auth_callback')`: URL Google sendiri memuat teks itu di
+  /// redirect_uri -> klik "Sign in with Google" langsung ditutup cover
+  /// lalu dilempar balik ke /signin (kena kalau belum ada sesi Google).
+  bool _relayUrl(String url) {
+    final u = Uri.tryParse(url);
+    if (u == null) return false;
+    if (u.host.contains('typingclub')) return u.path.contains('auth_callback');
+    if (u.host.endsWith('edclub.com')) return u.queryParameters.containsKey('oauth_relay');
+    return false;
+  }
 
   Future<void> _loginGate() async {
     final run = _gateRun;
@@ -662,6 +763,32 @@ class NativeBackend implements Backend {
 
   /// rt berputar tiap refresh: simpan tiap berubah, HANYA saat pasti login
   /// (boot anonim juga dapat rt, itu tidak boleh menimpa yang bagus).
+  int _guestN = 0;
+
+  /// edclub kini menampilkan daftar level ke TAMU (belum login, tombol
+  /// 'Log in' di header). Kalau gerbang login terlewat (mis. internet
+  /// lambat: cover sudah turun karena batas waktu sebelum halaman siap),
+  /// app diam di halaman tamu dgn status 'Siap' (laporan 24 Nov). Tamu
+  /// yang bertahan ~6 dtk di halaman /student = buka halaman login.
+  Future<void> _guestCheck(WebView v, Uri u) async {
+    if (running || _coverOn || _oauthHold || !u.path.startsWith('/student')) {
+      _guestN = 0;
+      return;
+    }
+    if (await _profile() != 'out' || v != _view) {
+      _guestN = 0;
+      return;
+    }
+    if (++_guestN < 2) return;
+    _guestN = 0;
+    _log('[LOGIN] Halaman tamu (belum login) - membuka halaman login.');
+    _set('bot', {'needs_login': true});
+    await v.navigate(signinUrl).catchError((_) {});
+  }
+
+  @visibleForTesting
+  Future<void> rtTickForTest() => _rtTick();
+
   Future<void> _rtTick() async {
     final v = _view;
     if (v == null || v.disposed || _rtBusy) return;
@@ -675,7 +802,12 @@ class NativeBackend implements Backend {
     _rtBusy = true;
     try {
       final rt = await _rtNow(v);
-      if (rt == null || rt.isEmpty || rt == _rtSaved) return;
+      if (rt == null || rt.isEmpty) {
+        await _guestCheck(v, u);
+        return;
+      }
+      _guestN = 0;
+      if (rt == _rtSaved) return;
       final masuk = (diLesson(url) && _seenIn) || await _profile() == 'in';
       if (!masuk || v != _view) return;
       _seenIn = true;
@@ -767,6 +899,13 @@ class NativeBackend implements Backend {
         _set('speed', {'wpm': w});
         if (p['save'] != false) _saveSettings({'speed': w});
         return {'wpm': w};
+      case 'sound.set':
+        final on = p['muted'] == true;
+        _set('sound', {'muted': on});
+        _saveSettings({'muted': on});
+        final v = _view;
+        if (v != null && !v.disposed) _applyMute(v);
+        return {'muted': on};
       case 'plan.set':
         return _planSet(p['segments']);
       case 'settings.get':
@@ -1156,14 +1295,30 @@ class NativeBackend implements Backend {
     v.focus().catchError((_) {});
     try {
       await page.attach();
-      await page.cdp('Network.enable').catchError((_) => <String, dynamic>{});
+      // buffer kecil: tanpa batas, Chromium menyimpan salinan isi respons
+      // (utk DevTools) sampai ratusan MB selama bot jalan, padahal sentinel
+      // login cuma butuh status + URL
+      await page.cdp('Network.enable', {
+        'maxTotalBufferSize': 1000000,
+        'maxResourceBufferSize': 100000,
+        'maxPostDataSize': 0,
+      }).catchError((_) => <String, dynamic>{});
       _netSub = page.bridge
           .listen('Network.responseReceived')
-          .listen((e) => eng.onNetworkResponse(e.params), onError: (_) {});
+          .listen((e) {
+        eng.onNetworkResponse(e.params);
+        final r = e.params['response'];
+        final h = r is Map ? Uri.tryParse('${r['url'] ?? ''}')?.host ?? '' : '';
+        if (h.isNotEmpty) _hosts[h] = (_hosts[h] ?? 0) + 1;
+      }, onError: (_) {});
     } catch (e) {
       _log('[BOT] gagal menyambung ke halaman: $e');
     }
     _poll = Timer.periodic(pollInterval, (_) => _tick());
+    _memT?.cancel();
+    _hosts.clear();
+    unawaited(_memLog(quiet: true)); // titik awal hitungan CPU
+    _memT = Timer.periodic(memLogInterval, (_) => _memLog());
     _run = eng.run().catchError((Object e) {
       _set('bot', {'error': '$e'.length > 200 ? '$e'.substring(0, 200) : '$e'});
       _log('[BOT] berhenti karena error: $e');
@@ -1187,6 +1342,9 @@ class NativeBackend implements Backend {
   Future<void> _finished() async {
     _poll?.cancel();
     _poll = null;
+    _memT?.cancel();
+    _memT = null;
+    unawaited(_memLog());
     final e = _engine;
     await _netSub?.cancel();
     _netSub = null;
@@ -1642,6 +1800,20 @@ class NativeBackend implements Backend {
     _set('license', {'state': 'need'});
   }
 
+  /// Cek berkala: diam saja kalau gagal / sedang mengunduh / siap pasang.
+  Future<void> _updateTick() async {
+    final ph = '${_snap['update']!['phase'] ?? 'idle'}';
+    if (_closed || ph == 'downloading' || ph == 'ready') return;
+    try {
+      await _updateCheck();
+    } catch (e) {
+      _log('[net] cek pembaruan berkala gagal: $e');
+    }
+  }
+
+  @visibleForTesting
+  Future<void> updateTickForTest() => _updateTick();
+
   Future<dynamic> _updateCheck() async {
     // rilis di server = TypingBot.exe Windows; Mac ambil dari rilis GitHub
     // (aset TypingBot-mac.zip). Tes (api disuntik) tetap jalur biasa.
@@ -1764,8 +1936,10 @@ class NativeBackend implements Backend {
     if (Platform.isMacOS && _apiOverride == null) {
       await _macInstall(p);
     } else {
+      // folder kerja = folder unduhan, BUKAN folder app (warisan): pemasang
+      // tak bisa me-rename folder app selama jadi folder kerjanya
       await Process.start(p, ['--update', '--wait', '$pid'],
-          mode: ProcessStartMode.detached);
+          workingDirectory: File(p).parent.path, mode: ProcessStartMode.detached);
     }
     _log('[UPDATE] memasang versi baru, app ditutup.');
     Timer(const Duration(milliseconds: 400), () => exit(0));
@@ -1812,9 +1986,11 @@ class NativeBackend implements Backend {
     _closed = true;
     _engine?.st.stop = true;
     _poll?.cancel();
+    _memT?.cancel();
     _stopWaiting();
     _gateRun++;
     _rtT?.cancel();
+    _updT?.cancel();
     _holdT?.cancel();
     _revealT?.cancel();
     _viewSub?.cancel();

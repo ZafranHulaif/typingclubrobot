@@ -25,6 +25,8 @@ class FakeNative {
   final cdpParams = <String>[];
   String? rt; // kuki rt di jar palsu
   String displayName = '';
+  String profile = 'in'; // hasil cek login DOM
+  String url = 'https://www.edclub.com/';
 
   Future<Object?> _handle(MethodCall c) async {
     calls.add(c);
@@ -44,11 +46,11 @@ class FakeNative {
       case 'eval':
         // cek login saat webview dibuka: anggap sudah login
         final js = '${(c.arguments as Map)['js']}';
-        if (js.contains('tb:login')) return '"in"';
+        if (js.contains('tb:login')) return jsonEncode(profile);
         if (js.contains('profile-name')) return jsonEncode(displayName);
         return '42';
       case 'info':
-        return {'url': 'https://www.edclub.com/', 'title': 't'};
+        return {'url': url, 'title': 't'};
     }
     return null;
   }
@@ -150,6 +152,37 @@ void main() {
       expect(fake.named('setVisible').last.arguments['on'], true);
     });
 
+    test('halaman tamu edclub (belum login, cover sudah turun) -> ke halaman login',
+        () async {
+      _listen(be);
+      await be.connect();
+      await _flush();
+      await fake.emit(1, 'nav', {'phase': 'done', 'ok': true, 'url': homeUrl});
+      await _flush();
+      expect(cover()['visible'], false);
+      fake.profile = 'out';
+      final nav0 = fake.named('navigate').length;
+      await be.rtTickForTest();
+      expect(fake.named('navigate').length, nav0); // sekali 'out' belum cukup
+      await be.rtTickForTest();
+      await _flush();
+      expect(fake.named('navigate').last.arguments['url'], signinUrl);
+      expect((_last['bot'] as Map)['needs_login'], true);
+    });
+
+    test('sudah login: tidak dilempar ke halaman login', () async {
+      _listen(be);
+      await be.connect();
+      await _flush();
+      await fake.emit(1, 'nav', {'phase': 'done', 'ok': true, 'url': homeUrl});
+      await _flush();
+      final nav0 = fake.named('navigate').length;
+      for (var i = 0; i < 3; i++) {
+        await be.rtTickForTest();
+      }
+      expect(fake.named('navigate').length, nav0);
+    });
+
     test('target bintang selain perak mengunci kecepatan', () async {
       _listen(be);
       await be.connect();
@@ -206,6 +239,48 @@ void main() {
       expect(c['folder'], endsWith('Akun baru'));
       expect((_last['account'] as Map)['active'], 'Akun baru');
       expect((_last['account'] as Map)['pending'], true);
+    });
+
+    test('tambah akun: sesi 3.5.x (sesi_edclub.json) tidak ikut terpasang', () async {
+      File('${tmp.path}/sesi_edclub.json').writeAsStringSync(jsonEncode({
+        't': DateTime.now().millisecondsSinceEpoch / 1000,
+        'cookies': [
+          {'name': 'rt', 'value': 'RT-AKUN-LAMA', 'domain': '.edclub.com', 'path': '/'},
+        ],
+      }));
+      _listen(be);
+      await be.connect();
+      await _flush();
+      fake.cdpCalls.clear();
+      await be.request('acct.add');
+      await _flush();
+      expect(fake.cdpCalls.where((m) => m == 'Network.setCookie'), isEmpty);
+    });
+
+    test('bisu: halaman dibisukan, disimpan, tetap bisu saat dibuka lagi', () async {
+      _listen(be);
+      await be.connect();
+      await _flush();
+      expect(fake.calls.where((c) => c.method == 'setMuted'), isEmpty);
+      expect(await be.request('sound.set', {'muted': true}), {'muted': true});
+      await _flush();
+      expect(_last['sound'], {'muted': true});
+      final m = fake.calls.lastWhere((c) => c.method == 'setMuted');
+      expect((m.arguments as Map)['on'], true);
+      be.close();
+      // buka lagi: webview baru langsung dibisukan
+      fake.calls.clear();
+      final b2 = NativeBackend(
+          version: 't', host: WebHost(), accounts: AccountStore(tmp.path),
+          checkLicense: false, revealTimeout: const Duration(seconds: 5));
+      await b2.connect();
+      await _flush();
+      final m2 = fake.calls.lastWhere((c) => c.method == 'setMuted');
+      expect((m2.arguments as Map)['on'], true);
+      await b2.request('sound.set', {'muted': false});
+      await _flush();
+      expect((fake.calls.last.arguments as Map)['on'], false);
+      b2.close();
     });
 
     test('sesi edclub (kuki rt): disimpan saat login, dipasang lagi saat buka', () async {
@@ -361,6 +436,28 @@ void main() {
       expect(fake.cdpCalls, contains('Storage.clearDataForOrigin'));
       expect(fake.named('navigate').last.arguments['url'], signinUrl);
       expect((_last['bot'] as Map)['needs_login'], true);
+    });
+
+    test('klik Sign in with Google: halaman Google tidak ditutup / dilempar balik', () async {
+      _listen(be);
+      await be.connect();
+      await _flush();
+      await fake.emit(1, 'nav', {'phase': 'done', 'ok': true, 'url': signinUrl});
+      await _flush();
+      final nav0 = fake.named('navigate').length;
+      // URL Google memuat 'auth_callback' di redirect_uri
+      const g = 'https://accounts.google.com/v3/signin/identifier?client_id=x'
+          '&redirect_uri=https%3A%2F%2Fs.typingclub.com%2Fm%2Fauth_callback.html&response_type=code';
+      await fake.emit(1, 'nav', {'phase': 'start', 'url': g});
+      await fake.emit(1, 'nav', {'phase': 'done', 'ok': true, 'url': g});
+      await _flush();
+      expect(cover()['visible'], false);
+      expect(fake.named('navigate').length, nav0);
+      // balik dari Google = baru cover 'Sedang masuk...'
+      await fake.emit(1, 'nav', {'phase': 'start',
+          'url': 'https://s.typingclub.com/m/auth_callback.html?code=abc'});
+      await _flush();
+      expect(cover()['visible'], true);
     });
 
     test('halaman /signin = tanda perlu login', () async {

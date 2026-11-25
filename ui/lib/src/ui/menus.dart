@@ -362,14 +362,93 @@ class _AccountButtonState extends State<AccountButton> {
                 if (++_taps >= 5) setState(() => _dev = true);
               },
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
-                child: Text('TypingBot ${s.app['version'] ?? ''}',
-                    style: t.labelSmall!.copyWith(color: c.outline)),
+                padding: const EdgeInsets.fromLTRB(14, 4, 6, 4),
+                child: Row(children: [
+                  Text('TypingBot ${s.app['version'] ?? ''}',
+                      style: t.labelSmall!.copyWith(color: c.outline)),
+                  const Spacer(),
+                  const _UpdateCheck(),
+                ]),
               ),
             ),
           ]),
         );
       },
+    );
+  }
+}
+
+/// "Cek pembaruan" di kaki menu akun: cek sekarang tanpa buka-tutup app.
+/// Versi baru = tombol "Versi baru" muncul di kanan tombol akun.
+class _UpdateCheck extends StatefulWidget {
+  const _UpdateCheck();
+
+  @override
+  State<_UpdateCheck> createState() => _UpdateCheckState();
+}
+
+class _UpdateCheckState extends State<_UpdateCheck> {
+  String _st = 'idle'; // idle / cek / terbaru / ada / gagal
+  Timer? _balik;
+
+  @override
+  void dispose() {
+    _balik?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _cek() async {
+    if (_st == 'cek') return;
+    _balik?.cancel();
+    setState(() => _st = 'cek');
+    final s = StoreScope.of(context);
+    dynamic r;
+    try {
+      r = await s.bridge.request('update.check');
+    } catch (_) {
+      r = null;
+    }
+    if (!mounted) return;
+    final ada = r is Map && r['available'] == true;
+    setState(() => _st = r == null ? 'gagal' : ada ? 'ada' : 'terbaru');
+    _balik = Timer(const Duration(seconds: 5), () {
+      if (mounted) setState(() => _st = 'idle');
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final c = Theme.of(context).colorScheme;
+    final u = StoreScope.of(context).update;
+    final (IconData? ikon, String teks, Color warna) = switch (_st) {
+      'cek' => (null, 'Memeriksa...', c.onSurfaceVariant),
+      'terbaru' => (Icons.check_rounded, 'Sudah versi terbaru', c.primary),
+      'ada' => (Icons.arrow_circle_up_rounded, 'Versi ${u['version'] ?? 'baru'} tersedia', c.secondary),
+      'gagal' => (Icons.wifi_off_rounded, 'Gagal, coba lagi', c.error),
+      _ => (Icons.refresh_rounded, 'Cek pembaruan', c.onSurfaceVariant),
+    };
+    return TextButton(
+      onPressed: _st == 'cek' ? null : _cek,
+      style: TextButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        minimumSize: const Size(0, 28),
+        foregroundColor: warna,
+        disabledForegroundColor: warna,
+      ),
+      child: AnimatedSwitcher(
+        duration: Motion.short,
+        child: Row(key: ValueKey(_st), mainAxisSize: MainAxisSize.min, children: [
+          if (ikon == null)
+            SizedBox.square(
+                dimension: 12, child: CircularProgressIndicator(strokeWidth: 1.6, color: warna))
+          else
+            Icon(ikon, size: 14, color: warna),
+          const SizedBox(width: 6),
+          Text(teks, style: t.labelSmall!.copyWith(color: warna)),
+        ]),
+      ),
     );
   }
 }
@@ -400,6 +479,31 @@ class _Avatar extends StatelessWidget {
 }
 
 // ================================================================ lapor
+/// Bisukan / nyalakan suara halaman edclub (enak saat bot jalan di
+/// latar). Disimpan, jadi tetap bisu waktu app dibuka lagi.
+class MuteButton extends StatelessWidget {
+  const MuteButton({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final on = s.muted;
+    return BarButton(
+      key: const ValueKey('mute'),
+      onTap: () => s.call('sound.set', {'muted': !on}),
+      // latar terisi saat bisu = jelas suaranya sedang mati
+      selected: on,
+      tooltip: on ? 'Nyalakan suara' : 'Bisukan suara',
+      child: AnimatedSwitcher(
+        duration: Motion.short,
+        child: Icon(
+          on ? Icons.volume_off_rounded : Icons.volume_up_outlined,
+          key: ValueKey(on),
+        ),
+      ),
+    );
+  }
+}
+
 class ReportButton extends StatelessWidget {
   const ReportButton({super.key});
   @override
@@ -524,6 +628,9 @@ class UpdateButton extends StatelessWidget {
             .where((l) => l.trim().startsWith('- '))
             .map((l) => l.replaceAll('**', '').substring(2))
             .toList();
+        // catatan server biasanya satu kalimat tanpa '- ': tampilkan apa adanya
+        final polos = '${u['notes'] ?? ''}'.trim();
+        if (notes.isEmpty && polos.isNotEmpty) notes.add(polos.replaceAll('**', ''));
         return Padding(
           padding: const EdgeInsets.all(16),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -532,7 +639,7 @@ class UpdateButton extends StatelessWidget {
             for (final n in notes)
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
-                child: Text('· $n', style: t.bodyMedium!.copyWith(color: c.onSurfaceVariant)),
+                child: Text(notes.length > 1 ? '· $n' : n, style: t.bodyMedium!.copyWith(color: c.onSurfaceVariant)),
               ),
             const SizedBox(height: 10),
             if ('${u['error'] ?? ''}'.isNotEmpty)

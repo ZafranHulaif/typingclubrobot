@@ -2,6 +2,8 @@
 
 #include <flutter/standard_method_codec.h>
 
+#include <psapi.h>
+
 #include <cstdio>
 #include <vector>
 
@@ -231,6 +233,80 @@ void WebHost::Handle(const flutter::MethodCall<EncodableValue>& call,
   } else if (m == "goBack") {
     v->webview->GoBack();
     result->Success();
+  } else if (m == "setMuted") {
+    // bisukan semua suara halaman (video, efek ketik, minigame). Butuh
+    // runtime 101+ (ICoreWebView2_8); lebih tua = tidak bisa dibisukan.
+    ComPtr<ICoreWebView2_8> w8;
+    if (SUCCEEDED(v->webview.As(&w8)) && w8) {
+      HRESULT hr = w8->put_IsMuted(ArgBool(a, "on") ? TRUE : FALSE);
+      if (FAILED(hr)) {
+        result->Error("mute_failed", HrText(hr));
+      } else {
+        result->Success();
+      }
+    } else {
+      result->Error("mute_unsupported", "runtime WebView2 terlalu lama");
+    }
+  } else if (m == "memInfo") {
+    // memori tiap proses WebView2 (browser / renderer / gpu / utility),
+    // utk log diagnosa 'app berat'. Runtime 1.0.1108+ (Environment8).
+    ComPtr<ICoreWebView2Environment8> e8;
+    ComPtr<ICoreWebView2ProcessInfoCollection> list;
+    UINT32 n = 0;
+    if (!v->env || FAILED(v->env.As(&e8)) || !e8 ||
+        FAILED(e8->GetProcessInfos(&list)) || !list ||
+        FAILED(list->get_Count(&n))) {
+      result->Error("mem_unsupported", "runtime WebView2 terlalu lama");
+      return;
+    }
+    EncodableList out;
+    for (UINT32 i = 0; i < n; ++i) {
+      ComPtr<ICoreWebView2ProcessInfo> pi;
+      if (FAILED(list->GetValueAtIndex(i, &pi)) || !pi) continue;
+      INT32 pid = 0;
+      COREWEBVIEW2_PROCESS_KIND kind = COREWEBVIEW2_PROCESS_KIND_BROWSER;
+      pi->get_ProcessId(&pid);
+      pi->get_Kind(&kind);
+      const char* k = "lain";
+      switch (kind) {
+        case COREWEBVIEW2_PROCESS_KIND_BROWSER: k = "browser"; break;
+        case COREWEBVIEW2_PROCESS_KIND_RENDERER: k = "renderer"; break;
+        case COREWEBVIEW2_PROCESS_KIND_GPU: k = "gpu"; break;
+        case COREWEBVIEW2_PROCESS_KIND_UTILITY: k = "utility"; break;
+        default: break;
+      }
+      int64_t priv = 0, ws = 0, cpu = 0;
+      HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+                             static_cast<DWORD>(pid));
+      if (h) {
+        PROCESS_MEMORY_COUNTERS_EX pmc{};
+        pmc.cb = sizeof(pmc);
+        if (K32GetProcessMemoryInfo(
+                h, reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pmc),
+                sizeof(pmc))) {
+          priv = static_cast<int64_t>(pmc.PrivateUsage);
+          ws = static_cast<int64_t>(pmc.WorkingSetSize);
+        }
+        // total waktu CPU (kernel + user), satuan 100 ns
+        FILETIME c0, e0, k0, u0;
+        if (GetProcessTimes(h, &c0, &e0, &k0, &u0)) {
+          auto t = [](const FILETIME& f) {
+            return (static_cast<int64_t>(f.dwHighDateTime) << 32) |
+                   f.dwLowDateTime;
+          };
+          cpu = t(k0) + t(u0);
+        }
+        CloseHandle(h);
+      }
+      EncodableMap r;
+      r[EncodableValue("kind")] = EncodableValue(k);
+      r[EncodableValue("pid")] = EncodableValue(static_cast<int64_t>(pid));
+      r[EncodableValue("private")] = EncodableValue(priv);
+      r[EncodableValue("ws")] = EncodableValue(ws);
+      r[EncodableValue("cpu")] = EncodableValue(cpu);
+      out.push_back(EncodableValue(r));
+    }
+    result->Success(EncodableValue(out));
   } else if (m == "focus") {
     v->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
     result->Success();

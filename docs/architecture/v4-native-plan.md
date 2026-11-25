@@ -407,6 +407,99 @@ Faster recovery when edclub opens a lesson page without mounting the lesson ifra
 main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 recovered only at
 05:37:14). Owner approved the release after testing dev24.
 
+### 4.0.1: edclub UI change (24 Nov)
+- Pop-up closer rule `[class*="popup"] [class*="x" i]` matched almost every element of edclub's
+  new UI (flex, text-xs, max-w). Once a container with class "popup" appeared, the bot clicked
+  the account button every second (Profile menu, sometimes the profile page, lesson focus lost,
+  "ketikan tidak masuk"). Now: header/nav and dropdown openers ([aria-haspopup]/[aria-expanded])
+  are never clicked by the closer, and that rule only accepts a real X (<=48px, text x/×/empty,
+  whole class token x/close-x/btn-x). Verified on a mock page: old rule clicked the account
+  button, new rule only the modal's ×.
+- edclub now shows the level list to guests (Sign up / Log in in the header). If the login gate
+  was skipped (slow internet: the cover timed out first), the app sat on the guest page with
+  status "Siap" (friend's report: "gak bisa login"). `_guestCheck` (every 3 s in `_rtTick`): no
+  rt cookie + profile 'out' twice on a /student page while idle -> open the login page.
+
+### 4.0.2: manual "Sign in with Google" bounced back to /signin
+- `_relayUrl` was `contains('auth_callback')`, but edclub's Google URL carries
+  `redirect_uri=https://s.typingclub.com/m/auth_callback.html`. So nav start on Google itself raised
+  the "Sedang masuk..." cover and `_oauthHold`; nav done on the Google host was then treated as a
+  failed prompt=none and the view was sent back to /signin. This only shows when the profile has no
+  Google session yet (a new account, a friend's PC). With a session, Google redirects straight away
+  and no 'done' fires on the Google host, which hid the bug since dev5. Now only
+  `*typingclub*/…auth_callback…` or `edclub.com?oauth_relay=` counts as relay.
+
+### 4.0.3: new account came up logged in as an old 3.5.x account
+- `AccountStore.legacyCookies(name)` falls back to the 3.5.x global `sesi_edclub.json` whenever
+  `name` is the active account. "Tambah akun" makes the new pending account active, so the first
+  open of "Akun baru" imported the old 3.5.x session (owner: "Akun baru" opened as Zafran H).
+  Pending accounts now never get legacy cookies.
+
+### 4.0.4: in-app update failed with "TypingBot masih terbuka"
+- First real in-app update (4.0.2 -> 4.0.3) failed. The app started the carrier with no working
+  directory, so the carrier inherited the app's cwd = `%LOCALAPPDATA%\TypingBot\app` (the launcher
+  and Start Menu shortcut both used `app` as working dir). Windows can't rename a directory that is
+  some process's cwd, so `MoveFileEx(app, app.old)` failed for 10 s -> Fail("masih terbuka").
+  CI never caught it: the installer test ran the carrier from the repo dir.
+- Fix: the carrier `SetCurrentDirectoryW(base)` first thing (the NEW carrier runs the swap, so this
+  also fixes updates started from 4.0.2/4.0.3); the app passes `workingDirectory` = download dir;
+  the app and its shortcuts now start with cwd = `TypingBot` (not `app`, so lingering WebView2 child
+  processes don't pin it either); swap retry 10 s -> 30 s. CI: extra update run with
+  `-WorkingDirectory $app`.
+
+### 4.0.5: back button on login pages, new installer screen
+- `ui/lib/src/web/js_back.dart` (hand-written, not from gen_js): on accounts.google.com /
+  clever.com / login.microsoftonline|live|microsoft.com (top frame only) a round edclub-style back
+  button sits top-left -> `edclub.com/signin?tb_back=1`. On edclub, `tb_back=1` + sessionStorage
+  `tb_oauth_from == 'signup'` (set by the relay script's click listener) -> /signup, otherwise the
+  param is stripped. No innerHTML/style attribute (Google's Trusted Types/CSP). Checked live in
+  Playwright on the real Google sign-in page.
+- Installer splash rewritten: per-monitor DPI aware (was blurry, bitmap-stretched at 125/150%),
+  app colours (surfaceContainerLow bg, volt bar), app icon, title "Memasang/Memperbarui TypingBot" +
+  "Versi X", indeterminate bar animated by a 16 ms timer (double-buffered), Win11 rounded corners +
+  border via DWM (Win10: window region + own border), draggable. Waits now pump messages so the
+  animation doesn't freeze. `TB_SETUP_SPLASH_HOLD=<ms>` holds the splash for the CI screenshot
+  (artifact `installer-splash`).
+
+### 4.0.6: update check while the app is open
+- Backend checks `/api/latest` every `updateInterval` (20 min) after boot (silent on failure, skipped
+  while downloading / ready to install), so a new release shows the "Versi baru" button next to the
+  account button without restarting.
+- Account menu footer: "Cek pembaruan" next to the version (Memeriksa... -> Sudah versi terbaru /
+  Versi X tersedia / Gagal, coba lagi; back to idle after 5 s). Owner asked for it "right of the
+  profile"; kept in the menu so the top bar stays clean, the update button itself still appears there.
+- Update popover: the worker's one-line notes (no "- " bullets) used to show nothing; now shown as is.
+
+### 4.0.7: mute
+- Speaker button in the top bar (left of the bug-report button): mutes every sound of the edclub page
+  (videos, key clicks, minigames) via WebView2 `ICoreWebView2_8::put_IsMuted` (host method `setMuted`,
+  runtime 101+; older runtime = error logged, page keeps playing). Filled background while muted.
+- Backend: snapshot `sound {muted}`, request `sound.set {muted}`, saved as `muted` in
+  typingbot_settings.json and re-applied to every new webview (account switch, app restart).
+- Media keeps playing while muted (only output is silenced), so `mediaPlayingJs` / video waits and the
+  audio gate behave the same.
+
+### 4.0.7: memory (owner: "WebView2 Manager" 1.5 GB in Task Manager on a low-end laptop)
+- `Network.enable` (login sentinel, reads only status + URL) now passes tiny `maxTotalBufferSize` /
+  `maxResourceBufferSize`; default kept response bodies for DevTools up to a large cap over a long run.
+- Host method `memInfo` (ICoreWebView2Environment8::GetProcessInfos + K32GetProcessMemoryInfo):
+  `bot.log` gets `[mem] WebView2 N MB: renderer 3x .., gpu .., browser .., utility ..` every 5 min while
+  running and once at stop, so the next cut (ads/iframes, GPU, SPA growth) is chosen from real numbers.
+- Could not measure a logged-in edclub page from the VPS: Cloudflare challenge blocks datacenter IPs.
+
+### 4.0.8: load diagnostics (owner: memory halved to ~640 MB after 4.0.7, WebView2 still at 62% CPU)
+- `memInfo` also returns CPU time per process (GetProcessTimes). bot.log: `[cpu] WebView2 N%: renderer ..,
+  gpu ..` (share of all cores, like Task Manager) next to `[mem]`, baseline taken at Start.
+- `[net] respons per host: ...` top 15 hosts by response count since the last log (main session only),
+  to decide whether ads/trackers are worth blocking before touching the page.
+- Owner's 4.0.7 background run (muted): 505 -> 685 (whole course) in ~50 min, then stuck ~1 h on
+  /student/course/3. Cause: range "akhir kursus" = levelEnd 0, and rule 1b (left the last level = done)
+  only ran with levelEnd > 0 (and rangeCheck returned early for runs without any range). Now the end
+  defaults to the last level of `levelPeta` (685) for rule 1b, checked for every run.
+  Test: engine_range_test.dart.
+- Same run's `[mem]`: GPU process 0.8-1.2 GB private, renderers 2x 0.65-1.3 GB (private bytes, higher
+  than Task Manager's private working set).
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
