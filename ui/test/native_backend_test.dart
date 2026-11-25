@@ -396,6 +396,28 @@ void main() {
       expect((_last['bot'] as Map)['needs_login'], true);
     });
 
+    test('klik Sign in with Google: halaman Google tidak ditutup / dilempar balik', () async {
+      _listen(be);
+      await be.connect();
+      await _flush();
+      await fake.emit(1, 'nav', {'phase': 'done', 'ok': true, 'url': signinUrl});
+      await _flush();
+      final nav0 = fake.named('navigate').length;
+      // URL Google memuat 'auth_callback' di redirect_uri
+      const g = 'https://accounts.google.com/v3/signin/identifier?client_id=x'
+          '&redirect_uri=https%3A%2F%2Fs.typingclub.com%2Fm%2Fauth_callback.html&response_type=code';
+      await fake.emit(1, 'nav', {'phase': 'start', 'url': g});
+      await fake.emit(1, 'nav', {'phase': 'done', 'ok': true, 'url': g});
+      await _flush();
+      expect(cover()['visible'], false);
+      expect(fake.named('navigate').length, nav0);
+      // balik dari Google = baru cover 'Sedang masuk...'
+      await fake.emit(1, 'nav', {'phase': 'start',
+          'url': 'https://s.typingclub.com/m/auth_callback.html?code=abc'});
+      await _flush();
+      expect(cover()['visible'], true);
+    });
+
     test('halaman /signin = tanda perlu login', () async {
       _listen(be);
       await be.connect();

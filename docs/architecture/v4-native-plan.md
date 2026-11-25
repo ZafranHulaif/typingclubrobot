@@ -420,6 +420,15 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   status "Siap" (friend's report: "gak bisa login"). `_guestCheck` (every 3 s in `_rtTick`): no
   rt cookie + profile 'out' twice on a /student page while idle -> open the login page.
 
+### 4.0.2: manual "Sign in with Google" bounced back to /signin
+- `_relayUrl` was `contains('auth_callback')`, but edclub's Google URL carries
+  `redirect_uri=https://s.typingclub.com/m/auth_callback.html`. So nav start on Google itself raised
+  the "Sedang masuk..." cover and `_oauthHold`; nav done on the Google host was then treated as a
+  failed prompt=none and the view was sent back to /signin. This only shows when the profile has no
+  Google session yet (a new account, a friend's PC). With a session, Google redirects straight away
+  and no 'done' fires on the Google host, which hid the bug since dev5. Now only
+  `*typingclub*/…auth_callback…` or `edclub.com?oauth_relay=` counts as relay.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,

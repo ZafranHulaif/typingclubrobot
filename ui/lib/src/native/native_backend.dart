@@ -529,7 +529,17 @@ class NativeBackend implements Backend {
     }
   }
 
-  bool _relayUrl(String u) => u.contains('auth_callback') || u.contains('oauth_relay=');
+  /// Halaman balik OAuth (bukan halaman Google-nya). DULU cukup
+  /// `contains('auth_callback')`: URL Google sendiri memuat teks itu di
+  /// redirect_uri -> klik "Sign in with Google" langsung ditutup cover
+  /// lalu dilempar balik ke /signin (kena kalau belum ada sesi Google).
+  bool _relayUrl(String url) {
+    final u = Uri.tryParse(url);
+    if (u == null) return false;
+    if (u.host.contains('typingclub')) return u.path.contains('auth_callback');
+    if (u.host.endsWith('edclub.com')) return u.queryParameters.containsKey('oauth_relay');
+    return false;
+  }
 
   Future<void> _loginGate() async {
     final run = _gateRun;
