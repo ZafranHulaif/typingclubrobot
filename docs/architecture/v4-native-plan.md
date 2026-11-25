@@ -461,6 +461,15 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   animation doesn't freeze. `TB_SETUP_SPLASH_HOLD=<ms>` holds the splash for the CI screenshot
   (artifact `installer-splash`).
 
+### 4.0.6: update check while the app is open
+- Backend checks `/api/latest` every `updateInterval` (20 min) after boot (silent on failure, skipped
+  while downloading / ready to install), so a new release shows the "Versi baru" button next to the
+  account button without restarting.
+- Account menu footer: "Cek pembaruan" next to the version (Memeriksa... -> Sudah versi terbaru /
+  Versi X tersedia / Gagal, coba lagi; back to idle after 5 s). Owner asked for it "right of the
+  profile"; kept in the menu so the top bar stays clean, the update button itself still appears there.
+- Update popover: the worker's one-line notes (no "- " bullets) used to show nothing; now shown as is.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,

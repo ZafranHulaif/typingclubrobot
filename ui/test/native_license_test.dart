@@ -224,4 +224,22 @@ void main() {
     expect('${lapor['isi']}', contains('=== CERITA USER ===\nmacet'));
     be.close();
   });
+
+  test('update: rilis baru saat app terbuka muncul lewat cek berkala', () async {
+    lic.saveToken('${tmp.path}/license.dat', _tokOk);
+    status = 'approved';
+    latest = '4.0.0-dev2'; // sama = belum ada
+    final be = await boot();
+    await waitFor(() => hits.any((h) => h.startsWith('GET /api/latest')));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect((last['update'] as Map?)?['available'], isNot(true));
+    latest = '4.1.0'; // dirilis saat app masih terbuka
+    await be.updateTickForTest();
+    await waitFor(() => (last['update'] as Map?)?['available'] == true);
+    expect((last['update'] as Map)['version'], '4.1.0');
+    // cek manual dari menu = jawab status yang sama
+    final r = await be.request('update.check');
+    expect((r as Map)['available'], true);
+    be.close();
+  });
 }

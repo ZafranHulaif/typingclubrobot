@@ -77,6 +77,7 @@ class NativeBackend implements Backend {
     CdpBridge Function(WebView view)? bridgeFor,
     this.clock,
     this.checkLicense = true,
+    this.updateInterval = const Duration(minutes: 20),
     Api? api,
     String Function()? machineCode,
   })  : host = host ?? webHost,
@@ -125,6 +126,7 @@ class NativeBackend implements Backend {
 
   /// false = lewati lisensi & jaringan (tes)
   final bool checkLicense;
+  final Duration updateInterval;
   final String _version;
   final Api? _apiOverride;
   final String Function() _machineCode;
@@ -154,6 +156,7 @@ class NativeBackend implements Backend {
   // akun di tb_sesi.json & dipasang lagi sebelum navigasi pertama
   String? _viewAcct;
   Timer? _rtT;
+  Timer? _updT;
   bool _rtBusy = false, _seenIn = false;
   String _rtSaved = '';
   // login Google otomatis / tahan cover selama relay OAuth
@@ -315,6 +318,9 @@ class NativeBackend implements Backend {
       final tok = lic.loadToken(_licPath);
       if (tok != null && lic.verifyToken(tok)) _tok = tok;
       unawaited(_netBoot());
+      // cek pembaruan berkala: versi baru muncul tanpa buka-tutup app
+      _updT?.cancel();
+      _updT = Timer.periodic(updateInterval, (_) => _updateTick());
     }
     final ver = await host.version().catchError((_) => '');
     if (ver.isEmpty) {
@@ -1684,6 +1690,20 @@ class NativeBackend implements Backend {
     _set('license', {'state': 'need'});
   }
 
+  /// Cek berkala: diam saja kalau gagal / sedang mengunduh / siap pasang.
+  Future<void> _updateTick() async {
+    final ph = '${_snap['update']!['phase'] ?? 'idle'}';
+    if (_closed || ph == 'downloading' || ph == 'ready') return;
+    try {
+      await _updateCheck();
+    } catch (e) {
+      _log('[net] cek pembaruan berkala gagal: $e');
+    }
+  }
+
+  @visibleForTesting
+  Future<void> updateTickForTest() => _updateTick();
+
   Future<dynamic> _updateCheck() async {
     final info = await checkUpdate(_api, _version);
     if (info == null) {
@@ -1824,6 +1844,7 @@ class NativeBackend implements Backend {
     _stopWaiting();
     _gateRun++;
     _rtT?.cancel();
+    _updT?.cancel();
     _holdT?.cancel();
     _revealT?.cancel();
     _viewSub?.cancel();
