@@ -78,6 +78,10 @@ class WebHost {
   /// Pindahkan fokus keyboard dari halaman ke app (popup dibuka).
   Future<void> blur() => _call('blur');
 
+  /// Selama bot jalan: komputer jangan tidur / app jangan diperlambat OS
+  /// (Windows: SetThreadExecutionState, macOS: App Nap dimatikan).
+  Future<void> keepAwake(bool on) => _call('keepAwake', {'on': on});
+
   /// Buat webview baru dgn folder data [folder]. [scripts] dipasang
   /// SEBELUM navigasi pertama (dokumen pertama sudah lahir dgnnya).
   Future<WebView> create({

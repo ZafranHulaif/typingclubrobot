@@ -185,6 +185,14 @@ void WebHost::Handle(const flutter::MethodCall<EncodableValue>& call,
     result->Success();
     return;
   }
+  if (m == "keepAwake") {
+    // bot jalan lama di latar: laptop jangan tidur saat diam (layar boleh
+    // mati). Dipanggil di thread platform yang sama tiap kali.
+    SetThreadExecutionState(ArgBool(a, "on") ? (ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+                                             : ES_CONTINUOUS);
+    result->Success();
+    return;
+  }
   if (m == "blur") {
     // popup Flutter dibuka: fokus keyboard pindah ke FlutterView, supaya
     // klik berikutnya di halaman memicu GotFocus (= tutup popup)

@@ -321,6 +321,12 @@ class NativeBackend implements Backend {
     }
   }
 
+  void _keepAwake(bool on) {
+    host.keepAwake(on).catchError((Object e) {
+      _log('[app] keepAwake gagal: $e');
+    });
+  }
+
   void _applyMute(WebView v) {
     v.setMuted(_snap['sound']!['muted'] == true).catchError((Object e) {
       _log('[web] bisu gagal: $e');
@@ -1312,6 +1318,7 @@ class NativeBackend implements Backend {
       _log('[BOT] gagal menyambung ke halaman: $e');
     }
     _poll = Timer.periodic(pollInterval, (_) => _tick());
+    _keepAwake(true);
     _memT?.cancel();
     _hosts.clear();
     unawaited(_memLog(quiet: true)); // titik awal hitungan CPU
@@ -1337,6 +1344,7 @@ class NativeBackend implements Backend {
   }
 
   Future<void> _finished() async {
+    _keepAwake(false);
     _poll?.cancel();
     _poll = null;
     _memT?.cancel();
