@@ -252,6 +252,44 @@ final class WebHost: NSObject {
   let channel: FlutterMethodChannel
   weak var container: NSView?
   var views: [Int: WebHostView] = [:]
+
+  // ---- blokir iklan (WKContentRuleList, dibagi semua webview)
+  static var rules: WKContentRuleList?
+  static var rulesWaiting: [(WKContentRuleList) -> Void] = []
+  static var rulesCompiling = false
+
+  static func adRules(_ hosts: [String], _ done: @escaping (WKContentRuleList) -> Void) {
+    if let r = rules { return done(r) }
+    rulesWaiting.append(done)
+    if rulesCompiling { return }
+    rulesCompiling = true
+    // satu aturan per domain (regex WebKit tak kenal '|'); domain & semua
+    // subdomainnya, pola sama dgn konverter daftar iklan Safari
+    let list: [[String: Any]] = hosts.map { h in
+      let e = h.replacingOccurrences(of: ".", with: "\\.")
+      return ["trigger": ["url-filter": "^[^:]+://+([^:/]+\\.)?\(e)[:/]"],
+              "action": ["type": "block"]]
+    }
+    guard let data = try? JSONSerialization.data(withJSONObject: list),
+          let json = String(data: data, encoding: .utf8) else {
+      rulesCompiling = false
+      return
+    }
+    WKContentRuleListStore.default().compileContentRuleList(
+      forIdentifier: "tb-iklan", encodedContentRuleList: json
+    ) { r, err in
+      rulesCompiling = false
+      guard let r = r else {
+        NSLog("TypingBot: aturan blokir iklan gagal: %@", err?.localizedDescription ?? "?")
+        rulesWaiting.removeAll()
+        return
+      }
+      rules = r
+      let w = rulesWaiting
+      rulesWaiting.removeAll()
+      w.forEach { $0(r) }
+    }
+  }
   // selama bot jalan: App Nap & tidur saat diam dimatikan
   var awake: NSObjectProtocol?
   var rect = NSRect.zero  // piksel fisik, relatif pojok kiri-atas
@@ -394,6 +432,14 @@ final class WebHost: NSObject {
       views[id]?.dispose()
       views[id] = v
       v.web.isHidden = !(a["visible"] as? Bool ?? false)
+      // blokir iklan: content blocker WebKit (semua frame). Kompilasi
+      // sekali, async; halaman pertama baru dimuat sesudah kuki dipasang.
+      let blok = a["block"] as? [String] ?? []
+      if !blok.isEmpty {
+        WebHost.adRules(blok) { [weak v] list in
+          v?.web.configuration.userContentController.add(list)
+        }
+      }
       container?.addSubview(v.web)
       layout()
       let u = str("url")
