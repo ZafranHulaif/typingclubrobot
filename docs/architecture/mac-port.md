@@ -6,6 +6,19 @@ platinum), standard lessons, tutorials, hold-key levels, video levels, premium s
 Monster games on target, Google sign-in reaches the password step (not blocked). Not released.
 The owner has no Mac; the next real-world check is a friend's Mac.
 
+## Status 2026-11-25 (4.0.8, merged with v4)
+- All v4 fixes 4.0.1-4.0.8 merged. Mute via private `_setPageMuted:`; `memInfo` returns [] (log skipped).
+- Background: `keepAwake` = beginActivity(userInitiated+latencyCritical) while the bot runs (no App Nap);
+  `_setHiddenPageDOMTimerThrottlingEnabled:`/`_setPageVisibilityBasedProcessSuppressionEnabled:` off,
+  `_setWindowOcclusionDetectionEnabled:` off (all checked with respondsTo). `hiddenRunJs` keeps Phaser
+  games running when the app is hidden.
+- Live runs with the app hidden (Cmd+H): 16 min lessons + videos at normal pace; Monster game played to
+  target. Ads blocked with WKContentRuleList.
+- `ui/tool/mactest/live.env` on the mac-live branch sets DETIK/LEVEL/AKHIR/BINTANG/SEMBUNYI.
+- Open: results-screen "Move on" after a game is only clicked once the app is visible again.
+- Not done: .dmg, move-to-Applications (updater fails from a DMG or a translocated Downloads copy),
+  401/403 login sentinel (no CDP Network on WebKit), separate jars on macOS 12-13.
+
 ## Approach
 - The Flutter UI, the Dart bot engine and the license/account code are shared with Windows.
 - Windows hosts the edclub page in WebView2 and drives it over CDP. WKWebView has no CDP, so:
