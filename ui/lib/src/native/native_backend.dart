@@ -28,6 +28,7 @@ import '../net/report.dart';
 import '../net/updater.dart';
 import '../web/js_init.dart';
 import '../web/js_back.dart';
+import '../web/js_hidden.dart';
 import '../web/web_host.dart';
 import 'accounts.dart';
 import 'view_bridge.dart';
@@ -59,6 +60,7 @@ const initScripts = [
   oauthRelayPageJs,
   oauthMarkerJs,
   authBackJs, // v4: tombol kembali di halaman login Google/Clever/Microsoft
+  hiddenRunJs, // v4: halaman & game tetap jalan saat app disembunyikan
 ];
 
 /// Bagian rencana yang mulai <= level kini + ini terkunci saat jalan.
