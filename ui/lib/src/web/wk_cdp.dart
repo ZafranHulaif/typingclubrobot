@@ -44,6 +44,12 @@ class WkCdp {
   void onHostEvent(String type, Map<String, dynamic> d) {
     if (type == 'frame') {
       _onFrame(d);
+    } else if (type == 'net') {
+      // laporan 401/403 dari netWatchJs -> bentuk CDP yang dibaca sentinel
+      emit('Network.responseReceived', {
+        'type': '${d['type'] ?? 'Fetch'}',
+        'response': {'status': (d['status'] as num?)?.toInt() ?? 0, 'url': '${d['url'] ?? ''}'},
+      });
     } else if (type == 'nav' && d['phase'] == 'done') {
       emit('Page.loadEventFired', {'timestamp': _ts()});
     }

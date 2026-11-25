@@ -98,17 +98,26 @@ final class WebHostView: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
     self.host = host
     self.baseScripts = scripts
     let cfg = WKWebViewConfiguration()
-    if #available(macOS 14.0, *) {
+    // TB_LEGACY_STORE=1: paksa jalur macOS 12-13 (uji di runner baru)
+    let paksaLama = ProcessInfo.processInfo.environment["TB_LEGACY_STORE"] == "1"
+    if #available(macOS 14.0, *), !paksaLama {
       // satu folder data = satu jar akun (spt user data folder WebView2)
       cfg.websiteDataStore = WKWebsiteDataStore(forIdentifier: WebHost.uuid(folder))
     } else {
-      cfg.websiteDataStore = .default()
+      // macOS 12-13 cuma punya SATU jar tetap utk semua akun. Jar sementara
+      // per akun = akun tidak saling tertukar; login edclub (kuki rt) tetap
+      // diingat app sendiri (tb_sesi.json per akun) dan dipasang lagi tiap
+      // akun dibuka. Kuki lain (Google, Cloudflare) hilang saat app ditutup.
+      cfg.websiteDataStore = .nonPersistent()
     }
     cfg.preferences.javaScriptCanOpenWindowsAutomatically = true
     // jalan di latar: WebKit memperlambat timer & menangguhkan proses halaman
     // yang tak terlihat. Matikan (setter privat, dicek dulu: tak ada = lewat).
     WebHostView.setFlag(cfg.preferences, "_setHiddenPageDOMTimerThrottlingEnabled:", false)
     WebHostView.setFlag(cfg.preferences, "_setPageVisibilityBasedProcessSuppressionEnabled:", false)
+    // animasi CSS halaman tersembunyi dibekukan WebKit (layar hasil game
+    // tak pernah selesai muncul) - matikan juga
+    WebHostView.setFlag(cfg.preferences, "_setHiddenPageCSSAnimationSuspensionEnabled:", false)
     cfg.mediaTypesRequiringUserActionForPlayback = []
     web = TBWebView(frame: .zero, configuration: cfg)
     // UA Safari lengkap: tanpa "Version/.. Safari/.." Google menolak login
@@ -117,6 +126,7 @@ final class WebHostView: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
     super.init()
     cfg.userContentController.add(WeakHandler(self), name: "tbframe")
     cfg.userContentController.add(WeakHandler(self), name: "tbkey")
+    cfg.userContentController.add(WeakHandler(self), name: "tbnet")
     reinstallScripts()
     web.navigationDelegate = self
     web.uiDelegate = self
@@ -165,6 +175,7 @@ final class WebHostView: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
     obs.removeAll()
     web.configuration.userContentController.removeScriptMessageHandler(forName: "tbframe")
     web.configuration.userContentController.removeScriptMessageHandler(forName: "tbkey")
+    web.configuration.userContentController.removeScriptMessageHandler(forName: "tbnet")
     while !keyWaiters.isEmpty { keyWaiters.removeFirst().done(nil) }
     web.stopLoading()
     web.navigationDelegate = nil
@@ -176,6 +187,15 @@ final class WebHostView: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
   func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
     if m.name == "tbkey" {
       keyAcked()
+      return
+    }
+    if m.name == "tbnet", let b = m.body as? [String: Any] {
+      // 401/403 API edclub (netWatchJs) -> sentinel login di Dart
+      host.emit(id, "net", [
+        "type": b["type"] as? String ?? "Fetch",
+        "status": b["status"] as? Int ?? 0,
+        "url": b["url"] as? String ?? "",
+      ])
       return
     }
     guard m.name == "tbframe", let b = m.body as? [String: Any],

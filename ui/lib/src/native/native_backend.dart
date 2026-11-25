@@ -31,6 +31,7 @@ import '../web/js_init.dart';
 import '../web/js_back.dart';
 import '../web/ad_block.dart';
 import '../web/js_hidden.dart';
+import '../web/js_net_mac.dart';
 import '../web/web_host.dart';
 import 'accounts.dart';
 import 'view_bridge.dart';
@@ -463,7 +464,11 @@ class NativeBackend implements Backend {
       v = await host.create(
           folder: accounts.folderFor(name),
           url: '',
-          scripts: [...initScripts, if (Engine.keyLog) keyLogJs],
+          scripts: [
+            ...initScripts,
+            if (Platform.isMacOS) netWatchJs, // sentinel login (tanpa CDP Network)
+            if (Engine.keyLog) keyLogJs,
+          ],
           blockHosts: _adBlockOn ? adHosts : const []);
     } on WebHostException catch (e) {
       _cover('Halaman edclub gagal dibuka (${e.code}). Tutup lalu buka '
@@ -1985,6 +1990,11 @@ class NativeBackend implements Backend {
     final app = exe.parent.parent.parent.path;
     if (!app.endsWith('.app')) {
       throw RpcException('later', 'Lokasi app tidak dikenali, unduh manual dari GitHub ya.');
+    }
+    // dari .dmg / salinan tersembunyi macOS (App Translocation): read-only
+    if (app.startsWith('/Volumes/') || app.contains('/AppTranslocation/')) {
+      throw RpcException('later',
+          'Pindahkan TypingBot ke folder Applications dulu ya, lalu buka dari sana.');
     }
     final sh = File('$_base${Platform.pathSeparator}update${Platform.pathSeparator}pasang.sh');
     sh.writeAsStringSync(macInstallScript(app: app, zip: zip, pid: pid));

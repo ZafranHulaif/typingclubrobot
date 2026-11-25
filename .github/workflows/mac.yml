@@ -149,16 +149,44 @@ jobs:
           test ! -e "$D/Apps/TypingBot.app.lama"
           test ! -e "$D/u.zip"
           echo "tukar app OK"
-      - name: Kemas app (zip)
+      - name: Kemas app (zip + dmg)
         if: always()
         run: |
-          cd ui/build/macos/Build/Products/Release
-          ditto -c -k --keepParent TypingBot.app ../../../../../../TypingBot-mac.zip
+          APP=ui/build/macos/Build/Products/Release/TypingBot.app
+          ditto -c -k --keepParent "$APP" TypingBot-mac.zip
+          # dmg: jendela berisi TypingBot + pintasan Applications (seret)
+          D=$RUNNER_TEMP/dmgisi
+          rm -rf "$D"; mkdir -p "$D"
+          cp -R "$APP" "$D/TypingBot.app"
+          ln -s /Applications "$D/Applications"
+          hdiutil create -volname TypingBot -srcfolder "$D" -ov -format UDZO TypingBot-mac.dmg
+          ls -la TypingBot-mac.zip TypingBot-mac.dmg
+      - name: Uji pindah dari .dmg ke Applications
+        run: |
+          set -x
+          rm -rf /Applications/TypingBot.app
+          hdiutil attach TypingBot-mac.dmg -nobrowse -mountpoint /Volumes/TypingBot
+          TB_MOVE_AUTO=1 /Volumes/TypingBot/TypingBot.app/Contents/MacOS/TypingBot >/dev/null 2>&1 &
+          for i in $(seq 1 60); do
+            pgrep -f "^/Applications/TypingBot.app/Contents/MacOS/TypingBot" && break
+            sleep 1
+          done
+          test -d /Applications/TypingBot.app
+          pgrep -f "^/Applications/TypingBot.app/Contents/MacOS/TypingBot"
+          ! xattr -p com.apple.quarantine /Applications/TypingBot.app 2>/dev/null
+          for i in $(seq 1 20); do [ -d /Volumes/TypingBot ] || break; sleep 1; done
+          test ! -d /Volumes/TypingBot
+          pkill -f "^/Applications/TypingBot.app/Contents/MacOS/TypingBot" || true
+          sleep 2
+          rm -rf /Applications/TypingBot.app
+          echo "pindah dari dmg OK"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: typingbot-mac
-          path: TypingBot-mac.zip
+          path: |
+            TypingBot-mac.zip
+            TypingBot-mac.dmg
 
   # Uji LIVE dgn akun tes edclub. Sesi (kuki rt) TIDAK pernah ada dalam
   # bentuk terbaca di repo/log: job membuat kunci sekali pakai, pemilik
@@ -224,11 +252,12 @@ jobs:
           OUT=$PWD/live-out
           mkdir -p "$OUT"
           # cabang mac-live boleh membawa tool/mactest/live.env (DETIK, LEVEL,
-          # AKHIR, BINTANG, SEMBUNYI) utk uji panjang / di latar
-          DETIK="${{ inputs.detik || '200' }}"; LEVEL=84; AKHIR=0; BINTANG=2; SEMBUNYI=0
+          # AKHIR, BINTANG, SEMBUNYI, LEGACY) utk uji panjang / di latar /
+          # jar per akun ala macOS 12-13
+          DETIK="${{ inputs.detik || '200' }}"; LEVEL=84; AKHIR=0; BINTANG=2; SEMBUNYI=0; LEGACY=0
           [ -f ui/tool/mactest/live.env ] && . ui/tool/mactest/live.env
-          echo "uji live: $DETIK dtk, level $LEVEL-$AKHIR, $BINTANG bintang, sembunyi=$SEMBUNYI"
-          TB_SELFTEST="$OUT" TB_SELFTEST_RUN="$DETIK" TB_SELFTEST_LEVEL="$LEVEL" TB_SELFTEST_END="$AKHIR" TB_SELFTEST_STARS="$BINTANG" TB_SELFTEST_HIDE="$SEMBUNYI" TB_KEYLOG=1 "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
+          echo "uji live: $DETIK dtk, level $LEVEL-$AKHIR, $BINTANG bintang, sembunyi=$SEMBUNYI, jar macOS 12-13=$LEGACY"
+          TB_SELFTEST="$OUT" TB_SELFTEST_RUN="$DETIK" TB_SELFTEST_LEVEL="$LEVEL" TB_SELFTEST_END="$AKHIR" TB_SELFTEST_STARS="$BINTANG" TB_SELFTEST_HIDE="$SEMBUNYI" TB_LEGACY_STORE="$LEGACY" TB_KEYLOG=1 "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
           PID=$!
           for i in $(seq 1 $(( (DETIK + 240) * 2 ))); do
             for r in "$OUT"/*.ready; do

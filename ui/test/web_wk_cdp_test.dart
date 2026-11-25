@@ -101,6 +101,18 @@ void main() {
     expect(page.url, endsWith('/lesson/9'));
   });
 
+  test('laporan 401 halaman (netWatchJs) jadi Network.responseReceived', () async {
+    final got = <CdpEvent>[];
+    final sub = ctl.stream.where((e) => e.method == 'Network.responseReceived').listen(got.add);
+    wk.onHostEvent('net', {'type': 'XHR', 'status': 401, 'url': 'https://www.edclub.com/napi/main/me'});
+    await Future<void>.delayed(Duration.zero);
+    expect(got, hasLength(1));
+    expect(got.first.params['type'], 'XHR');
+    expect((got.first.params['response'] as Map)['status'], 401);
+    expect((got.first.params['response'] as Map)['url'], contains('/napi/main/me'));
+    await sub.cancel();
+  });
+
   test('exception JS jadi EvalError', () async {
     hello('M1', 'https://www.edclub.com/', main: true);
     hello('mati', 'https://x.edclub.app/', main: false);
