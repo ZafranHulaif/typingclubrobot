@@ -511,9 +511,14 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   login / corevideo untouched), macOS via WKContentRuleList (one rule per domain) passed as `block` on create.
   Mac live run hidden, levels 96-101: no video-ad skipping (was 78), no stalls, Monster game started 2 s
   after load and hit the star target, lesson page renders without the ad, no adblock nag.
-- Open: after a game ends while the app is hidden, the results screen's "Move on" is only clicked once the
-  app is visible again (~3.5 min wait in the run). Suspect: end-screen animation suspended in hidden pages,
-  so the button's rect stays < 30 px. Needs a diagnostic run.
+- Hidden/minimised stall after games: real cause was WebKit freezing CSS animations in hidden pages, so the
+  post-game "Upgrade to Pro" modal never closed (X clicked 518x) and "Move on" never came. WebKit has no
+  switch for it (`_setHiddenPageCSSAnimationSuspensionEnabled:` absent). Fixes: macOS parks the webviews in
+  an invisible window (alpha 0, canHide=false, click-through) while the app is hidden/minimised; Windows
+  starts WebView2 with --disable-background-timer-throttling --disable-backgrounding-occluded-windows
+  --disable-renderer-backgrounding. Also: "Move on" finder accepts buttons stuck at scale ~0 (layout size),
+  and logs a button diagnostic after 10 s without one. Mac live run fully hidden: 2 Monster games started
+  in 3 s, modal closed on first click, Move on in 4 s, no stalls.
 - Same run's `[mem]`: GPU process 0.8-1.2 GB private, renderers 2x 0.65-1.3 GB (private bytes, higher
   than Task Manager's private working set).
 
