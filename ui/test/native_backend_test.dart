@@ -241,6 +241,22 @@ void main() {
       expect((_last['account'] as Map)['pending'], true);
     });
 
+    test('tambah akun: sesi 3.5.x (sesi_edclub.json) tidak ikut terpasang', () async {
+      File('${tmp.path}/sesi_edclub.json').writeAsStringSync(jsonEncode({
+        't': DateTime.now().millisecondsSinceEpoch / 1000,
+        'cookies': [
+          {'name': 'rt', 'value': 'RT-AKUN-LAMA', 'domain': '.edclub.com', 'path': '/'},
+        ],
+      }));
+      _listen(be);
+      await be.connect();
+      await _flush();
+      fake.cdpCalls.clear();
+      await be.request('acct.add');
+      await _flush();
+      expect(fake.cdpCalls.where((m) => m == 'Network.setCookie'), isEmpty);
+    });
+
     test('sesi edclub (kuki rt): disimpan saat login, dipasang lagi saat buka', () async {
       _listen(be);
       await be.connect();

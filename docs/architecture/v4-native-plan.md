@@ -429,6 +429,12 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   and no 'done' fires on the Google host, which hid the bug since dev5. Now only
   `*typingclub*/…auth_callback…` or `edclub.com?oauth_relay=` counts as relay.
 
+### 4.0.3: new account came up logged in as an old 3.5.x account
+- `AccountStore.legacyCookies(name)` falls back to the 3.5.x global `sesi_edclub.json` whenever
+  `name` is the active account. "Tambah akun" makes the new pending account active, so the first
+  open of "Akun baru" imported the old 3.5.x session (owner: "Akun baru" opened as Zafran H).
+  Pending accounts now never get legacy cookies.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
