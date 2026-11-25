@@ -3,7 +3,45 @@
 part of '../engine.dart';
 
 final balloonStateJs = balloonBridgeJs.replaceAll("'FEED'", '0');
-final _majuLabelJs = majuDasar.replaceAll('__LABEL__', majuLabel);
+// Ukuran tombol maju: halaman tersembunyi (app disembunyikan /
+// diperkecil) membekukan animasi masuk layar hasil di bingkai pertama
+// (skala ~0), jadi rect < 30 px dan tombol 'Move on' dilewati sampai app
+// terlihat lagi (uji live mac 4.0.8: tertahan 3,5 menit). Cadangan: ukuran
+// tata letak tanpa transform, di pusat rect yang sama.
+const _ukurLama = '  const r = el.getBoundingClientRect();\n'
+    '  if (r.width < 30 || r.height < 12) continue;';
+const _ukurBaru = '''  let r = el.getBoundingClientRect();
+  if ((r.width < 30 || r.height < 12) && el.offsetWidth >= 30 && el.offsetHeight >= 12 &&
+      getComputedStyle(el).visibility !== 'hidden') {
+    const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+    r = {x: cx - el.offsetWidth / 2, y: cy - el.offsetHeight / 2,
+         width: el.offsetWidth, height: el.offsetHeight};
+  }
+  if (r.width < 30 || r.height < 12) continue;''';
+final _majuLabelJs = (() {
+  final js = majuDasar.replaceAll('__LABEL__', majuLabel);
+  // sumber Python berubah = cadangan hilang diam-diam; tes menjaga ini
+  assert(js.contains(_ukurLama), 'majuDasar berubah: perbarui _ukurLama');
+  return js.replaceAll(_ukurLama, _ukurBaru);
+})();
+
+/// Diagnosa layar hasil tanpa tombol maju: semua tombol + ukurannya.
+const _diagMajuJs = r'''
+const out = [];
+for (const el of document.querySelectorAll('button, a, [role=button]')) {
+  const t = ((el.innerText || el.getAttribute('aria-label') || '') + '').trim().slice(0, 18);
+  if (!t) continue;
+  const r = el.getBoundingClientRect();
+  const cs = getComputedStyle(el);
+  out.push(t + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + '/' +
+           el.offsetWidth + 'x' + el.offsetHeight + ' ' + cs.visibility + ' o' + cs.opacity);
+  if (out.length >= 12) break;
+}
+return out.join(' | ') + ' | hidden=' + document.hidden;
+''';
+
+/// Untuk tes: JS pencari tombol maju sesudah cadangan ukuran dipasang.
+String get majuJsForTest => _majuLabelJs;
 final cariMajuJs = _majuLabelJs.replaceAll(
     '__AKSI__',
     "  const label = (el.innerText || '').trim().slice(0, 20) || "
@@ -77,7 +115,10 @@ extension BalloonLesson on Engine {
     final res = await runJs(balloonStateJs, fr);
     if (res is! Map || res.isEmpty) return false;
     if (_truthy(res['ended'])) {
-      if (st.balloonEndT == 0) st.balloonEndT = now;
+      if (st.balloonEndT == 0) {
+        st.balloonEndT = now;
+        st.balloonEndDiag = false;
+      }
       await gamePaceEnd(fr);
       if (now - st.balloonSkipT > 1.2) {
         st.balloonSkipT = now;
@@ -120,6 +161,15 @@ extension BalloonLesson on Engine {
         st.lastActionTime = now;
         st.balloonEndT = 0;
         return false;
+      }
+      if (now - st.balloonEndT > 10 && !st.balloonEndDiag) {
+        st.balloonEndDiag = true;
+        for (final f2 in allFrames()) {
+          final d = await runJs(_diagMajuJs, f2);
+          if (d is String && d.trim().isNotEmpty) {
+            log('[Minigame/Balloon] layar akhir tanpa tombol maju 10 dtk @${frameLabel(f2)}: $d');
+          }
+        }
       }
       if (now - st.balloonEndT > 25) {
         var klik2 = await runJs(cariUlangJs);
