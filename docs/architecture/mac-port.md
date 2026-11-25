@@ -15,9 +15,17 @@ The owner has no Mac; the next real-world check is a friend's Mac.
 - Live runs with the app hidden (Cmd+H): 16 min lessons + videos at normal pace; Monster game played to
   target. Ads blocked with WKContentRuleList.
 - `ui/tool/mactest/live.env` on the mac-live branch sets DETIK/LEVEL/AKHIR/BINTANG/SEMBUNYI.
-- Open: results-screen "Move on" after a game is only clicked once the app is visible again.
-- Not done: .dmg, move-to-Applications (updater fails from a DMG or a translocated Downloads copy),
-  401/403 login sentinel (no CDP Network on WebKit), separate jars on macOS 12-13.
+- Hidden/minimised: webviews are parked in an invisible window (alpha 0, canHide=false) so WebKit never
+  freezes CSS animations (post-game Pro modal / results screen used to hang). Live run fully hidden:
+  2 Monster games, modal + Move on in seconds, no stalls.
+- .dmg (TypingBot + Applications link) built next to the zip; MoveToApps (AppDelegate.swift) offers to
+  move from /Volumes, AppTranslocation, Downloads or Desktop to /Applications (~/Applications if not
+  admin), strips quarantine, trashes the original / detaches the DMG, relaunches. CI "Uji pindah dari .dmg"
+  checks it. The updater refuses with a clear message from /Volumes or AppTranslocation.
+- Login sentinel: netWatchJs (edclub/typingclub frames only) reports 401/403 fetch/XHR via `tbnet`;
+  wk_cdp turns it into Network.responseReceived.
+- macOS 12-13: one nonPersistent store per account; the edclub session comes back from tb_sesi.json
+  (live-tested with TB_LEGACY_STORE=1). Google/Cloudflare cookies are lost when the app quits there.
 
 ## Approach
 - The Flutter UI, the Dart bot engine and the license/account code are shared with Windows.
