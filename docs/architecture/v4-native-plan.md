@@ -497,6 +497,15 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   only ran with levelEnd > 0 (and rangeCheck returned early for runs without any range). Now the end
   defaults to the last level of `levelPeta` (685) for rule 1b, checked for every run.
   Test: engine_range_test.dart.
+- Keep-awake while the bot runs: host `keepAwake` (Windows SetThreadExecutionState ES_SYSTEM_REQUIRED,
+  macOS beginActivity userInitiated+latencyCritical = no App Nap / idle sleep), released at stop.
+- `hiddenRunJs` (web/js_hidden.dart, all frames): document.hidden/visibilityState always visible, trusted
+  visibilitychange swallowed (the engine's synthetic one passes), rAF falls back to setTimeout 16 ms while
+  the page is really hidden. Mac live run with the app hidden (Cmd+H) did lessons + videos at normal pace
+  but the Monster Attack game (level 94) never started (Phaser pauses on hidden / rAF stops) and was
+  skipped as broken.
+- Lesson pages carry a header-bidding ad stack (Playwire/intergient, PubMatic, Rubicon, Criteo, Index,
+  OpenX, Amazon) plus a video ad: prime suspect for the WebView CPU/GPU load.
 - Same run's `[mem]`: GPU process 0.8-1.2 GB private, renderers 2x 0.65-1.3 GB (private bytes, higher
   than Task Manager's private working set).
 
