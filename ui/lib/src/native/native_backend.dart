@@ -1785,8 +1785,10 @@ class NativeBackend implements Backend {
       throw RpcException('later', 'Unduh pembaruannya dulu ya.');
     }
     if (busy) throw RpcException('busy', 'Stop bot dulu ya.');
+    // folder kerja = folder unduhan, BUKAN folder app (warisan): pemasang
+    // tak bisa me-rename folder app selama jadi folder kerjanya
     await Process.start(p, ['--update', '--wait', '$pid'],
-        mode: ProcessStartMode.detached);
+        workingDirectory: File(p).parent.path, mode: ProcessStartMode.detached);
     _log('[UPDATE] memasang versi baru, app ditutup.');
     Timer(const Duration(milliseconds: 400), () => exit(0));
     return {'ok': true};

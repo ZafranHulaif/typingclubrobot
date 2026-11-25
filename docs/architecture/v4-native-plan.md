@@ -435,6 +435,18 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   open of "Akun baru" imported the old 3.5.x session (owner: "Akun baru" opened as Zafran H).
   Pending accounts now never get legacy cookies.
 
+### 4.0.4: in-app update failed with "TypingBot masih terbuka"
+- First real in-app update (4.0.2 -> 4.0.3) failed. The app started the carrier with no working
+  directory, so the carrier inherited the app's cwd = `%LOCALAPPDATA%\TypingBot\app` (the launcher
+  and Start Menu shortcut both used `app` as working dir). Windows can't rename a directory that is
+  some process's cwd, so `MoveFileEx(app, app.old)` failed for 10 s -> Fail("masih terbuka").
+  CI never caught it: the installer test ran the carrier from the repo dir.
+- Fix: the carrier `SetCurrentDirectoryW(base)` first thing (the NEW carrier runs the swap, so this
+  also fixes updates started from 4.0.2/4.0.3); the app passes `workingDirectory` = download dir;
+  the app and its shortcuts now start with cwd = `TypingBot` (not `app`, so lingering WebView2 child
+  processes don't pin it either); swap retry 10 s -> 30 s. CI: extra update run with
+  `-WorkingDirectory $app`.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,

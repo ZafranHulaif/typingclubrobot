@@ -430,11 +430,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
   std::wstring app = base + L"\\app";
   std::wstring appExe = app + L"\\TypingBot.exe";
   CreateDirectoryW(base.c_str(), nullptr);
+  // JANGAN berdiri di dalam folder app: app lama menjalankan file ini
+  // dgn folder kerja = folder app (warisan), dan folder yang jadi
+  // folder kerja sebuah proses tidak bisa di-rename Windows -> tukar
+  // app -> app.old selalu gagal "TypingBot masih terbuka" (4.0.2, live).
+  SetCurrentDirectoryW(base.c_str());
 
   Payload p;
   if (!ReadPayload(self, p)) {
     // tanpa payload (file rusak / bukan bundel): coba buka yang terpasang
-    if (Exists(appExe) && Launch(appExe, app)) return 0;
+    if (Exists(appExe) && Launch(appExe, base)) return 0;
     Fail(L"File TypingBot ini rusak. Unduh ulang dari halaman rilis ya.");
     return 1;
   }
@@ -482,7 +487,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     bool tukar = true;
     if (Exists(app)) {
       tukar = false;
-      for (int i = 0; i < 40 && !tukar; i++) {
+      for (int i = 0; i < 120 && !tukar; i++) {  // maks ~30 dtk
         tukar = MoveFileExW(app.c_str(), lama.c_str(), 0) != 0;
         if (!tukar) {
           Pump();
@@ -504,14 +509,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     }
     RemoveTree(lama);
     g_oldDir = OldShortcutDir();
-    Shortcut(appExe, app);
+    Shortcut(appExe, base);
     // splash tetap tampil sampai jendela app muncul (Launch): file ini
     // tetap 'di depan' sehingga boleh menyerahkan fokus ke app
     CoUninitialize();
   }
 
   bool noLaunch = !Env(L"TB_SETUP_NO_LAUNCH").empty();
-  if (!noLaunch && !Launch(appExe, app)) {
+  if (!noLaunch && !Launch(appExe, base)) {
     Fail(L"TypingBot terpasang tapi gagal dibuka.");
     return 1;
   }
@@ -523,7 +528,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
   if (!g_oldDir.empty()) dibersihkan += CleanDups(self, g_oldDir);
   if (dibersihkan > 0 && !noLaunch) {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    DesktopShortcut(appExe, app);
+    DesktopShortcut(appExe, base);
     CoUninitialize();
   }
   if (noLaunch) return 0;

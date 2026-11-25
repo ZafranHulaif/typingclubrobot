@@ -102,6 +102,14 @@ jobs:
           if ($p.ExitCode -ne 0) { throw 'pembaruan gagal' }
           if ((Get-Content "$app/version.txt" -Raw).Trim() -ne $v) { throw 'version.txt tidak diperbarui' }
           if (Test-Path "$tmp/TypingBot/app.old") { throw 'app.old tertinggal' }
+          # pembaruan dari dalam app: pemasang mewarisi folder kerja = folder
+          # app (4.0.2 live: "TypingBot masih terbuka", folder tak bisa ditukar)
+          Set-Content "$app/version.txt" '3.9.0'
+          Copy-Item dist/TypingBot.exe "$tmp/TypingBot/upd.exe"
+          $p = Start-Process -FilePath "$tmp/TypingBot/upd.exe" -ArgumentList '--update' -WorkingDirectory $app -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content "$tmp/TypingBot/setup.log" -ErrorAction SilentlyContinue; throw 'pembaruan dari folder app gagal' }
+          if ((Get-Content "$app/version.txt" -Raw).Trim() -ne $v) { throw 'version.txt tidak diperbarui (folder kerja app)' }
+          Remove-Item "$tmp/TypingBot/upd.exe"
           Write-Host "bundel OK ($v)"
       - uses: actions/upload-artifact@v4
         with:
