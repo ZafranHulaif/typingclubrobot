@@ -95,6 +95,9 @@ class WebHost {
   /// (Windows: SetThreadExecutionState, macOS: App Nap dimatikan).
   Future<void> keepAwake(bool on) => _call('keepAwake', {'on': on});
 
+  /// Uji live mac: sembunyikan / tampilkan app (spt Cmd+H).
+  Future<void> setAppHidden(bool on) => _call('appHidden', {'on': on});
+
   /// Buat webview baru dgn folder data [folder]. [scripts] dipasang
   /// SEBELUM navigasi pertama (dokumen pertama sudah lahir dgnnya).
   Future<WebView> create({

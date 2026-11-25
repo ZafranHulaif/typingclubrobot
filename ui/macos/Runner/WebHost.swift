@@ -105,6 +105,10 @@ final class WebHostView: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
       cfg.websiteDataStore = .default()
     }
     cfg.preferences.javaScriptCanOpenWindowsAutomatically = true
+    // jalan di latar: WebKit memperlambat timer & menangguhkan proses halaman
+    // yang tak terlihat. Matikan (setter privat, dicek dulu: tak ada = lewat).
+    WebHostView.setFlag(cfg.preferences, "_setHiddenPageDOMTimerThrottlingEnabled:", false)
+    WebHostView.setFlag(cfg.preferences, "_setPageVisibilityBasedProcessSuppressionEnabled:", false)
     cfg.mediaTypesRequiringUserActionForPlayback = []
     web = TBWebView(frame: .zero, configuration: cfg)
     // UA Safari lengkap: tanpa "Version/.. Safari/.." Google menolak login
@@ -117,6 +121,9 @@ final class WebHostView: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
     web.navigationDelegate = self
     web.uiDelegate = self
     web.allowsBackForwardNavigationGestures = false
+    // jendela tertutup app lain = halaman tetap dianggap terlihat
+    // (requestAnimationFrame, game & video tetap jalan)
+    WebHostView.setFlag(web, "_setWindowOcclusionDetectionEnabled:", false)
     web.setValue(false, forKey: "drawsBackground")
     web.onFocus = { [weak self] in
       guard let s = self else { return }
@@ -130,6 +137,17 @@ final class WebHostView: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
       guard let s = self else { return }
       s.host.emit(s.id, "source", ["url": w.url?.absoluteString ?? ""])
     })
+  }
+
+  /// Panggil setter privat BOOL kalau ada (versi WebKit lain bisa tak punya).
+  static func setFlag(_ o: NSObject, _ name: String, _ on: Bool) {
+    let sel = NSSelectorFromString(name)
+    guard o.responds(to: sel) else {
+      NSLog("TypingBot: %@ tidak ada", name)
+      return
+    }
+    typealias Fn = @convention(c) (AnyObject, Selector, Bool) -> Void
+    unsafeBitCast(o.method(for: sel), to: Fn.self)(o, sel, on)
   }
 
   func reinstallScripts() {
@@ -234,6 +252,8 @@ final class WebHost: NSObject {
   let channel: FlutterMethodChannel
   weak var container: NSView?
   var views: [Int: WebHostView] = [:]
+  // selama bot jalan: App Nap & tidur saat diam dimatikan
+  var awake: NSObjectProtocol?
   var rect = NSRect.zero  // piksel fisik, relatif pojok kiri-atas
   var holes: [NSRect] = []
   var holeRadius: CGFloat = 0
@@ -343,6 +363,29 @@ final class WebHost: NSObject {
       return result(nil)
     case "blur":
       if let w = container?.window { w.makeFirstResponder(container) }
+      return result(nil)
+    case "keepAwake":
+      // userInitiated = tanpa App Nap + Mac tidak tidur saat diam (layar
+      // boleh mati); latencyCritical = timer tidak dilonggarkan
+      if a["on"] as? Bool ?? false {
+        if awake == nil {
+          awake = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .latencyCritical],
+            reason: "TypingBot sedang mengerjakan lesson")
+        }
+      } else if let t = awake {
+        ProcessInfo.processInfo.endActivity(t)
+        awake = nil
+      }
+      return result(nil)
+    case "appHidden":
+      // uji live: sembunyikan app (spt Cmd+H) utk uji jalan di latar
+      if a["on"] as? Bool ?? false {
+        NSApp.hide(nil)
+      } else {
+        NSApp.unhide(nil)
+        NSApp.activate(ignoringOtherApps: true)
+      }
       return result(nil)
     case "create":
       let id = Int(num("id"))

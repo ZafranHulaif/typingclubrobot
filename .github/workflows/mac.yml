@@ -168,7 +168,7 @@ jobs:
   live:
     if: ${{ inputs.live || github.ref == 'refs/heads/mac-live' }}
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -223,9 +223,14 @@ jobs:
           APP=$(ls -d ui/build/macos/Build/Products/Release/*.app | head -1)
           OUT=$PWD/live-out
           mkdir -p "$OUT"
-          TB_SELFTEST="$OUT" TB_SELFTEST_RUN="${{ inputs.detik || '200' }}" TB_SELFTEST_LEVEL=84 TB_SELFTEST_STARS=2 TB_KEYLOG=1 "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
+          # cabang mac-live boleh membawa tool/mactest/live.env (DETIK, LEVEL,
+          # AKHIR, BINTANG, SEMBUNYI) utk uji panjang / di latar
+          DETIK="${{ inputs.detik || '200' }}"; LEVEL=84; AKHIR=0; BINTANG=2; SEMBUNYI=0
+          [ -f ui/tool/mactest/live.env ] && . ui/tool/mactest/live.env
+          echo "uji live: $DETIK dtk, level $LEVEL-$AKHIR, $BINTANG bintang, sembunyi=$SEMBUNYI"
+          TB_SELFTEST="$OUT" TB_SELFTEST_RUN="$DETIK" TB_SELFTEST_LEVEL="$LEVEL" TB_SELFTEST_END="$AKHIR" TB_SELFTEST_STARS="$BINTANG" TB_SELFTEST_HIDE="$SEMBUNYI" TB_KEYLOG=1 "$APP/Contents/MacOS/TypingBot" >"$OUT/stdout.txt" 2>&1 &
           PID=$!
-          for i in $(seq 1 1600); do
+          for i in $(seq 1 $(( (DETIK + 240) * 2 ))); do
             for r in "$OUT"/*.ready; do
               [ -e "$r" ] || continue
               n=$(basename "$r" .ready)
