@@ -27,6 +27,7 @@ import '../net/machine.dart' as machine;
 import '../net/report.dart';
 import '../net/updater.dart';
 import '../web/js_init.dart';
+import '../web/js_back.dart';
 import '../web/web_host.dart';
 import 'accounts.dart';
 import 'view_bridge.dart';
@@ -57,6 +58,7 @@ const initScripts = [
   loginRedirectJs,
   oauthRelayPageJs,
   oauthMarkerJs,
+  authBackJs, // v4: tombol kembali di halaman login Google/Clever/Microsoft
 ];
 
 /// Bagian rencana yang mulai <= level kini + ini terkunci saat jalan.

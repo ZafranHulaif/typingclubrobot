@@ -110,11 +110,32 @@ jobs:
           if ($p.ExitCode -ne 0) { Get-Content "$tmp/TypingBot/setup.log" -ErrorAction SilentlyContinue; throw 'pembaruan dari folder app gagal' }
           if ((Get-Content "$app/version.txt" -Raw).Trim() -ne $v) { throw 'version.txt tidak diperbarui (folder kerja app)' }
           Remove-Item "$tmp/TypingBot/upd.exe"
+          # foto layar pemasang (cek tampilan splash)
+          Set-Content "$app/version.txt" '3.9.0'
+          $env:TB_SETUP_SPLASH_HOLD = '6000'
+          $sp = Start-Process -FilePath dist/TypingBot.exe -ArgumentList '--update' -PassThru
+          Start-Sleep -Milliseconds 2500
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $bd = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $bd.Width, $bd.Height
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($bd.Location, [System.Drawing.Point]::Empty, $bd.Size)
+          New-Item -ItemType Directory -Force shots | Out-Null
+          $bmp.Save((Join-Path (Get-Location) 'shots/splash.png'))
+          $sp.WaitForExit()
+          Remove-Item Env:TB_SETUP_SPLASH_HOLD
+          if ($sp.ExitCode -ne 0) { throw 'pemasangan dgn splash ditahan gagal' }
           Write-Host "bundel OK ($v)"
       - uses: actions/upload-artifact@v4
         with:
           name: typingbot-setup
           path: dist/TypingBot.exe
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installer-splash
+          path: shots/
+          if-no-files-found: ignore
       # Uji mandiri: jalankan app (TB_SELFTEST), app melakukan langkah UI
       # sendiri, skrip ini memotret layar tiap langkah. Hasil (png +
       # bot.log) = artifact 'selftest'. Tidak menggagalkan build.

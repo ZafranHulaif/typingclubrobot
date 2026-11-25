@@ -447,6 +447,20 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   processes don't pin it either); swap retry 10 s -> 30 s. CI: extra update run with
   `-WorkingDirectory $app`.
 
+### 4.0.5: back button on login pages, new installer screen
+- `ui/lib/src/web/js_back.dart` (hand-written, not from gen_js): on accounts.google.com /
+  clever.com / login.microsoftonline|live|microsoft.com (top frame only) a round edclub-style back
+  button sits top-left -> `edclub.com/signin?tb_back=1`. On edclub, `tb_back=1` + sessionStorage
+  `tb_oauth_from == 'signup'` (set by the relay script's click listener) -> /signup, otherwise the
+  param is stripped. No innerHTML/style attribute (Google's Trusted Types/CSP). Checked live in
+  Playwright on the real Google sign-in page.
+- Installer splash rewritten: per-monitor DPI aware (was blurry, bitmap-stretched at 125/150%),
+  app colours (surfaceContainerLow bg, volt bar), app icon, title "Memasang/Memperbarui TypingBot" +
+  "Versi X", indeterminate bar animated by a 16 ms timer (double-buffered), Win11 rounded corners +
+  border via DWM (Win10: window region + own border), draggable. Waits now pump messages so the
+  animation doesn't freeze. `TB_SETUP_SPLASH_HOLD=<ms>` holds the splash for the CI screenshot
+  (artifact `installer-splash`).
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
