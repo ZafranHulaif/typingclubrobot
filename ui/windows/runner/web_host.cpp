@@ -272,8 +272,7 @@ void WebHost::Handle(const flutter::MethodCall<EncodableValue>& call,
         case COREWEBVIEW2_PROCESS_KIND_BROWSER: k = "browser"; break;
         case COREWEBVIEW2_PROCESS_KIND_RENDERER: k = "renderer"; break;
         case COREWEBVIEW2_PROCESS_KIND_GPU: k = "gpu"; break;
-        case COREWEBVIEW2_PROCESS_KIND_UTILITY:
-        case COREWEBVIEW2_PROCESS_KIND_SANDBOXED_UTILITY: k = "utility"; break;
+        case COREWEBVIEW2_PROCESS_KIND_UTILITY: k = "utility"; break;
         default: break;
       }
       int64_t priv = 0, ws = 0;
