@@ -492,6 +492,13 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   gpu ..` (share of all cores, like Task Manager) next to `[mem]`, baseline taken at Start.
 - `[net] respons per host: ...` top 15 hosts by response count since the last log (main session only),
   to decide whether ads/trackers are worth blocking before touching the page.
+- Owner's 4.0.7 background run (muted): 505 -> 685 (whole course) in ~50 min, then stuck ~1 h on
+  /student/course/3. Cause: range "akhir kursus" = levelEnd 0, and rule 1b (left the last level = done)
+  only ran with levelEnd > 0 (and rangeCheck returned early for runs without any range). Now the end
+  defaults to the last level of `levelPeta` (685) for rule 1b, checked for every run.
+  Test: engine_range_test.dart.
+- Same run's `[mem]`: GPU process 0.8-1.2 GB private, renderers 2x 0.65-1.3 GB (private bytes, higher
+  than Task Manager's private working set).
 
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.

@@ -2,11 +2,13 @@
 // iterasi loop utama.
 part of 'engine.dart';
 
+/// Level terakhir kursus (685 -> lesson 52748), dari tabel level.
+final int _levelTerakhirKursus = levelPeta.keys.reduce(max);
+
 extension Rentang on Engine {
   /// True = loop utama harus `continue` (navigasi/berhenti di sini).
   Future<bool> rangeCheck(String url) async {
-    if (!st.rangeReady) return false;
-    if (st.rangeDone || (st.levelStart <= 1 && st.levelEnd == 0)) return false;
+    if (!st.rangeReady || st.rangeDone) return false;
     final onPlay = url.contains('.play');
     var nomor = 0;
     if (onPlay) {
@@ -25,17 +27,19 @@ extension Rentang on Engine {
       return true;
     }
     // 1b) keluar dari level akhir (level terakhir kursus tak punya
-    // lesson berikutnya -> mendarat di daftar)
-    if (st.levelEnd > 0 &&
-        st.rangeMaxSeen >= st.levelEnd &&
-        !onPlay &&
-        !st.needsLogin) {
+    // lesson berikutnya -> mendarat di daftar). Tanpa batas akhir
+    // ('akhir kursus') = level terakhir kursus; dulu terlewat, bot diam
+    // selamanya di halaman kursus sesudah level 685 (live 4.0.7).
+    final akhir = st.levelEnd > 0 ? st.levelEnd : _levelTerakhirKursus;
+    if (st.rangeMaxSeen >= akhir && !onPlay && !st.needsLogin) {
       st.rangeDone = true;
       st.stop = true;
       log('[RENTANG] level akhir ${st.rangeMaxSeen} selesai (keluar dari '
           'lesson) - bot selesai.');
       return true;
     }
+    // tanpa rentang pilihan user: sisanya (lompat / kembali) tak berlaku
+    if (st.levelStart <= 1 && st.levelEnd == 0) return false;
     if (onPlay) {
       if (st.levelStart <= 1 || st.rangeJumpDone) return false;
       // level dalam rentang sudah dikerjakan sesi ini = user sengaja buka
