@@ -275,7 +275,7 @@ void WebHost::Handle(const flutter::MethodCall<EncodableValue>& call,
         case COREWEBVIEW2_PROCESS_KIND_UTILITY: k = "utility"; break;
         default: break;
       }
-      int64_t priv = 0, ws = 0;
+      int64_t priv = 0, ws = 0, cpu = 0;
       HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
                              static_cast<DWORD>(pid));
       if (h) {
@@ -287,6 +287,15 @@ void WebHost::Handle(const flutter::MethodCall<EncodableValue>& call,
           priv = static_cast<int64_t>(pmc.PrivateUsage);
           ws = static_cast<int64_t>(pmc.WorkingSetSize);
         }
+        // total waktu CPU (kernel + user), satuan 100 ns
+        FILETIME c0, e0, k0, u0;
+        if (GetProcessTimes(h, &c0, &e0, &k0, &u0)) {
+          auto t = [](const FILETIME& f) {
+            return (static_cast<int64_t>(f.dwHighDateTime) << 32) |
+                   f.dwLowDateTime;
+          };
+          cpu = t(k0) + t(u0);
+        }
         CloseHandle(h);
       }
       EncodableMap r;
@@ -294,6 +303,7 @@ void WebHost::Handle(const flutter::MethodCall<EncodableValue>& call,
       r[EncodableValue("pid")] = EncodableValue(static_cast<int64_t>(pid));
       r[EncodableValue("private")] = EncodableValue(priv);
       r[EncodableValue("ws")] = EncodableValue(ws);
+      r[EncodableValue("cpu")] = EncodableValue(cpu);
       out.push_back(EncodableValue(r));
     }
     result->Success(EncodableValue(out));

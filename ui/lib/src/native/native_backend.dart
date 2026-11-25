@@ -183,6 +183,11 @@ class NativeBackend implements Backend {
   StreamSubscription<CdpEvent>? _netSub;
   Timer? _poll;
   Timer? _memT;
+  // diagnosa beban: waktu CPU per pid di sampel sebelumnya + jumlah
+  // respons per host sejak log terakhir
+  Map<int, int> _cpuPrev = {};
+  DateTime? _cpuAt;
+  final _hosts = <String, int>{};
   double _loginNavT = 0;
   int _askSeq = 0;
   final _asking = <String>{};
@@ -255,12 +260,48 @@ class NativeBackend implements Backend {
   /// Log memori WebView2 per jenis proses, mis.
   /// `[mem] WebView2 1234 MB: renderer 3x 800, gpu 250, browser 120, ...`
   /// (private bytes; mirip kolom Memory di Task Manager).
-  Future<void> _memLog() async {
+  Future<void> _memLog({bool quiet = false}) async {
     final v = _view;
     if (v == null || v.disposed) return;
     try {
       final l = await v.memInfo();
       if (l.isEmpty) return;
+      final kini = DateTime.now();
+      final cpuKini = <int, int>{};
+      final cpuPer = <String, int>{};
+      for (final p in l) {
+        final pid = (p['pid'] as num?)?.toInt() ?? 0;
+        final c = (p['cpu'] as num?)?.toInt() ?? 0;
+        cpuKini[pid] = c;
+        final lama = _cpuPrev[pid];
+        if (lama != null && c >= lama) {
+          cpuPer['${p['kind']}'] = (cpuPer['${p['kind']}'] ?? 0) + c - lama;
+        }
+      }
+      final dari = _cpuAt;
+      _cpuPrev = cpuKini;
+      _cpuAt = kini;
+      if (quiet) return;
+      if (dari != null) {
+        // % dari seluruh inti CPU (sama dgn kolom CPU di Task Manager)
+        final jendela = kini.difference(dari).inMicroseconds * 10 * Platform.numberOfProcessors;
+        if (jendela > 0) {
+          int pct(int t) => (t * 100 / jendela).round();
+          final tot = cpuPer.values.fold(0, (a, b) => a + b);
+          final rinciCpu = (cpuPer.entries.toList()..sort((a, b) => b.value.compareTo(a.value)))
+              .map((e) => '${e.key} ${pct(e.value)}')
+              .join(', ');
+          _log('[cpu] WebView2 ${pct(tot)}%: $rinciCpu');
+        }
+      }
+      if (_hosts.isNotEmpty) {
+        final top = (_hosts.entries.toList()..sort((a, b) => b.value.compareTo(a.value)))
+            .take(15)
+            .map((e) => '${e.key} ${e.value}')
+            .join(', ');
+        _log('[net] respons per host: $top');
+        _hosts.clear();
+      }
       final per = <String, List<int>>{};
       var tot = 0;
       for (final p in l) {
@@ -1261,12 +1302,19 @@ class NativeBackend implements Backend {
       }).catchError((_) => <String, dynamic>{});
       _netSub = page.bridge
           .listen('Network.responseReceived')
-          .listen((e) => eng.onNetworkResponse(e.params), onError: (_) {});
+          .listen((e) {
+        eng.onNetworkResponse(e.params);
+        final r = e.params['response'];
+        final h = r is Map ? Uri.tryParse('${r['url'] ?? ''}')?.host ?? '' : '';
+        if (h.isNotEmpty) _hosts[h] = (_hosts[h] ?? 0) + 1;
+      }, onError: (_) {});
     } catch (e) {
       _log('[BOT] gagal menyambung ke halaman: $e');
     }
     _poll = Timer.periodic(pollInterval, (_) => _tick());
     _memT?.cancel();
+    _hosts.clear();
+    unawaited(_memLog(quiet: true)); // titik awal hitungan CPU
     _memT = Timer.periodic(memLogInterval, (_) => _memLog());
     _run = eng.run().catchError((Object e) {
       _set('bot', {'error': '$e'.length > 200 ? '$e'.substring(0, 200) : '$e'});

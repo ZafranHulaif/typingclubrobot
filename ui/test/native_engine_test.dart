@@ -25,6 +25,7 @@ void main() {
   late Map<String, dynamic> last;
   late List<SidecarAsk> asks;
   late List<String> logs;
+  var memCalls = 0;
 
   setUp(() async {
     tmp = Directory.systemTemp.createTempSync('tb_ne_');
@@ -39,11 +40,13 @@ void main() {
           return {'url': fake.url, 'title': ''};
         case 'memInfo':
           const mb = 1048576;
+          // waktu CPU renderer naik tiap sampel
+          final cpu = 1000000 * ++memCalls;
           return [
-            {'kind': 'browser', 'pid': 1, 'private': 100 * mb, 'ws': 0},
-            {'kind': 'renderer', 'pid': 2, 'private': 300 * mb, 'ws': 0},
-            {'kind': 'renderer', 'pid': 3, 'private': 200 * mb, 'ws': 0},
-            {'kind': 'gpu', 'pid': 4, 'private': 150 * mb, 'ws': 0},
+            {'kind': 'browser', 'pid': 1, 'private': 100 * mb, 'ws': 0, 'cpu': 0},
+            {'kind': 'renderer', 'pid': 2, 'private': 300 * mb, 'ws': 0, 'cpu': cpu},
+            {'kind': 'renderer', 'pid': 3, 'private': 200 * mb, 'ws': 0, 'cpu': 0},
+            {'kind': 'gpu', 'pid': 4, 'private': 150 * mb, 'ws': 0, 'cpu': 0},
           ];
         case 'eval':
           // cek login (penanda DOM) mengikuti edclub palsu
@@ -143,6 +146,7 @@ void main() {
     await waitFor(() => log.readAsStringSync().contains('[mem]'));
     expect(log.readAsStringSync(),
         contains('[mem] WebView2 750 MB: renderer 2x 500, gpu 150, browser 100'));
+    expect(log.readAsStringSync(), matches(RegExp(r'\[cpu\] WebView2 \d+%: renderer \d+')));
   });
 
   test('kunci rencana: bagian aktif + 2 level ke depan tak boleh diubah', () async {

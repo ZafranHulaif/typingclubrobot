@@ -487,6 +487,12 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   running and once at stop, so the next cut (ads/iframes, GPU, SPA growth) is chosen from real numbers.
 - Could not measure a logged-in edclub page from the VPS: Cloudflare challenge blocks datacenter IPs.
 
+### 4.0.8: load diagnostics (owner: memory halved to ~640 MB after 4.0.7, WebView2 still at 62% CPU)
+- `memInfo` also returns CPU time per process (GetProcessTimes). bot.log: `[cpu] WebView2 N%: renderer ..,
+  gpu ..` (share of all cores, like Task Manager) next to `[mem]`, baseline taken at Start.
+- `[net] respons per host: ...` top 15 hosts by response count since the last log (main session only),
+  to decide whether ads/trackers are worth blocking before touching the page.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
