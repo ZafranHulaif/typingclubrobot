@@ -479,6 +479,31 @@ class _Avatar extends StatelessWidget {
 }
 
 // ================================================================ lapor
+/// Bisukan / nyalakan suara halaman edclub (enak saat bot jalan di
+/// latar). Disimpan, jadi tetap bisu waktu app dibuka lagi.
+class MuteButton extends StatelessWidget {
+  const MuteButton({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final on = s.muted;
+    return BarButton(
+      key: const ValueKey('mute'),
+      onTap: () => s.call('sound.set', {'muted': !on}),
+      // latar terisi saat bisu = jelas suaranya sedang mati
+      selected: on,
+      tooltip: on ? 'Nyalakan suara' : 'Bisukan suara',
+      child: AnimatedSwitcher(
+        duration: Motion.short,
+        child: Icon(
+          on ? Icons.volume_off_rounded : Icons.volume_up_outlined,
+          key: ValueKey(on),
+        ),
+      ),
+    );
+  }
+}
+
 class ReportButton extends StatelessWidget {
   const ReportButton({super.key});
   @override

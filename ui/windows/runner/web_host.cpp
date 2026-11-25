@@ -231,6 +231,20 @@ void WebHost::Handle(const flutter::MethodCall<EncodableValue>& call,
   } else if (m == "goBack") {
     v->webview->GoBack();
     result->Success();
+  } else if (m == "setMuted") {
+    // bisukan semua suara halaman (video, efek ketik, minigame). Butuh
+    // runtime 101+ (ICoreWebView2_8); lebih tua = tidak bisa dibisukan.
+    ComPtr<ICoreWebView2_8> w8;
+    if (SUCCEEDED(v->webview.As(&w8)) && w8) {
+      HRESULT hr = w8->put_IsMuted(ArgBool(a, "on") ? TRUE : FALSE);
+      if (FAILED(hr)) {
+        result->Error("mute_failed", HrText(hr));
+      } else {
+        result->Success();
+      }
+    } else {
+      result->Error("mute_unsupported", "runtime WebView2 terlalu lama");
+    }
   } else if (m == "focus") {
     v->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
     result->Success();

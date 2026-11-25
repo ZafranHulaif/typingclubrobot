@@ -470,6 +470,15 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   profile"; kept in the menu so the top bar stays clean, the update button itself still appears there.
 - Update popover: the worker's one-line notes (no "- " bullets) used to show nothing; now shown as is.
 
+### 4.0.7: mute
+- Speaker button in the top bar (left of the bug-report button): mutes every sound of the edclub page
+  (videos, key clicks, minigames) via WebView2 `ICoreWebView2_8::put_IsMuted` (host method `setMuted`,
+  runtime 101+; older runtime = error logged, page keeps playing). Filled background while muted.
+- Backend: snapshot `sound {muted}`, request `sound.set {muted}`, saved as `muted` in
+  typingbot_settings.json and re-applied to every new webview (account switch, app restart).
+- Media keeps playing while muted (only output is silenced), so `mediaPlayingJs` / video waits and the
+  audio gate behave the same.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,

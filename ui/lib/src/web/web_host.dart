@@ -118,6 +118,7 @@ class WebView {
   Future<void> navigate(String url) => _call('navigate', {'url': url});
   Future<void> reload() => _call('reload');
   Future<void> goBack() => _call('goBack');
+  Future<void> setMuted(bool on) => _call('setMuted', {'on': on});
   Future<void> focus() {
     WebHost.selfFocusAt = DateTime.now();
     return _call('focus');

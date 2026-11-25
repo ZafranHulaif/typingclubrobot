@@ -64,6 +64,8 @@ class AppStore extends ChangeNotifier {
   Map<String, dynamic> get update => _m('update');
   Map<String, dynamic> get cover => _m('cover');
   Map<String, dynamic> get plan => _m('plan');
+  Map<String, dynamic> get sound => _m('sound');
+  bool get muted => sound['muted'] == true;
 
   String get phase => (bot['phase'] as String?) ?? 'idle';
   bool get busy => const {'waiting', 'starting', 'running', 'paused', 'stopping'}

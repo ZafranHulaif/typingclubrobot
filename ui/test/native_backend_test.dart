@@ -257,6 +257,32 @@ void main() {
       expect(fake.cdpCalls.where((m) => m == 'Network.setCookie'), isEmpty);
     });
 
+    test('bisu: halaman dibisukan, disimpan, tetap bisu saat dibuka lagi', () async {
+      _listen(be);
+      await be.connect();
+      await _flush();
+      expect(fake.calls.where((c) => c.method == 'setMuted'), isEmpty);
+      expect(await be.request('sound.set', {'muted': true}), {'muted': true});
+      await _flush();
+      expect(_last['sound'], {'muted': true});
+      final m = fake.calls.lastWhere((c) => c.method == 'setMuted');
+      expect((m.arguments as Map)['on'], true);
+      be.close();
+      // buka lagi: webview baru langsung dibisukan
+      fake.calls.clear();
+      final b2 = NativeBackend(
+          version: 't', host: WebHost(), accounts: AccountStore(tmp.path),
+          checkLicense: false, revealTimeout: const Duration(seconds: 5));
+      await b2.connect();
+      await _flush();
+      final m2 = fake.calls.lastWhere((c) => c.method == 'setMuted');
+      expect((m2.arguments as Map)['on'], true);
+      await b2.request('sound.set', {'muted': false});
+      await _flush();
+      expect((fake.calls.last.arguments as Map)['on'], false);
+      b2.close();
+    });
+
     test('sesi edclub (kuki rt): disimpan saat login, dipasang lagi saat buka', () async {
       _listen(be);
       await be.connect();

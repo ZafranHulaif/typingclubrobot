@@ -170,6 +170,8 @@ class _TopBar extends StatelessWidget {
           const SizedBox(width: 6),
           const SpeedButton(),
           const Spacer(),
+          const MuteButton(),
+          const SizedBox(width: 2),
           const ReportButton(),
           const SizedBox(width: 2),
           const AccountButton(),

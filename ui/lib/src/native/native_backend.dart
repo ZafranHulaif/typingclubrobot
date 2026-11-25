@@ -95,6 +95,8 @@ class NativeBackend implements Backend {
       'level': <String, dynamic>{},
       'range': <String, dynamic>{},
       'speed': {'wpm': wpm},
+      // bisu: semua suara halaman edclub (disimpan, ikut tiap ganti akun)
+      'sound': {'muted': _settings['muted'] == true},
       'account': {'active': '', 'list': <Map<String, dynamic>>[]},
       // N4: diisi _netBoot; checkLicense=false (tes) = tidak dikunci
       // v4: lisensi per akun edclub, diperiksa saat Mulai (bukan saat buka)
@@ -247,6 +249,12 @@ class NativeBackend implements Backend {
     v.setVisible(!_coverOn && !_occluded).catchError((_) {});
   }
 
+  void _applyMute(WebView v) {
+    v.setMuted(_snap['sound']!['muted'] == true).catchError((Object e) {
+      _log('[web] bisu gagal: $e');
+    });
+  }
+
   // ------------------------------------------------------------ settings
   String get _settingsPath => '$_base${Platform.pathSeparator}typingbot_settings.json';
 
@@ -355,6 +363,7 @@ class NativeBackend implements Backend {
     }
     _view = v;
     _viewAcct = name;
+    if (_snap['sound']!['muted'] == true) _applyMute(v);
     _set('plan', {'segments': _planFor(name ?? '')});
     _set('range', {'unlocked': _unlockedFor(name ?? '')});
     _labelDone = false;
@@ -815,6 +824,13 @@ class NativeBackend implements Backend {
         _set('speed', {'wpm': w});
         if (p['save'] != false) _saveSettings({'speed': w});
         return {'wpm': w};
+      case 'sound.set':
+        final on = p['muted'] == true;
+        _set('sound', {'muted': on});
+        _saveSettings({'muted': on});
+        final v = _view;
+        if (v != null && !v.disposed) _applyMute(v);
+        return {'muted': on};
       case 'plan.set':
         return _planSet(p['segments']);
       case 'settings.get':
