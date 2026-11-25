@@ -142,6 +142,7 @@ class EngineState {
   Frame? balloonBridgeFrame;
   double balloonBridgeT = 0;
   double balloonEndT = 0;
+  bool balloonEndDiag = false; // diagnosa layar akhir sudah dicatat
   double balloonSkipT = 0;
   String? balloonCoreChr;
   Object? balloonCoreIdx;
