@@ -7,7 +7,8 @@
 /// berhenti total karena dua hal itu, jadi bot tak bisa memberi ketikan
 /// dan level dilewati sebagai 'rusak' (uji live mac 4.0.8, level 94).
 ///
-/// Dipasang di semua frame (termasuk iframe game):
+/// Dipasang di semua frame edclub (termasuk iframe game; bukan Cloudflare /
+/// Google):
 /// - document.hidden / visibilityState selalu 'terlihat', event
 ///   visibilitychange asli ditelan (game tidak masuk mode jeda);
 /// - requestAnimationFrame: kalau halaman SUNGGUH tersembunyi, diganti
@@ -16,6 +17,9 @@ const hiddenRunJs = r'''
 (function(){
   try {
     if (window.__tb_vis) return;
+    // hanya frame edclub (halaman, game *.edclub.app): pemeriksa bot
+    // Cloudflare / Google tak boleh melihat document/rAF yang diubah
+    if (!/(^|\.)(edclub\.com|edclub\.app|typingclub\.com)$/.test(location.hostname || '')) return;
     window.__tb_vis = 1;
     var proto = Document.prototype;
     var d = Object.getOwnPropertyDescriptor(proto, 'hidden');

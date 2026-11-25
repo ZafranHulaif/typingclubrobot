@@ -1755,9 +1755,10 @@ class NativeBackend implements Backend {
   /// lisensi mesin) = true.
   Future<bool> _acctRequest(String aid, String nick, String label) async {
     Map<String, dynamic> data;
+    int code;
     try {
       final m = _tok;
-      final (_, d) = await _api.json('POST', '/api/license/request', body: {
+      final (c, d) = await _api.json('POST', '/api/license/request', body: {
         'mc': aid,
         'nickname': nick,
         'account_name': _edclubName.isNotEmpty ? _edclubName : label,
@@ -1765,6 +1766,7 @@ class NativeBackend implements Backend {
         if (m != null && lic.verifyToken(m)) 'mtok': m,
       });
       data = d;
+      code = c;
     } on Unreachable {
       _set('license', {'state': 'ok', 'account': label});
       _set('bot', {'error': 'Server lisensi tidak terjangkau. Cek internet lalu coba lagi ya.'});
@@ -1778,6 +1780,16 @@ class NativeBackend implements Backend {
     }
     if (data['status'] == 'revoked' || data['status'] == 'denied' || data['status'] == 'rejected') {
       _set('license', {'state': 'revoked', 'account': label});
+      return false;
+    }
+    if (data['status'] != 'pending') {
+      // bukan jawaban server lisensi (halaman galat / diblokir / kosong):
+      // dulu dianggap 'terkirim' padahal tak tercatat di halaman admin
+      // (uji Mac mini 4.0.8)
+      _log('[LISENSI] permintaan akun $label gagal: HTTP $code, jawaban '
+          '${data.isEmpty ? 'bukan JSON' : data.keys.join(',')}');
+      _set('license', {'state': 'need', 'account': label, 'nickname': nick});
+      _set('bot', {'error': 'Permintaan izin gagal terkirim (HTTP $code). Coba lagi sebentar ya.'});
       return false;
     }
     _log('[LISENSI] akun $label menunggu persetujuan.');

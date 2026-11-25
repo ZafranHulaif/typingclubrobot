@@ -31,6 +31,7 @@ void main() {
   String status = 'unknown';
   String latest = '3.5.5';
   bool reqApprove = false; // /api/license/request langsung approved
+  bool reqBroken = false; // /api/license/request dijawab halaman galat (bukan JSON)
 
   setUpAll(() {
     lic.debugPublicKeyHex = _nodePub;
@@ -45,6 +46,7 @@ void main() {
     status = 'unknown';
     latest = '3.5.5';
     reqApprove = false;
+    reqBroken = false;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(const MethodChannel('typingbot/web_host'), (c) async {
       if (c.method == 'version') return ''; // tanpa webview: cukup uji jaringan
@@ -61,6 +63,10 @@ void main() {
           req.response.write(jsonEncode(status == 'approved'
               ? {'status': 'approved', 'token': _tokOk}
               : {'status': status}));
+        case '/api/license/request' when reqBroken:
+          req.response.statusCode = 403;
+          req.response.headers.contentType = ContentType.html;
+          req.response.write('<html>Access denied</html>');
         case '/api/license/request':
           req.response.write(jsonEncode(reqApprove
               ? {'status': 'approved', 'token': {..._tokOk, 'mc': 'a854363933'}}
@@ -178,6 +184,19 @@ void main() {
     expect(req, contains('"nickname":"Ucok"'));
     expect(req, contains('"account_name":"Zafran Tes"'));
     expect(jsonDecode(File('${tmp.path}/typingbot_settings.json').readAsStringSync())['nickname'], 'Ucok');
+    be.close();
+  });
+
+  test('permintaan izin dijawab halaman galat: BUKAN "terkirim", galat + log', () async {
+    reqBroken = true;
+    final be = await bootWeb(mc: 'NEWWW-MACHN');
+    await mulaiRencana(be);
+    await waitFor(() => licState()['state'] == 'need');
+    await be.request('license.request', {'nickname': 'Ucok'});
+    await waitFor(() => '${(last['bot'] as Map?)?['error'] ?? ''}'.contains('HTTP 403'));
+    expect(licState()['state'], 'need');
+    expect(File('${tmp.path}/bot.log').readAsStringSync(),
+        contains('[LISENSI] permintaan akun'));
     be.close();
   });
 
