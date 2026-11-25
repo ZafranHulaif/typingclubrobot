@@ -119,6 +119,12 @@ class WebView {
   Future<void> reload() => _call('reload');
   Future<void> goBack() => _call('goBack');
   Future<void> setMuted(bool on) => _call('setMuted', {'on': on});
+
+  /// Memori tiap proses WebView2: [{kind, pid, private, ws}] (byte).
+  Future<List<Map<String, dynamic>>> memInfo() async {
+    final l = (await _call<List>('memInfo')) ?? const [];
+    return [for (final e in l) (e as Map).cast<String, dynamic>()];
+  }
   Future<void> focus() {
     WebHost.selfFocusAt = DateTime.now();
     return _call('focus');

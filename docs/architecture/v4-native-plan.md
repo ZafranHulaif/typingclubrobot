@@ -479,6 +479,14 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
 - Media keeps playing while muted (only output is silenced), so `mediaPlayingJs` / video waits and the
   audio gate behave the same.
 
+### 4.0.7: memory (owner: "WebView2 Manager" 1.5 GB in Task Manager on a low-end laptop)
+- `Network.enable` (login sentinel, reads only status + URL) now passes tiny `maxTotalBufferSize` /
+  `maxResourceBufferSize`; default kept response bodies for DevTools up to a large cap over a long run.
+- Host method `memInfo` (ICoreWebView2Environment8::GetProcessInfos + K32GetProcessMemoryInfo):
+  `bot.log` gets `[mem] WebView2 N MB: renderer 3x .., gpu .., browser .., utility ..` every 5 min while
+  running and once at stop, so the next cut (ads/iframes, GPU, SPA growth) is chosen from real numbers.
+- Could not measure a logged-in edclub page from the VPS: Cloudflare challenge blocks datacenter IPs.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,

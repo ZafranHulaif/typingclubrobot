@@ -78,6 +78,7 @@ class NativeBackend implements Backend {
     this.clock,
     this.checkLicense = true,
     this.updateInterval = const Duration(minutes: 20),
+    this.memLogInterval = const Duration(minutes: 5),
     Api? api,
     String Function()? machineCode,
   })  : host = host ?? webHost,
@@ -129,6 +130,7 @@ class NativeBackend implements Backend {
   /// false = lewati lisensi & jaringan (tes)
   final bool checkLicense;
   final Duration updateInterval;
+  final Duration memLogInterval;
   final String _version;
   final Api? _apiOverride;
   final String Function() _machineCode;
@@ -180,6 +182,7 @@ class NativeBackend implements Backend {
   Future<void>? _run;
   StreamSubscription<CdpEvent>? _netSub;
   Timer? _poll;
+  Timer? _memT;
   double _loginNavT = 0;
   int _askSeq = 0;
   final _asking = <String>{};
@@ -247,6 +250,34 @@ class NativeBackend implements Backend {
     final v = _view;
     if (v == null || v.disposed) return;
     v.setVisible(!_coverOn && !_occluded).catchError((_) {});
+  }
+
+  /// Log memori WebView2 per jenis proses, mis.
+  /// `[mem] WebView2 1234 MB: renderer 3x 800, gpu 250, browser 120, ...`
+  /// (private bytes; mirip kolom Memory di Task Manager).
+  Future<void> _memLog() async {
+    final v = _view;
+    if (v == null || v.disposed) return;
+    try {
+      final l = await v.memInfo();
+      if (l.isEmpty) return;
+      final per = <String, List<int>>{};
+      var tot = 0;
+      for (final p in l) {
+        final b = (p['private'] as num?)?.toInt() ?? 0;
+        tot += b;
+        (per['${p['kind']}'] ??= [0, 0])
+          ..[0] += 1
+          ..[1] += b;
+      }
+      int mb(int b) => (b / 1048576).round();
+      final rinci = (per.entries.toList()..sort((a, b) => b.value[1].compareTo(a.value[1])))
+          .map((e) => '${e.key} ${e.value[0] > 1 ? '${e.value[0]}x ' : ''}${mb(e.value[1])}')
+          .join(', ');
+      _log('[mem] WebView2 ${mb(tot)} MB: $rinci');
+    } catch (e) {
+      _log('[mem] gagal baca memori: $e');
+    }
   }
 
   void _applyMute(WebView v) {
@@ -1220,7 +1251,14 @@ class NativeBackend implements Backend {
     v.focus().catchError((_) {});
     try {
       await page.attach();
-      await page.cdp('Network.enable').catchError((_) => <String, dynamic>{});
+      // buffer kecil: tanpa batas, Chromium menyimpan salinan isi respons
+      // (utk DevTools) sampai ratusan MB selama bot jalan, padahal sentinel
+      // login cuma butuh status + URL
+      await page.cdp('Network.enable', {
+        'maxTotalBufferSize': 1000000,
+        'maxResourceBufferSize': 100000,
+        'maxPostDataSize': 0,
+      }).catchError((_) => <String, dynamic>{});
       _netSub = page.bridge
           .listen('Network.responseReceived')
           .listen((e) => eng.onNetworkResponse(e.params), onError: (_) {});
@@ -1228,6 +1266,8 @@ class NativeBackend implements Backend {
       _log('[BOT] gagal menyambung ke halaman: $e');
     }
     _poll = Timer.periodic(pollInterval, (_) => _tick());
+    _memT?.cancel();
+    _memT = Timer.periodic(memLogInterval, (_) => _memLog());
     _run = eng.run().catchError((Object e) {
       _set('bot', {'error': '$e'.length > 200 ? '$e'.substring(0, 200) : '$e'});
       _log('[BOT] berhenti karena error: $e');
@@ -1251,6 +1291,9 @@ class NativeBackend implements Backend {
   Future<void> _finished() async {
     _poll?.cancel();
     _poll = null;
+    _memT?.cancel();
+    _memT = null;
+    unawaited(_memLog());
     final e = _engine;
     await _netSub?.cancel();
     _netSub = null;
@@ -1857,6 +1900,7 @@ class NativeBackend implements Backend {
     _closed = true;
     _engine?.st.stop = true;
     _poll?.cancel();
+    _memT?.cancel();
     _stopWaiting();
     _gateRun++;
     _rtT?.cancel();
