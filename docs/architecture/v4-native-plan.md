@@ -506,6 +506,14 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   skipped as broken.
 - Lesson pages carry a header-bidding ad stack (Playwire/intergient, PubMatic, Rubicon, Criteo, Index,
   OpenX, Amazon) plus a video ad: prime suspect for the WebView CPU/GPU load.
+- Ad blocking (web/ad_block.dart, 45 ad/bidding domains, settings `adblock: false` turns it off): Windows via
+  CDP `Network.setBlockedURLs` before the first page (verified in Chromium: only ad hosts blocked, Google
+  login / corevideo untouched), macOS via WKContentRuleList (one rule per domain) passed as `block` on create.
+  Mac live run hidden, levels 96-101: no video-ad skipping (was 78), no stalls, Monster game started 2 s
+  after load and hit the star target, lesson page renders without the ad, no adblock nag.
+- Open: after a game ends while the app is hidden, the results screen's "Move on" is only clicked once the
+  app is visible again (~3.5 min wait in the run). Suspect: end-screen animation suspended in hidden pages,
+  so the button's rect stays < 30 px. Needs a diagnostic run.
 - Same run's `[mem]`: GPU process 0.8-1.2 GB private, renderers 2x 0.65-1.3 GB (private bytes, higher
   than Task Manager's private working set).
 
