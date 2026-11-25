@@ -2,6 +2,8 @@
 
 #include <flutter/standard_method_codec.h>
 
+#include "WebView2EnvironmentOptions.h"
+
 #include <psapi.h>
 
 #include <cstdio>
@@ -472,8 +474,18 @@ void WebHost::Create(int64_t id, const std::wstring& folder,
   views_[id] = std::move(view);
 
   std::shared_ptr<bool> alive = alive_;
+  // bot jalan di latar (jendela diperkecil / tertutup): Chromium jangan
+  // membekukan halaman (timer, animasi CSS, rAF). Tanpa ini pop-up & layar
+  // hasil game tak pernah selesai beranimasi -> bot tertahan sampai jendela
+  // dibuka lagi (uji live mac, gejala sama). Semua webview memakai opsi
+  // yang sama (syarat WebView2 utk folder data yang sama).
+  auto opts = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
+  opts->put_AdditionalBrowserArguments(
+      L"--disable-background-timer-throttling "
+      L"--disable-backgrounding-occluded-windows "
+      L"--disable-renderer-backgrounding");
   HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
-      nullptr, folder.empty() ? nullptr : folder.c_str(), nullptr,
+      nullptr, folder.empty() ? nullptr : folder.c_str(), opts.Get(),
       Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
           [this, alive, id, url, scripts, result](
               HRESULT err, ICoreWebView2Environment* env) -> HRESULT {
