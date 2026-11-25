@@ -140,7 +140,9 @@ void main() {
       // dibuat kosong, kuki sesi dipasang, baru navigasi
       expect(create['url'], '');
       expect(fake.named('navigate').first.arguments['url'], homeUrl);
-      expect((create['scripts'] as List).length, initScripts.length);
+      // macOS: + netWatchJs (sentinel login tanpa CDP Network)
+      expect((create['scripts'] as List).length,
+          initScripts.length + (Platform.isMacOS ? 1 : 0));
       expect(create['scripts'][0], contains('window.open'));
       expect(cover()['visible'], true);
       expect(fake.named('setVisible').every((c) => c.arguments['on'] == false),

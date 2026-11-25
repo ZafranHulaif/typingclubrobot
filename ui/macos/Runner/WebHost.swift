@@ -325,6 +325,67 @@ final class WebHost: NSObject {
       guard let s = self else { return result(nil) }
       s.handle(call, result)
     }
+    let nc = NotificationCenter.default
+    nc.addObserver(self, selector: #selector(parkir(_:)), name: NSApplication.willHideNotification, object: nil)
+    nc.addObserver(self, selector: #selector(pulang(_:)), name: NSApplication.didUnhideNotification, object: nil)
+    nc.addObserver(self, selector: #selector(parkir(_:)), name: NSWindow.willMiniaturizeNotification, object: nil)
+    nc.addObserver(self, selector: #selector(pulang(_:)), name: NSWindow.didDeminiaturizeNotification, object: nil)
+  }
+
+  // ---------------------------------------------------------- parkir
+  // App disembunyikan (Cmd+H) / jendela diperkecil = WebKit menganggap
+  // halaman tak terlihat dan MEMBEKUKAN animasi CSS (tak ada setelan utk
+  // mematikannya): pop-up 'Upgrade to Pro' sesudah game tak pernah hilang
+  // walau X diklik 518x, layar hasil tak muncul, bot tertahan sampai app
+  // dibuka lagi (uji live 4.0.8). Jadi selama itu webview 'diparkir' di
+  // jendela tak kasatmata (alpha 0, tak ikut disembunyikan, tembus klik):
+  // bagi WebKit halaman tetap terlihat. Kembali begitu app tampil lagi.
+  var jendelaParkir: NSWindow?
+  var diparkir = false
+
+  func buatParkir() -> NSWindow {
+    if let p = jendelaParkir { return p }
+    let p = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
+                     styleMask: [.borderless], backing: .buffered, defer: false)
+    p.isReleasedWhenClosed = false
+    p.alphaValue = 0
+    p.ignoresMouseEvents = true
+    p.canHide = false
+    p.hasShadow = false
+    p.isExcludedFromWindowsMenu = true
+    p.collectionBehavior = [.transient, .ignoresCycle]
+    jendelaParkir = p
+    return p
+  }
+
+  @objc func parkir(_ n: Notification) {
+    if let w = n.object as? NSWindow, w !== container?.window { return }
+    guard !diparkir, !views.isEmpty else { return }
+    let p = buatParkir()
+    // ukuran sama dgn area web di app: halaman tidak ditata ulang
+    let size = toView(rect).size
+    p.setContentSize(size)
+    if let win = container?.window { p.setFrameOrigin(win.frame.origin) }
+    for v in views.values {
+      v.web.removeFromSuperview()
+      v.web.layer?.mask = nil
+      v.web.frame = NSRect(origin: .zero, size: size)
+      p.contentView?.addSubview(v.web)
+    }
+    p.orderFrontRegardless()
+    diparkir = true
+  }
+
+  @objc func pulang(_ n: Notification) {
+    if let w = n.object as? NSWindow, w !== container?.window { return }
+    guard diparkir else { return }
+    diparkir = false
+    for v in views.values {
+      v.web.removeFromSuperview()
+      container?.addSubview(v.web)
+    }
+    layout()
+    jendelaParkir?.orderOut(nil)
   }
 
   static let safariUA: String = {
@@ -364,6 +425,11 @@ final class WebHost: NSObject {
 
   func layout() {
     let f = toView(rect)
+    if diparkir {
+      jendelaParkir?.setContentSize(f.size)
+      for v in views.values { v.web.frame = NSRect(origin: .zero, size: f.size) }
+      return
+    }
     for v in views.values {
       v.web.frame = f
       applyMask(v.web)
@@ -374,6 +440,11 @@ final class WebHost: NSObject {
   func applyMask(_ w: WKWebView) {
     w.wantsLayer = true
     guard let layer = w.layer else { return }
+    if diparkir {
+      // diparkir: tak ada popup Flutter di atasnya
+      layer.mask = nil
+      return
+    }
     if holes.isEmpty {
       layer.mask = nil
       return
@@ -460,7 +531,11 @@ final class WebHost: NSObject {
           v?.web.configuration.userContentController.add(list)
         }
       }
-      container?.addSubview(v.web)
+      if diparkir, let p = jendelaParkir {
+        p.contentView?.addSubview(v.web)
+      } else {
+        container?.addSubview(v.web)
+      }
       layout()
       let u = str("url")
       if !u.isEmpty, let url = URL(string: u) { v.web.load(URLRequest(url: url)) }
