@@ -581,12 +581,16 @@ class StarPicker extends StatelessWidget {
       required this.stars,
       required this.silver,
       required this.onChanged,
+      this.onManual,
       this.size = 13});
   final int stars;
   /// ukuran bintang di tombol (editor rencana lebih sempit)
   final double size;
   final bool silver;
   final void Function(int stars, bool silver) onChanged;
+
+  /// pindah ke mode Manual (kapsul saja; editor rencana selalu bintang)
+  final VoidCallback? onManual;
 
   static const _opsi = [(5, true), (5, false), (4, false), (3, false), (2, false), (1, false)];
 
@@ -644,10 +648,30 @@ class StarPicker extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
             child: Text(
-                'Selain bintang 5 platinum, kecepatan diatur otomatis dan sebagian '
-                'salah ketik disengaja.',
+                'Kecepatan & akurasi diatur otomatis.',
                 style: t.bodySmall!.copyWith(color: c.onSurfaceVariant)),
           ),
+          if (onManual != null) ...[
+            Divider(height: 12, color: c.outlineVariant),
+            InkWell(
+              hoverColor: c.surfaceContainerHighest,
+              onTap: () {
+                close();
+                onManual!();
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                child: Row(children: [
+                  Icon(Icons.bolt_rounded, size: 18, color: c.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Atur kecepatan & akurasi sendiri',
+                        style: t.labelLarge!.copyWith(color: c.primary)),
+                  ),
+                ]),
+              ),
+            ),
+          ],
         ]),
       ),
     );

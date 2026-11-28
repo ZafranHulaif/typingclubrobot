@@ -207,4 +207,119 @@ void main() {
     expect(fake.lesson!.errs, isEmpty);
     expect(logs.any((x) => x.contains('[Bintang]')), isFalse);
   });
+
+  // ------------------------------------------------------------ mode Manual
+  test('planManual: perkiraan bintang = rumus edclub, platinum hanya tanpa salah', () {
+    for (final goal in [10, 20, 30, 45]) {
+      for (final wpm in [40, 85, 140, 200, 400]) {
+        for (final acc in [85, 90, 95, 100]) {
+          final p = planManual(
+              wpm: wpm, acc: acc, goal: goal, minWpm: 3, minAcc: 80, chars: 200);
+          final r = _rasio(200, p.errors, p.wpm, goal);
+          expect(p.stars, _bintang(r), reason: 'goal $goal $wpm wpm $acc%');
+          expect(p.acc, greaterThanOrEqualTo(acc));
+          expect(p.silver, acc == 100 && r >= 2);
+          expect(p.wpmRaised || p.accRaised, isFalse);
+        }
+      }
+    }
+  });
+
+  test('planManual: di bawah batas level dinaikkan secukupnya', () {
+    final p = planManual(wpm: 40, acc: 85, goal: 50, minWpm: 40, minAcc: 90, chars: 200);
+    expect(p.wpmRaised, isTrue);
+    expect(p.wpm, 49); // 40 * 1.2 + 0.5, dibulatkan ke atas
+    expect(p.accRaised, isTrue);
+    expect(p.acc, greaterThanOrEqualTo(95));
+    // mode blokir & lesson pendek: selalu 100%
+    final b = planManual(wpm: 85, acc: 90, goal: 20, chars: 200, canErr: false);
+    expect(b.errors, 0);
+    expect(b.accFixed, isTrue);
+    expect(planManual(wpm: 85, acc: 90, goal: 20, chars: 20).errors, 0);
+    // 100% di 400 wpm = platinum (perilaku lama)
+    expect(planManual(wpm: 400, acc: 100, goal: 30, chars: 200).silver, isTrue);
+  });
+
+  test('planManualGame: 100% & cepat = jalur lama, selain itu dibatasi', () {
+    expect(planManualGame(wpm: 400, acc: 100, goal: 10), isNull);
+    expect(planManualGame(wpm: 85, acc: 90, goal: 130), isNull); // goal terlalu tinggi
+    final (p, m) = planManualGame(wpm: 400, acc: 90, goal: 20)!;
+    expect(p.wpm, gamePaceMaxWpm);
+    expect(p.realTarget, closeTo(0.9, 1e-9));
+    expect(m.stars, 5);
+    final (p2, m2) = planManualGame(wpm: 10, acc: 95, goal: 20)!;
+    expect(p2.wpm, 25); // minimal 1.25x goal
+    expect(m2.wpmRaised, isTrue);
+  });
+
+  test('mode Manual: lesson diketik di kecepatan & akurasi pilihan, perkiraan cocok', () async {
+    final text = List.filled(20, 'asdf jkl ').join();
+    final fake = FakeEdclub(url: _l1)..lesson = FakeLesson(text);
+    fake.lessonGoal = {
+      'goal': 10, 'min_wpm': 3, 'min_acc': 80, 'on_error': 'continue',
+      'objc': false, 'test': false, 'diff': 0, 'n': text.length, 'pos': 0, 'total': 0,
+    };
+    final page = Page(fake.bridge, clock: fake.clock);
+    await page.attach();
+    final logs = <String>[];
+    final eng = Engine(page: page, random: Random(3), onLog: logs.add)..st.speedWpm = 40;
+    eng.starTarget = () => 5; // diabaikan: mode Manual menang
+    eng.manual = () => (wpm: 40, acc: 90);
+    Map<String, dynamic>? goal;
+    fake.onEval = (n) {
+      goal ??= eng.st.lessonGoal;
+      if (fake.lesson!.done || n > 200000) eng.st.stop = true;
+    };
+    await eng.run();
+    final l = fake.lesson!;
+    expect(l.done, isTrue);
+    expect(logs.any((x) => x.contains('[Manual] 40 wpm, akurasi 90%')), isTrue);
+    expect(logs.any((x) => x.contains('[Bintang]')), isFalse);
+    final n = text.length, e = l.errs.length;
+    expect(100 * (n - e) / n, inInclusiveRange(90, 92));
+    final menit = (fake.keyTimes.last - fake.keyTimes.first) / 60;
+    final wpm = (n - e) / 5 / menit;
+    expect(wpm, closeTo(40, 3));
+    final guess = guessManual(goal!, 40, 90)!;
+    expect(guess.stars, _bintang(_rasio(n, e, wpm, 10)));
+  });
+
+  test('mode Manual 100%: jalur ketik biasa tanpa salah', () async {
+    final text = List.filled(5, 'asdf jkl ').join();
+    final fake = FakeEdclub(url: _l1)..lesson = FakeLesson(text);
+    fake.lessonGoal = {'goal': 10, 'min_wpm': 3, 'min_acc': 80, 'on_error': 'continue', 'n': text.length};
+    final page = Page(fake.bridge, clock: fake.clock);
+    await page.attach();
+    final logs = <String>[];
+    final eng = Engine(page: page, random: Random(3), onLog: logs.add)..st.speedWpm = 400;
+    eng.manual = () => (wpm: 400, acc: 100);
+    fake.onEval = (n) {
+      if (fake.lesson!.done || n > 20000) eng.st.stop = true;
+    };
+    await eng.run();
+    expect(fake.lesson!.errs, isEmpty);
+    expect(logs.any((x) => x.contains('[Manual]') && x.contains('5 platinum')), isTrue);
+  });
+
+  test('mode Manual di game balon: akurasi asli & bintang sesuai perkiraan', () async {
+    final text = List.filled(12, 'asdfj').join();
+    final game = FakeGame(text, goal: 10);
+    final fake = FakeEdclub(url: 'https://www.edclub.com/sportal/program-3/2953.play')..game = game;
+    final page = Page(fake.bridge, clock: fake.clock);
+    await page.attach();
+    final logs = <String>[];
+    final eng = Engine(page: page, random: Random(5), onLog: logs.add)..st.speedWpm = 40;
+    eng.manual = () => (wpm: 40, acc: 90);
+    var sesudah = 0;
+    fake.onEval = (n) {
+      if (game.ended) sesudah++;
+      if (sesudah > 12 || n > 200000) eng.st.stop = true;
+    };
+    await eng.run();
+    expect(game.ended, isTrue);
+    expect(logs.any((x) => x.contains('[Manual] game BalloonValley')), isTrue);
+    final (_, m) = planManualGame(wpm: 40, acc: 90, goal: 10)!;
+    expect(game.stars, m.stars, reason: 'rasio ${game.ratio} wpm ${game.wpm} real ${game.realAccuracy}');
+    expect(game.realAccuracy, inInclusiveRange(85, 95));
+  });
 }

@@ -350,20 +350,29 @@ class _Capsule extends StatelessWidget {
                 ),
             ]),
           )
-        : Row(mainAxisSize: MainAxisSize.min, children: [
-            mode(Icons.tune_rounded, 'Bebas'),
-            Padding(
-              padding: const EdgeInsets.only(left: 2),
-              child: Tip(
-                message: 'Bisa diubah kapan saja, berlaku mulai level berikutnya',
-                child: StarPicker(
-                  stars: s.freeStars,
-                  silver: s.freeSilver,
-                  onChanged: s.setFreeStars,
+        : s.freeManual
+            ? Row(mainAxisSize: MainAxisSize.min, children: [
+                mode(Icons.bolt_rounded, 'Manual'),
+                const Padding(
+                  padding: EdgeInsets.only(left: 2),
+                  child: _GuessChip(),
                 ),
-              ),
-            ),
-          ]);
+              ])
+            : Row(mainAxisSize: MainAxisSize.min, children: [
+                mode(Icons.tune_rounded, 'Bebas'),
+                Padding(
+                  padding: const EdgeInsets.only(left: 2),
+                  child: Tip(
+                    message: 'Bisa diubah kapan saja, berlaku mulai level berikutnya',
+                    child: StarPicker(
+                      stars: s.freeStars,
+                      silver: s.freeSilver,
+                      onChanged: s.setFreeStars,
+                      onManual: () => s.setFreeMode(true),
+                    ),
+                  ),
+                ),
+              ]);
 
     return Container(
       height: 40,
@@ -405,6 +414,51 @@ class _Capsule extends StatelessWidget {
           ),
         ),
       ]),
+    );
+  }
+}
+
+/// Mode Manual di kapsul: perkiraan bintang level ini (redup = hasil,
+/// bukan pilihan). Klik = panel kecepatan & akurasi.
+class _GuessChip extends StatelessWidget {
+  const _GuessChip();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final t = Theme.of(context).textTheme;
+    final c = Theme.of(context).colorScheme;
+    final g = s.guess;
+    return Popover(
+      alignRight: false,
+      width: 300,
+      trigger: (_, toggle, open) => Tip(
+        message: g == null
+            ? 'Perkiraan bintang dari kecepatan & akurasimu, muncul saat level dibuka'
+            : 'Perkiraan bintang level ini dari kecepatan & akurasimu',
+        child: Material(
+          color: open ? c.surfaceContainerHighest : Colors.transparent,
+          borderRadius: BorderRadius.circular(Radii.sm),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(Radii.sm),
+            hoverColor: c.surfaceContainerHighest,
+            onTap: toggle,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(g == null ? '? ' : '≈ ',
+                    style: t.labelMedium!.copyWith(color: c.onSurfaceVariant)),
+                Opacity(
+                  opacity: 0.75,
+                  child: StarRow((g?['stars'] as num?)?.toInt() ?? 0,
+                      silver: g?['silver'] == true, size: 13),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
+      content: (_, close) => const SpeedPanel(),
     );
   }
 }

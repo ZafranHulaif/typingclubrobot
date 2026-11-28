@@ -93,12 +93,21 @@ class NativeBackend implements Backend {
     _settings = _loadSettings();
     _bootPlan = _planFor(this.accounts.active() ?? '');
     final wpm = ((_settings['speed'] as num?) ?? 400).toInt().clamp(40, 400);
+    final acc = ((_settings['acc'] as num?) ?? 100).toInt().clamp(manualAccMin, 100);
+    final fs = (_settings['free'] as Map?) ?? const {};
+    final silver = (fs['silver'] ?? true) == true;
+    // mode Manual (4.1.0): dulu bintang 5 platinum = kecepatan bebas.
+    // Pengguna lama yang menurunkan kecepatan dgn platinum pindah ke
+    // Manual 100% (perilaku sama persis); lainnya tetap mode bintang.
+    final fmode = fs['mode'] == 'manual' || (fs['mode'] == null && silver && wpm < 400)
+        ? 'manual'
+        : 'stars';
     _snap = {
       'app': {'version': version, 'platform': 'windows', 'mode': 'native'},
       'bot': {'phase': 'idle', 'needs_login': false},
       'level': <String, dynamic>{},
       'range': <String, dynamic>{},
-      'speed': {'wpm': wpm},
+      'speed': {'wpm': wpm, 'acc': acc},
       // bisu: semua suara halaman edclub (disimpan, ikut tiap ganti akun)
       'sound': {'muted': _settings['muted'] == true},
       'account': {'active': '', 'list': <Map<String, dynamic>>[]},
@@ -111,9 +120,12 @@ class NativeBackend implements Backend {
       'web': {'url': '', 'title': ''},
       // target bintang utk Mulai tanpa rencana
       'free': {
-        'stars': ((((_settings['free'] as Map?) ?? const {})['stars'] as num?) ?? 5).toInt().clamp(1, 5),
+        'stars': ((fs['stars'] as num?) ?? 5).toInt().clamp(1, 5),
         // default perak (= ketik secepatnya, perilaku sebelum N7)
-        'silver': (((_settings['free'] as Map?) ?? const {})['silver'] ?? true) == true,
+        'silver': silver,
+        // 'stars' = pilih bintang (kecepatan & akurasi otomatis) /
+        // 'manual' = atur kecepatan & akurasi sendiri, bintang = perkiraan
+        'mode': fmode,
       },
     };
     _snap['plan']!['segments'] = _bootPlan;
@@ -926,11 +938,17 @@ class NativeBackend implements Backend {
         _applyVisible();
         return true;
       case 'speed.set':
-        final w = ((p['wpm'] as num?)?.toInt() ?? 400).clamp(40, 400);
-        _engine?.st.speedWpm = w;
-        _set('speed', {'wpm': w});
-        if (p['save'] != false) _saveSettings({'speed': w});
-        return {'wpm': w};
+        final sp = _snap['speed']!;
+        final w = ((p['wpm'] as num?)?.toInt() ?? (sp['wpm'] as int?) ?? 400).clamp(40, 400);
+        final a = ((p['acc'] as num?)?.toInt() ?? (sp['acc'] as int?) ?? 100)
+            .clamp(manualAccMin, 100);
+        // kecepatan dial hanya dipakai mode Manual tanpa rencana
+        final e = _engine;
+        if (e != null && _manualOn) e.st.speedWpm = w;
+        _set('speed', {'wpm': w, 'acc': a});
+        if (p['save'] != false) _saveSettings({'speed': w, 'acc': a});
+        _syncSpeedLock();
+        return {'wpm': w, 'acc': a};
       case 'sound.set':
         final on = p['muted'] == true;
         _set('sound', {'muted': on});
@@ -953,10 +971,17 @@ class NativeBackend implements Backend {
       case 'bot.resume':
         return _resume();
       case 'free.set':
-        final st = ((p['stars'] as num?) ?? 5).toInt().clamp(1, 5);
-        final f = {'stars': st, 'silver': p['silver'] == true && st == 5};
+        final cur = _snap['free']!;
+        final st = ((p['stars'] as num?) ?? (cur['stars'] as int?) ?? 5).toInt().clamp(1, 5);
+        final sv = p.containsKey('stars') ? p['silver'] == true : cur['silver'] == true;
+        final md = p['mode'] == null
+            ? (p.containsKey('stars') ? 'stars' : '${cur['mode'] ?? 'stars'}')
+            : (p['mode'] == 'manual' ? 'manual' : 'stars');
+        final f = {'stars': st, 'silver': sv && st == 5, 'mode': md};
         _set('free', f);
         _saveSettings({'free': f});
+        final e = _engine;
+        if (e != null) e.st.speedWpm = _engineWpm;
         _syncSpeedLock();
         return f;
       case 'bot.recover':
@@ -1308,13 +1333,19 @@ class NativeBackend implements Backend {
       onLog: _log,
     );
     eng.st
-      ..speedWpm = (_snap['speed']!['wpm'] as int?) ?? 400
+      ..speedWpm = _engineWpm
       ..levelStart = mulai
       ..levelEnd = akhir
       ..rangeJumpDone = mulai <= 1
       ..rangeReady = true;
     eng.askLocked = _askLocked;
     eng.starTarget = () => _starTargetFor(eng);
+    eng.manual = () => _manualOn
+        ? (
+            wpm: (_snap['speed']!['wpm'] as int?) ?? 400,
+            acc: (_snap['speed']!['acc'] as int?) ?? 100,
+          )
+        : null;
     if (mulai > 1 || akhir > 0) {
       _log('Rentang level aktif: $mulai - ${akhir == 0 ? 'akhir kursus' : akhir}.');
     }
@@ -1391,21 +1422,64 @@ class NativeBackend implements Backend {
   /// Tunggu sampai loop bot benar2 selesai (tes / tutup app).
   Future<void> get stopped => _run ?? Future.value();
 
-  /// Kecepatan terkunci target bintang (UI: gembok di tombol kecepatan).
-  /// auto = bintang target (0 = perak, kecepatan bebas), auto_wpm = wpm
-  /// yang sedang dipakai di lesson ini (0 = belum ada lesson).
+  /// Mode Manual aktif: tanpa rencana & mode 'manual' (rencana selalu
+  /// pakai target bintang tiap bagian).
+  bool get _manualOn => _mode != 'plan' && _snap['free']?['mode'] == 'manual';
+
+  /// Kecepatan jalur ketik biasa: dial di mode Manual, selain itu
+  /// maksimal (mode bintang: kecepatan & akurasi otomatis, platinum =
+  /// secepatnya). Selama rencana jalan _mode = 'plan'.
+  int get _engineWpm =>
+      _manualOn ? ((_snap['speed']!['wpm'] as int?) ?? 400) : 400;
+
+  /// Keadaan tombol kecepatan (UI):
+  /// - locked: dial terkunci (mode bintang / rencana jalan)
+  /// - auto: bintang target (0 = platinum), auto_wpm: wpm lesson ini
+  /// - manual: mode Manual aktif; guess = perkiraan level ini (null =
+  ///   belum terbaca), note = alasan tanpa perkiraan / batas yang dinaikkan
   void _syncSpeedLock() {
-    final e = _engine;
+    final e = running ? _engine : null;
+    final plan = e != null && _mode == 'plan';
+    final manual = !plan && _snap['free']?['mode'] == 'manual';
     var tgt = 0;
     var pw = 0.0;
-    if (e != null && running) {
+    if (e != null && !manual) {
       tgt = _starTargetFor(e);
       pw = e.st.paceWpm;
-    } else {
+    } else if (!manual) {
       final f = _snap['free'];
       if (f != null && f['silver'] != true) tgt = ((f['stars'] as num?) ?? 5).toInt();
     }
-    _set('speed', {'auto': tgt, 'auto_wpm': pw.round()});
+    Map<String, dynamic>? guess;
+    var note = '';
+    final g = e?.st.lessonGoal;
+    if (manual && g != null) {
+      final sp = _snap['speed']!;
+      final mp = guessManual(g, (sp['wpm'] as int?) ?? 400, (sp['acc'] as int?) ?? 100);
+      if (mp != null) {
+        guess = {'stars': mp.stars, 'silver': mp.silver, 'wpm': mp.wpm.round(), 'acc': mp.acc};
+        // kalimat utuh, langsung tampil di UI
+        note = [
+          if (mp.wpmRaised) 'Kecepatan naik ke ${mp.wpm.round()} wpm (minimum level ini).',
+          if (mp.accRaised) 'Akurasi naik ke ${mp.acc}% (minimum level ini).',
+          if (mp.accFixed) 'Level ini selalu 100%, salah ketik tidak bisa lanjut.',
+          if (g['kind'] == 'game' && mp.wpm < ((sp['wpm'] as int?) ?? 400))
+            'Game maksimal ${mp.wpm.round()} wpm.',
+        ].join(' ');
+      } else {
+        note = g['kind'] == 'skip' ? 'tidak dinilai bintang' : 'game ini diketik seperti biasa';
+      }
+    }
+    _set('speed', {
+      'locked': !manual,
+      'auto': tgt,
+      // platinum = selalu secepatnya
+      'auto_wpm': manual ? 0 : (pw > 0 ? pw.round() : (tgt == 0 ? 400 : 0)),
+      'manual': manual,
+      'guess': guess,
+      'note': note,
+      'level': e != null && (guess != null || note.isNotEmpty) ? _levelNow(e) : 0,
+    });
   }
 
   /// Target bintang level sekarang: 1-5, atau 0 = perak (secepatnya).

@@ -79,6 +79,10 @@ class Engine {
   /// 0/null = perak (ketik secepatnya tanpa salah, perilaku lama).
   int Function()? starTarget;
 
+  /// Mode Manual: kecepatan (wpm bersih) & akurasi (%) pilihan user,
+  /// bintang tinggal hasilnya. null = mode bintang / rencana.
+  ({int wpm, int acc})? Function()? manual;
+
   // pacing target bintang di game (per lesson, lihat lessons/stars.dart)
   GamePace? _gamePace;
   String _gamePaceUrl = '';

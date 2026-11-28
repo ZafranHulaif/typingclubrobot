@@ -522,6 +522,30 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
 - Same run's `[mem]`: GPU process 0.8-1.2 GB private, renderers 2x 0.65-1.3 GB (private bytes, higher
   than Task Manager's private working set).
 
+### 4.0.9: release (Windows + first Mac release, to test the Mac update flow)
+- 4.0.8 fixes plus the Mac build; the Mac updater reads GitHub releases (TypingBot-mac.zip).
+
+### 4.1.0: Manual mode (speed + accuracy, stars = estimate)
+- Owner idea: two modes for runs without a plan. **Bintang** (as before: pick stars, speed and accuracy
+  automatic; platinum is now locked at max speed, 400 wpm) and **Manual** (speed dial + new accuracy dial
+  85-100%, stars locked and shown as an estimate for the level being typed).
+- Engine (lessons/stars.dart): `planManual` is planStars inverted (same edclub formula, stars computed
+  instead of chosen). Below a level's min_wpm / min_accuracy (0 stars = level not passed, bot stuck on
+  Try again) it raises to the minimum + the planStars margin, logs it, and the UI says so. Block-mode
+  lessons and lessons < 25 chars stay 100%. 100% without a raise = old typing path at the dial speed
+  (exactly the old platinum behaviour). Games: `planManualGame` for the live-tested games (balloon,
+  monster) in block mode: speed clamped to [1.25x goal, 150], accuracy = real accuracy via gameMiss;
+  100% at >= 150 wpm and untested games = typed as before.
+- `EngineState.lessonGoal` holds the current lesson's goal data (reset on level change); the backend
+  recomputes `speed.guess` from it on every tick, so moving the sliders updates the estimate live.
+- Settings: `free.mode` ('stars' | 'manual'), `acc`. Migration: no `free.mode` + platinum + speed < 400
+  = Manual 100% (same behaviour as before); everything else = Bintang mode.
+- Plans stay star-only; while a plan runs the dial is locked and the engine types at 400.
+- UI: speed button = `140 wpm · 95%` in Manual, lock + "Atur sendiri" in Bintang mode; capsule shows
+  `Manual ≈ ★★★★☆` (click = same panel); star picker has "Atur kecepatan & akurasi sendiri".
+  Screens: docs/preview/manual-mode.png, docs/preview/star-picker.png.
+- Not yet: remembering goals of visited levels so the Rencana editor can show estimates ahead.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,

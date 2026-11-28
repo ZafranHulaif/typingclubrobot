@@ -80,12 +80,24 @@ class AppStore extends ChangeNotifier {
   Map<String, dynamic> get free => _m('free');
   int get freeStars => (free['stars'] as num?)?.toInt() ?? 5;
   bool get freeSilver => free['silver'] == true;
+  /// mode tanpa rencana: 'stars' (pilih bintang) / 'manual' (atur
+  /// kecepatan & akurasi sendiri, bintang = perkiraan)
+  bool get freeManual => free['mode'] == 'manual';
   bool get licensed => license['state'] == null || license['state'] == 'ok';
   int get levelNum => (level['num'] as num?)?.toInt() ?? 0;
   int get wpm => (speed['wpm'] as num?)?.toInt() ?? 400;
-  /// target bintang yang mengunci kecepatan (0 = bebas)
+  /// akurasi pilihan mode Manual (%)
+  int get acc => (speed['acc'] as num?)?.toInt() ?? 100;
+  /// dial kecepatan terkunci (mode bintang / rencana jalan)
+  bool get speedLocked => speed['locked'] != false;
+  /// target bintang yang mengunci kecepatan (0 = platinum)
   int get autoStars => (speed['auto'] as num?)?.toInt() ?? 0;
   int get autoWpm => (speed['auto_wpm'] as num?)?.toInt() ?? 0;
+  /// perkiraan bintang mode Manual di level ini (null = belum terbaca)
+  Map<String, dynamic>? get guess => (speed['guess'] as Map?)?.cast<String, dynamic>();
+  /// catatan perkiraan: batas yang dinaikkan / alasan tanpa perkiraan
+  String get guessNote => (speed['note'] as String?) ?? '';
+  int get guessLevel => (speed['level'] as num?)?.toInt() ?? 0;
   List<int> get tiers =>
       ((speed['tiers'] as List?) ?? const [40, 85, 140, 200, 300, 400])
           .map((e) => (e as num).toInt())
@@ -193,6 +205,14 @@ class AppStore extends ChangeNotifier {
     // sedang mengetik tanpa rencana: lesson ini tetap, ganti di level berikutnya
     if (r != null && phase == 'running' && !planRunning) {
       say('Target bintang baru berlaku mulai level berikutnya.');
+    }
+  }
+
+  /// Ganti mode tanpa rencana: bintang <-> manual.
+  Future<void> setFreeMode(bool manual) async {
+    final r = await call('free.set', {'mode': manual ? 'manual' : 'stars'});
+    if (r != null && phase == 'running' && !planRunning) {
+      say('Mode baru berlaku penuh mulai level berikutnya.');
     }
   }
 

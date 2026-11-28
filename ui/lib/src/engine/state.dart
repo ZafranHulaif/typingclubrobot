@@ -79,6 +79,9 @@ class EngineState {
   int proXTries = 0;
   /// wpm bersih yang sedang dipakai target bintang (0 = tidak diatur)
   double paceWpm = 0;
+  /// target lesson sekarang utk perkiraan bintang mode Manual (lihat
+  /// lessons/stars.dart guessManual); null = belum terbaca di level ini
+  Map<String, dynamic>? lessonGoal;
   double proWaitSince = 0;
 
   // ---- pop-up
