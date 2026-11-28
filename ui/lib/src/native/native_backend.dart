@@ -1709,7 +1709,10 @@ class NativeBackend implements Backend {
     var tgt = 0;
     var pw = 0.0;
     if (e != null && !manual) {
-      tgt = _starTargetFor(e);
+      // level game (katalog): lihat dgn jenis game, supaya aturan khusus
+      // game yang tampil, bukan target lesson bagian (laporan 28 Nov)
+      final jk = '${_snap['catalog']!['${_levelNow(e)}'] ?? ''}';
+      tgt = _starTargetFor(e, kind: gameKinds.contains(jk) ? jk : 'lesson');
       // pola/acak: target level ini kalau sudah dapat giliran
       final cur = _snap['plan']?['cur'];
       if (tgt < 0 && cur is Map && cur['level'] == _levelNow(e)) {
@@ -1829,7 +1832,11 @@ class NativeBackend implements Backend {
           'target ${codeLabel(code)}');
     }
     final code = rule.at(idx, '$acct|$sig');
-    if (assign || lvl > 0) {
+    // hanya kalau jenisnya cocok dgn level ini (mengintip target lesson
+    // di level game dulu menimpa target game di kapsul & peta)
+    final jl = '${_snap['catalog']!['$lvl'] ?? ''}';
+    final cocok = gameKinds.contains(jl) ? kind == jl : !gameKinds.contains(kind);
+    if (assign || (lvl > 0 && cocok)) {
       _set('plan', {
         'cur': {'level': lvl, 'code': code, 'kind': kind}
       });

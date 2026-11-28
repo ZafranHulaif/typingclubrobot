@@ -131,18 +131,39 @@ class GamePace {
   double get realTarget => min(1.0, ratio * goal / wpm);
 }
 
-/// Kecepatan aman untuk [stars] bintang di game: minimal 1.25x goal
-/// (balon jatuh ~2x jeda goal, yeti terdorong kalau >= goal), dan cukup
-/// cepat supaya target tercapai dengan akurasi asli <= 88% (ada ruang
-/// koreksi dua arah). null = tidak diatur.
-GamePace? planGame(int stars, {required num goal, num minWpm = 0, num difficulty = 0}) {
-  final r = starMidRatio[stars];
+/// Kecepatan minimum game (wpm). Balon terlepas & ninja kehilangan nyawa
+/// kalau diketik pelan, apa pun goal-nya (live 28 Nov: balon goal 10 gagal
+/// di 13 wpm dua kali, 16 wpm lulus tapi 2 nyawa hilang). Bintang rendah
+/// dicapai lewat salah disengaja, bukan dengan melambat.
+const gameMinWpm = 22;
+
+/// Akurasi asli terendah yang dipakai. Target yang butuh lebih rendah dari
+/// ini (di kecepatan minimum) dinaikkan ke bintang terendah yang terjangkau.
+/// Salah ketik di game TIDAK mengurangi nyawa (kata owner 28 Nov, hanya
+/// kelambatan), jadi boleh banyak: tiap huruf paling banyak sekali salah.
+const gameRealAccMin = 0.1;
+
+/// Kecepatan aman untuk [stars] bintang di game: minimal [gameMinWpm] dan
+/// 1.25x goal (balon jatuh ~2x jeda goal, yeti terdorong kalau >= goal),
+/// dan cukup cepat supaya target tercapai dengan akurasi asli <= 88% (ada
+/// ruang koreksi dua arah). [faster] = pengali kecepatan minimum (coba
+/// lagi sesudah game gagal). null = tidak diatur.
+GamePace? planGame(int stars,
+    {required num goal, num minWpm = 0, num difficulty = 0, double faster = 1}) {
+  var r = starMidRatio[stars];
   if (r == null) return null;
   final g = max(1.0, (goal + difficulty).toDouble());
   final minW = max(0.0, (minWpm + difficulty).toDouble());
-  final w = max(g * max(1.25, r / 0.88), minW * 1.2 + 0.5).ceilToDouble();
+  final w = max(max(g * max(1.25, r / 0.88), gameMinWpm * faster), minW * 1.2 + 0.5).ceilToDouble();
   if (w > gamePaceMaxWpm) return null;
-  return GamePace(stars: stars, ratio: r, goal: g, wpm: w);
+  // terlalu banyak salah yang dibutuhkan: naik ke bintang terendah yang
+  // terjangkau (lebih aman daripada melambat)
+  var s = stars;
+  while (s < 5 && r! * g / w < gameRealAccMin) {
+    s += 1;
+    r = starMidRatio[s];
+  }
+  return GamePace(stars: s, ratio: r!, goal: g, wpm: w);
 }
 
 /// Loop tertutup: huruf di indeks [idx] perlu diawali salah? [rvBefore] =
@@ -283,7 +304,7 @@ ManualPace planManual(
     num difficulty = 0}) {
   final g = max(1.0, (goal + difficulty).toDouble());
   final minW = max(0.0, (minWpm + difficulty).toDouble());
-  final lower = max(g * 1.25, minW * 1.2 + 0.5).ceilToDouble();
+  final lower = max(max(g * 1.25, gameMinWpm.toDouble()), minW * 1.2 + 0.5).ceilToDouble();
   if (lower > gamePaceMaxWpm) return null;
   final a = acc.clamp(1, 100);
   if (a == 100 && wpm >= gamePaceMaxWpm) return null;
@@ -351,6 +372,30 @@ Set<int> spreadErrors(int chars, int errors, Random rnd) {
   }
   return out;
 }
+
+/// Angka 'nyawa' game (kunci live/life/heart/health) dari core & state
+/// Phaser, untuk bot.log: belum diketahui apakah salah ketik mengurangi
+/// nyawa (bahan menyetel salah disengaja di game).
+const nyawaJs = r'''
+const out = {};
+const look = (o, pre) => {
+  if (!o) return;
+  for (const k of Object.keys(o)) {
+    if (!/live|life|heart|health|nyawa/i.test(k)) continue;
+    const v = o[k];
+    if (typeof v === 'number' || typeof v === 'boolean') out[pre + k] = v;
+  }
+};
+try { look(window.core, 'core.'); } catch (e) {}
+try {
+  if (window.Phaser && Phaser.GAMES) for (const g of Phaser.GAMES) {
+    const s = g.state.states[g.state.current];
+    look(s, 'state.');
+    look(s && s.core, 'state.core.');
+  }
+} catch (e) {}
+return out;
+''';
 
 extension StarLesson on Engine {
   /// Rencana bintang untuk lesson di [frame] (null = ketik biasa).
@@ -580,10 +625,22 @@ extension StarLesson on Engine {
     // game ini dinilai bintang & bisa diatur: ambil target
     final target = starTarget?.call(kind, true) ?? 0;
     if (target < 1 || target > 5) return null;
+    // game ini pernah gagal (nyawa habis) di URL yang sama: lebih cepat
+    final gagal = _gameFails[url] ?? 0;
+    if (gagal >= 2) {
+      log('[Bintang] game $label sudah gagal $gagal kali - diketik secepatnya supaya lulus');
+      return null;
+    }
     final p = planGame(target,
         goal: (s['goal'] as num?) ?? 0,
         minWpm: (s['min_wpm'] as num?) ?? 0,
-        difficulty: (s['diff'] as num?) ?? 0);
+        difficulty: (s['diff'] as num?) ?? 0,
+        faster: gagal == 1 ? 1.5 : 1);
+    if (p != null && p.stars != target) {
+      log('[Bintang] target $target tidak terjangkau di game $label (kecepatan minimum '
+          '${p.wpm.toStringAsFixed(0)} wpm, salah disengaja maks ${(100 * (1 - gameRealAccMin)).round()}%) '
+          '- jadi ${p.stars} bintang');
+    }
     if (p == null) {
       log('[Bintang] target $target, tapi goal ${s['goal']} wpm terlalu '
           'tinggi untuk game - diketik secepatnya');
@@ -669,6 +726,9 @@ extension StarLesson on Engine {
     final k = _gameK, salah = _gameMiss;
     _gameReset();
     if (s is! Map) return;
+    final nyawa = await runJs(nyawaJs, fr);
+    log('[Bintang] game berakhir di huruf ${s['idx']}/${s['len']}'
+        '${nyawa is Map && nyawa.isNotEmpty ? ', nyawa $nyawa' : ''}');
     final v = (s['v'] as num?) ?? 0, d = (s['d'] as num?) ?? 0;
     final t = (s['t'] as num?) ?? 0;
     final pn = (s['pn'] as num?)?.toInt() ?? 0, prv = (s['prv'] as num?)?.toInt() ?? 0;

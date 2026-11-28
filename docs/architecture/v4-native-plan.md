@@ -628,6 +628,20 @@ and only scrolls again when the current level leaves the view. Released mainly t
 from 4.1.1 (the app updater treats 4.1.1-devN as equal to 4.1.1, so dev installs need 4.1.2).
 Released 2026-11-28: GitHub v4.1.2 (target v4 a34a943, Mac from mac 791e06b), worker /api/latest 4.1.2 sha 91d54985….
 
+### 4.1.3 (dev): balloon game failures, one mode control
+- Balloon Valley failed at 13 wpm (owner report 28 Nov 19:29): balloons drift down and drop when typing is
+  slow; wrong keys do NOT cost lives (owner confirmed). Games now type at >= `gameMinWpm` 22 wpm and get
+  lower stars from wrong keys (first-try accuracy down to `gameRealAccMin` 10%); a target that would need
+  less is raised to the lowest reachable one (logged). A failed game (end screen with no DOM forward
+  button for 20 s: "Type SPACE to try again" / canvas "Move On") gets Space: retry 1.5x faster, then full
+  speed. Game end logs `game berakhir di huruf i/len` + any lives counters found in core / Phaser state.
+- Capsule/map showed the part's lesson target on game levels (peek with kind 'lesson' overwrote plan.cur):
+  `_syncSpeedLock` peeks with the catalog kind; a peek only sets `cur` when its kind matches the level.
+- Top bar: the capsule is only run button + status/notifications. Mode (Rencana / Bintang / Manual), target
+  stars and speed are one connected control; its popover has a Bintang | Manual switch on top (star scale /
+  speed+accuracy sliders), view-only while a plan runs. StarPicker, SpeedButton, _SpeedLocked, _GuessChip
+  removed. Screens: docs/preview/mode-control.png.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,

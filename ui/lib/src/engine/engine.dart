@@ -104,6 +104,11 @@ class Engine {
 
   // pacing target bintang di game (per lesson, lihat lessons/stars.dart)
   GamePace? _gamePace;
+
+  /// game yang gagal (nyawa habis, layar 'Type SPACE to try again') per
+  /// URL: coba lagi lebih cepat, lalu secepatnya
+  final _gameFails = <String, int>{};
+  double _gameRetryT = -1;
   String _gamePaceUrl = '';
   int _gameK = 0;
   int _gameMiss = 0;
