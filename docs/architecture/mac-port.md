@@ -32,6 +32,9 @@ v4 merged: Manual mode (speed + accuracy, stars = estimate) and Rencana star rul
 balloon/monster game rules, wide editor sheet). Pure Dart/Flutter, nothing Mac-specific. The editor sheet
 is a WebHole like the Rencana panel, so on Mac it relies on the same `TBWebView.holeRects` pass-through.
 Not run live on a Mac yet.
+Second merge (same day): redesigned editor (level map squares, new/edit/running feels, 1 star..platinum
+scale), game rules only while a plan runs, course-wide level catalog. The engine hooks `levelKind` /
+`levelKnown` sit in shared Dart (stars, video, tutorial, hold key), so the Mac engine records kinds too.
 
 ## Approach
 - The Flutter UI, the Dart bot engine and the license/account code are shared with Windows.
