@@ -84,9 +84,18 @@ class Engine {
   int Function(String kind, bool assign)? starTarget;
 
   /// Mode Manual: kecepatan (wpm bersih) & akurasi (%) pilihan user,
-  /// bintang tinggal hasilnya. null = mode bintang / rencana / ada aturan
-  /// khusus untuk game [kind].
+  /// bintang tinggal hasilnya. null = mode bintang / rencana.
   ({int wpm, int acc})? Function(String kind)? manual;
+
+  /// Jenis level yang sedang dibuka, utk peta level di editor rencana:
+  /// 'star' (lesson dinilai bintang), 'balloon' / 'monster' (game yang
+  /// bisa diatur), 'free' (video, tutorial, game lain, lesson tanpa
+  /// bintang: tidak memakai giliran pola).
+  void Function(String kind)? levelKind;
+
+  /// false = jenis level ini belum dikenal: info lesson tetap dibaca
+  /// walau target platinum (sekali per level).
+  bool Function()? levelKnown;
 
   // pacing target bintang di game (per lesson, lihat lessons/stars.dart)
   GamePace? _gamePace;

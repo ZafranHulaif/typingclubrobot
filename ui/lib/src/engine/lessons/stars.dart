@@ -342,8 +342,16 @@ extension StarLesson on Engine {
     final m = manual?.call('lesson');
     // lihat dulu tanpa mengambil giliran: platinum tetap = tak perlu dibaca
     final lihat = m != null ? 0 : starTarget?.call('lesson', false) ?? 0;
-    if (m == null && lihat == 0) return null;
+    // platinum: info lesson cuma dibaca kalau jenis level ini belum dikenal
+    final kenal = levelKnown?.call() ?? true;
+    if (m == null && lihat == 0 && kenal) return null;
     final info = await runJs(lessonGoalJs, frame);
+    if (m == null && lihat == 0) {
+      if (info is Map) {
+        levelKind?.call(_truthy(info['objc']) || _truthy(info['test']) ? 'free' : 'star');
+      }
+      return null;
+    }
     if (info is! Map) {
       log(m != null
           ? '[Manual] target kecepatan lesson tidak terbaca - ketik biasa '
@@ -353,9 +361,11 @@ extension StarLesson on Engine {
       return null;
     }
     if (_truthy(info['objc']) || _truthy(info['test'])) {
+      levelKind?.call('free');
       if (m != null) st.lessonGoal = {'kind': 'skip'};
       return null;
     }
+    levelKind?.call('star');
     final n = (info['n'] as num?)?.toInt() ?? 0;
     final pos = max((info['pos'] as num?)?.toInt() ?? 0, 0);
     final sisa = n - pos;
@@ -518,6 +528,9 @@ extension StarLesson on Engine {
     final kind = jenis.isEmpty ? 'game' : jenis;
     final m = manual?.call(kind);
     final lihat = m != null ? 0 : starTarget?.call(kind, false) ?? 0;
+    // jenis level (peta level): data game sudah terbaca, gratis
+    final bebas = _truthy(s['objc']) || _truthy(s['test']) || jenis.isEmpty || !_truthy(s['blok']);
+    levelKind?.call(bebas ? 'free' : jenis);
     if (m == null && lihat == 0) return null;
     final tgt = lihat < 0 ? 'pola/acak' : '$lihat';
     if (_truthy(s['objc']) || _truthy(s['test'])) {
@@ -538,10 +551,6 @@ extension StarLesson on Engine {
     // game ini dinilai bintang & bisa diatur: ambil target
     final target = starTarget?.call(kind, true) ?? 0;
     if (target < 1 || target > 5) return null;
-    // mode Manual dgn aturan khusus game: perkiraan = target aturan
-    if (manual?.call('lesson') != null) {
-      st.lessonGoal = {'kind': 'rule', 'stars': target};
-    }
     final p = planGame(target,
         goal: (s['goal'] as num?) ?? 0,
         minWpm: (s['min_wpm'] as num?) ?? 0,

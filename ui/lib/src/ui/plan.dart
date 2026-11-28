@@ -57,9 +57,9 @@ class _PlanPanelState extends State<PlanPanel> {
     final c = Theme.of(context).colorScheme;
     final segs = s.segments;
     final ed = s.edit;
-    // bagian yang sedang diubah jadi terkunci (bot jalan): tutup lembarnya
-    if (ed != null && ed.index != null &&
-        (ed.index! >= segs.length || s.locked(segs[ed.index!]))) {
+    // bagian yang sedang dibuka sudah tidak ada: tutup lembarnya (yang
+    // jadi terkunci tetap terbuka, lembarnya pindah ke mode lihat)
+    if (ed != null && ed.index != null && ed.index! >= segs.length) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (s.edit == ed) s.openEdit(null);
       });
@@ -110,13 +110,8 @@ class _PlanPanelState extends State<PlanPanel> {
               locked: s.locked(sg),
               muted: i >= putusDi,
               cur: s.planRunning && i == s.activeSegment ? s.curTarget : null,
-              onTap: () {
-                if (s.locked(sg)) {
-                  s.say('Bagian ini sedang dikerjakan. Stop dulu untuk mengubahnya.');
-                  return;
-                }
-                s.openEdit(editIdx == i ? null : PlanEdit.segment(i, sg));
-              },
+              // terkunci (sedang jalan) = dibuka utk dilihat: peta level
+              onTap: () => s.openEdit(editIdx == i ? null : PlanEdit.segment(i, sg)),
             ),
           ),
         );
@@ -398,12 +393,16 @@ class _GamesCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool selected;
 
+  static const _ikon = {
+    'balloon': Icons.bubble_chart_rounded,
+    'monster': Icons.pest_control_rounded,
+  };
+
   @override
   Widget build(BuildContext context) {
     final s = StoreScope.of(context);
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
-    final redup = t.bodySmall!.copyWith(color: c.onSurfaceVariant);
     return Press(
       child: Material(
         color: c.surfaceContainer,
@@ -418,20 +417,24 @@ class _GamesCard extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
             child: Row(children: [
-              Icon(Icons.sports_esports_rounded, size: 20,
-                  color: s.anyGameRule ? c.primary : c.onSurfaceVariant),
-              const SizedBox(width: 10),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Aturan khusus game', style: t.labelLarge),
-                  const SizedBox(height: 4),
+                  Row(children: [
+                    Icon(Icons.sports_esports_rounded, size: 16,
+                        color: s.anyGameRule ? c.primary : c.onSurfaceVariant),
+                    const SizedBox(width: 6),
+                    Text('Aturan game', style: t.labelLarge),
+                  ]),
+                  const SizedBox(height: 6),
                   for (final k in gameKinds)
                     Padding(
-                      padding: const EdgeInsets.only(top: 2),
+                      padding: const EdgeInsets.only(top: 3),
                       child: Row(children: [
-                        SizedBox(
-                            width: 58,
-                            child: Text(gameNames[k]!.replaceFirst('Game ', ''), style: redup)),
+                        Tip(
+                          message: gameNames[k]!,
+                          child: Icon(_ikon[k], size: 14, color: c.onSurfaceVariant),
+                        ),
+                        const SizedBox(width: 8),
                         Flexible(
                           child: FittedBox(
                             fit: BoxFit.scaleDown,

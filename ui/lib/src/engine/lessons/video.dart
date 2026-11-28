@@ -11,6 +11,7 @@ extension VideoLesson on Engine {
         try {
           await markBotClick(fr);
           await fr.locator('.vjs-big-play-button').first.click(timeout: 2);
+          levelKind?.call('free');
           st.bump('video');
           st.lastActionTime = now;
           log('[Video] ${frameLabel(fr)}: splash play diklik');
@@ -28,6 +29,7 @@ extension VideoLesson on Engine {
         } catch (_) {}
       }
       await runJs(videoSkipJs, fr);
+      levelKind?.call('free');
       st.bump('video');
       st.lastActionTime = now;
       log('[Video] ${frameLabel(fr)}: dilompat ke akhir');

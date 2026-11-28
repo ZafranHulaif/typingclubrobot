@@ -131,7 +131,7 @@ class _EditorSlot extends StatelessWidget {
         const kiriPanel = 12 + _PlanDrawerState.lebar + 8;
         final muat = box.maxWidth - kiriPanel - 12 >= 400;
         final left = muat ? kiriPanel : 12.0;
-        final w = (box.maxWidth - left - 12).clamp(0.0, 680.0);
+        final w = (box.maxWidth - left - 12).clamp(0.0, 860.0);
         return Stack(children: [
           Positioned(
             left: left,
@@ -388,7 +388,6 @@ class _Capsule extends StatelessWidget {
                   padding: EdgeInsets.only(left: 2),
                   child: _GuessChip(),
                 ),
-                if (s.anyGameRule) const _GameRuleMark(),
               ])
             : Row(mainAxisSize: MainAxisSize.min, children: [
                 mode(Icons.tune_rounded, 'Bebas'),
@@ -404,7 +403,6 @@ class _Capsule extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (s.anyGameRule) const _GameRuleMark(),
               ]);
 
     return Container(
@@ -485,28 +483,6 @@ class _PlanTarget extends StatelessWidget {
         ),
       StarRow(starsOfCode(code), silver: silverOfCode(code), size: 13),
     ]);
-  }
-}
-
-/// Tanda kecil di kapsul: ada aturan khusus game (tanpa rencana).
-class _GameRuleMark extends StatelessWidget {
-  const _GameRuleMark();
-
-  @override
-  Widget build(BuildContext context) {
-    final s = StoreScope.of(context);
-    final c = Theme.of(context).colorScheme;
-    final isi = [
-      for (final k in gameKinds)
-        if (!s.gameRule(k).follow) '${gameNames[k]}: ${s.gameRule(k).label}',
-    ].join(', ');
-    return Tip(
-      message: 'Aturan khusus game aktif. $isi',
-      child: Padding(
-        padding: const EdgeInsets.only(left: 4),
-        child: Icon(Icons.sports_esports_rounded, size: 14, color: c.onSurfaceVariant),
-      ),
-    );
   }
 }
 

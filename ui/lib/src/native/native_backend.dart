@@ -130,8 +130,10 @@ class NativeBackend implements Backend {
       },
     };
     _snap['plan']!['segments'] = _bootPlan;
-    // aturan khusus game (semua akun, semua mode)
+    // aturan khusus game (semua akun, hanya saat rencana jalan)
     _snap['games'] = _gameRulesJson();
+    // jenis tiap level kursus (sama utk semua akun), terkumpul selagi jalan
+    _snap['catalog'] = Map<String, dynamic>.from((_settings['level_kinds'] as Map?) ?? const {});
     _syncSeq(this.accounts.active() ?? '');
     _syncSpeedLock();
     _snap['range']!['unlocked'] = _unlockedFor(this.accounts.active() ?? '');
@@ -1201,7 +1203,8 @@ class NativeBackend implements Backend {
   }
 
   // ------------------------------------------------- aturan & urutan bintang
-  /// Aturan khusus game tersimpan (settings 'game_rules'); default ikut bagian.
+  /// Aturan khusus game tersimpan (settings 'game_rules'); default ikut
+  /// rencana. Hanya berlaku saat rencana jalan.
   Map<String, dynamic> _gameRulesJson() {
     final raw = (_settings['game_rules'] as Map?) ?? const {};
     return {
@@ -1257,9 +1260,24 @@ class NativeBackend implements Backend {
     _snap['plan'] = {
       ...?_snap['plan'],
       'acct': acct,
-      'used': {for (final e in seq.entries) e.key: ((e.value as Map)['n'] as num?)?.toInt() ?? 0},
+      // {tanda: {n, lv: {level: giliran}}}: peta level di editor
+      'seq': seq,
     };
     _events.add(SidecarEvent('state', {'plan': _snap['plan']}));
+  }
+
+  /// Catat jenis level sekarang (peta level di editor rencana). Jenis
+  /// yang dinilai bintang tidak diturunkan jadi 'free' (mis. tahan tombol
+  /// di tengah lesson berbintang).
+  void _recordKind(Engine e, String kind) {
+    final l = _levelNow(e);
+    if (l <= 0) return;
+    final cat = _snap['catalog']!;
+    final lama = cat['$l'];
+    if (lama == kind || (kind == 'free' && lama != null && lama != 'free')) return;
+    _snap['catalog'] = {...cat, '$l': kind};
+    _saveSettings({'level_kinds': _snap['catalog']});
+    _events.add(SidecarEvent('state', {'catalog': _snap['catalog']}));
   }
 
   /// Semua tanda aturan yang masih dipakai akun ini.
@@ -1427,7 +1445,12 @@ class NativeBackend implements Backend {
       ..rangeReady = true;
     eng.askLocked = _askLocked;
     eng.starTarget = (kind, assign) => _starTargetFor(eng, kind: kind, assign: assign);
-    eng.manual = (kind) => _manualOn && !_gameRuleOn(kind)
+    eng.levelKind = (kind) => _recordKind(eng, kind);
+    eng.levelKnown = () {
+      final l = _levelNow(eng);
+      return l <= 0 || _snap['catalog']!.containsKey('$l');
+    };
+    eng.manual = (kind) => _manualOn
         ? (
             wpm: (_snap['speed']!['wpm'] as int?) ?? 400,
             acc: (_snap['speed']!['acc'] as int?) ?? 100,
@@ -1545,12 +1568,7 @@ class NativeBackend implements Backend {
     Map<String, dynamic>? guess;
     var note = '';
     final g = e?.st.lessonGoal;
-    if (manual && g != null && g['kind'] == 'rule') {
-      // aturan khusus game menang atas mode Manual
-      final n = (g['stars'] as num?)?.toInt() ?? 0;
-      guess = {'stars': n == 0 ? 5 : n, 'silver': n == 0};
-      note = 'Aturan khusus game: target bintang, bukan kecepatan & akurasimu.';
-    } else if (manual && g != null) {
+    if (manual && g != null) {
       final sp = _snap['speed']!;
       final mp = guessManual(g, (sp['wpm'] as int?) ?? 400, (sp['acc'] as int?) ?? 100);
       if (mp != null) {
@@ -1582,15 +1600,17 @@ class NativeBackend implements Backend {
   /// Aturan yang berlaku untuk [kind] di level sekarang + kunci tandanya
   /// (null = tidak ada target: platinum).
   (StarRule, String)? _ruleFor(Engine e, String kind) {
-    if (gameKinds.contains(kind)) {
+    // aturan khusus game hanya berlaku saat rencana jalan
+    final plan = _mode == 'plan';
+    if (plan && gameKinds.contains(kind)) {
       final g = _gameRule(kind);
       if (!g.follow) return (g, 'g:$kind');
-    } else if (kind == 'game' && _gameRuleOn('game')) {
+    } else if (plan && kind == 'game' && _gameRuleOn('game')) {
       // game belum terbaca & ada aturan khusus: anggap diatur
       return (StarRule(type: 'random', min: 1, max: 5), 'g:?');
     }
     Map? sg;
-    if (_mode == 'plan') {
+    if (plan) {
       final segs = _segments;
       var lvl = _levelNow(e);
       // level belum terbaca (habis reload): pakai level terakhir yang
