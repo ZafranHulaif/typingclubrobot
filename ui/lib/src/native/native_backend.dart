@@ -131,6 +131,9 @@ class NativeBackend implements Backend {
         // 'stars' = pilih bintang (kecepatan & akurasi otomatis) /
         // 'manual' = atur kecepatan & akurasi sendiri, bintang = perkiraan
         'mode': fmode,
+        // target platinum (bebas & rencana): 'fast' secepatnya / 'relaxed'
+        // tanpa salah, sedikit di atas kecepatan minimal platinum
+        'plat': fs['plat'] == 'relaxed' ? 'relaxed' : 'fast',
       },
     };
     _snap['plan']!['segments'] = _bootPlan;
@@ -990,7 +993,13 @@ class NativeBackend implements Backend {
         final md = p['mode'] == null
             ? (p.containsKey('stars') ? 'stars' : '${cur['mode'] ?? 'stars'}')
             : (p['mode'] == 'manual' ? 'manual' : 'stars');
-        final f = {'stars': st, 'silver': sv && st == 5, 'mode': md};
+        final pl = p['plat'] == null ? '${cur['plat'] ?? 'fast'}' : '${p['plat']}';
+        final f = {
+          'stars': st,
+          'silver': sv && st == 5,
+          'mode': md,
+          'plat': pl == 'relaxed' ? 'relaxed' : 'fast',
+        };
         _set('free', f);
         _saveSettings({'free': f});
         final e = _engine;
@@ -1589,6 +1598,7 @@ class NativeBackend implements Backend {
       final l = _levelNow(eng);
       return l <= 0 || _snap['catalog']!.containsKey('$l');
     };
+    eng.platinumRelaxed = () => _snap['free']?['plat'] == 'relaxed';
     eng.manual = (kind) => _manualOn
         ? (
             wpm: (_snap['speed']!['wpm'] as int?) ?? 400,

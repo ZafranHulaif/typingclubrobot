@@ -98,6 +98,10 @@ class Engine {
   /// walau target platinum (sekali per level).
   bool Function()? levelKnown;
 
+  /// Platinum 'santai': tanpa salah tapi cukup sedikit di atas kecepatan
+  /// minimal platinum (bukan secepatnya). null/false = secepatnya.
+  bool Function()? platinumRelaxed;
+
   // pacing target bintang di game (per lesson, lihat lessons/stars.dart)
   GamePace? _gamePace;
 

@@ -45,17 +45,35 @@ class StarPace {
 /// Tengah pita tiap bintang (jauh dari batas supaya pembulatan aman).
 const starMidRatio = {5: 1.4, 4: 0.9, 3: 0.7, 2: 0.5, 1: 0.3};
 
+/// Pita rasio tiap bintang (atas 5 bintang dibatasi supaya tidak
+/// kebablasan jadi secepat platinum).
+const starBand = {5: (1.0, 1.6), 4: (0.8, 1.0), 3: (0.6, 0.8), 2: (0.4, 0.6), 1: (0.2, 0.4)};
+
+/// Rasio acak di bagian aman pita [stars] (jauh dari batas: pembulatan
+/// wpm & akurasi edclub). Goal kecil = pita sempit -> tengah pita.
+double starRatioPick(int stars, double g, Random rnd) {
+  final (lo, hi) = starBand[stars]!;
+  final m = max(0.06, 1.2 / g);
+  final a = lo + m, b = stars == 5 ? hi : hi - m;
+  if (a >= b) return starMidRatio[stars]!;
+  return a + rnd.nextDouble() * (b - a);
+}
+
 /// Hitung kecepatan & jumlah salah untuk [stars] bintang. null = tidak
-/// perlu diatur (target perak / lesson tanpa target kecepatan).
+/// perlu diatur (target perak / lesson tanpa target kecepatan). [rnd] =
+/// rasio & akurasi diacak di dalam pita aman (tiap lesson beda); tanpa
+/// [rnd] selalu tengah pita.
 StarPace? planStars(int stars,
     {required num goal,
     num minWpm = 0,
     num minAcc = 0,
     num difficulty = 0,
-    required int chars}) {
-  final r = starMidRatio[stars];
+    required int chars,
+    Random? rnd}) {
+  var r = starMidRatio[stars];
   if (r == null || chars <= 0) return null;
   final g = max(1.0, (goal + difficulty).toDouble());
+  if (rnd != null) r = starRatioPick(stars, g, rnd);
   final minW = max(0.0, (minWpm + difficulty).toDouble());
   // wpm minimal dengan margin (edclub membulatkan wpm)
   final wMin = minW * 1.2 + 0.5;
@@ -63,6 +81,12 @@ StarPace? planStars(int stars,
   final accFloor = min(100.0, max(minAcc.toDouble() + 5, 85.0)) / 100;
   // lesson pendek: pembulatan akurasi terlalu kasar, ketik tanpa salah
   var e = chars < 25 ? 0 : (chars * (1 - accFloor)).floor();
+  if (rnd != null && e > 0) {
+    // akurasi acak antara batas aman & +10 poin (maks 98%): lebih tinggi
+    // = lebih jauh dari 'focus on accuracy'
+    final top = min(0.98, accFloor + 0.10);
+    if (top > accFloor) e = (chars * (1 - (accFloor + rnd.nextDouble() * (top - accFloor)))).floor();
+  }
   var a = (chars - e) / chars;
   var w = r * g / (a * a);
   if (w < wMin) {
@@ -82,6 +106,48 @@ StarPace? planStars(int stars,
   final dt = 60.0 * valids / (5 * w * max(chars - 1, 1));
   final ratio = min(2.0, a * a * min(w, 200) / g);
   return StarPace(stars: stars, wpm: w, errors: e, chars: chars, dt: dt, ratio: ratio);
+}
+
+/// Batas wpm yang dihitung edclub (lebih cepat tidak menambah rasio).
+const edclubWpmCap = 200;
+
+/// Platinum 'santai': tanpa salah, kecepatan acak sedikit di atas minimal
+/// platinum (rasio 2 = wpm 2x goal), bukan secepatnya. null = tidak
+/// terjangkau di bawah batas wpm edclub (ketik secepatnya saja).
+StarPace? planPlatinum(
+    {required num goal, num minWpm = 0, num difficulty = 0, required int chars, required Random rnd}) {
+  if (chars <= 0) return null;
+  final g = max(1.0, (goal + difficulty).toDouble());
+  final m = max(0.1, 1.5 / g);
+  final lo = (2 + m) * g, hi = 2.6 * g;
+  const cap = edclubWpmCap - 5.0;
+  if (lo > cap) return null;
+  final minW = max(0.0, (minWpm + difficulty).toDouble()) * 1.2 + 0.5;
+  final w = max(min(lo + rnd.nextDouble() * max(0.0, hi - lo), cap), minW);
+  final dt = 60.0 * chars / (5 * w * max(chars - 1, 1));
+  return StarPace(stars: 5, wpm: w, errors: 0, chars: chars, dt: dt, ratio: min(2.0, min(w, 200) / g));
+}
+
+/// Jadwal naik-turun per frasa: waktu tombol ke-k (satuan dt) supaya
+/// kecepatan beda tiap frasa (+-[spread]) tapi rata2 lesson tetap
+/// ([chars] tombol = [chars] dt). Lewat [chars]: lanjut rata.
+List<double> phraseSchedule(int chars, Random rnd, {double spread = 0.2}) {
+  final f = <double>[];
+  while (f.length < chars) {
+    // frasa 12-40 tombol, kecepatan 1 +- spread
+    final len = 12 + rnd.nextInt(29);
+    final v = 1 + (rnd.nextDouble() * 2 - 1) * spread;
+    for (var i = 0; i < len && f.length < chars; i++) {
+      f.add(1 / v);
+    }
+  }
+  final total = f.fold<double>(0, (a, b) => a + b);
+  final k = total > 0 ? chars / total : 1.0;
+  final out = List<double>.filled(chars + 1, 0);
+  for (var i = 0; i < chars; i++) {
+    out[i + 1] = out[i] + f[i] * k;
+  }
+  return out;
 }
 
 /// Pacing bintang di game (lihat gamePace). false = semua game secepatnya.
@@ -409,13 +475,15 @@ extension StarLesson on Engine {
       if (st.statusLabel.isEmpty) await sleep(0.3);
     }
     final m = manual?.call('lesson');
+    // platinum santai: info lesson selalu perlu (kecepatannya dari goal)
+    final santai = m == null && (platinumRelaxed?.call() ?? false);
     // lihat dulu tanpa mengambil giliran: platinum tetap = tak perlu dibaca
     final lihat = m != null ? 0 : starTarget?.call('lesson', false) ?? 0;
     // platinum: info lesson cuma dibaca kalau jenis level ini belum dikenal
     final kenal = levelKnown?.call() ?? true;
-    if (m == null && lihat == 0 && kenal) return null;
+    if (m == null && lihat == 0 && kenal && !santai) return null;
     final info = await runJs(lessonGoalJs, frame);
-    if (m == null && lihat == 0) {
+    if (m == null && lihat == 0 && !santai) {
       if (info is Map) {
         levelKind?.call(_truthy(info['objc']) || _truthy(info['test']) ? 'test' : 'star');
       }
@@ -425,7 +493,7 @@ extension StarLesson on Engine {
       log(m != null
           ? '[Manual] target kecepatan lesson tidak terbaca - ketik biasa '
               '(${m.wpm} wpm, tanpa salah)'
-          : '[Bintang] target ${lihat < 0 ? 'pola/acak' : lihat}, tapi target '
+          : '[Bintang] target ${lihat < 0 ? 'pola/acak' : lihat == 0 ? 'platinum' : lihat}, tapi target '
               'kecepatan lesson tidak terbaca - ketik biasa');
       return null;
     }
@@ -444,17 +512,35 @@ extension StarLesson on Engine {
     final bolehSalah = '${info['on_error']}' == 'continue';
     if (m != null) return _manualLesson(m, info, sisa, bolehSalah);
     // level ini dinilai bintang: ambil target (giliran pola/acak)
-    final target = starTarget?.call('lesson', true) ?? 0;
+    final target = lihat == 0 ? 0 : starTarget?.call('lesson', true) ?? 0;
+    if (target == 0 && santai) {
+      final pp = planPlatinum(
+          goal: (info['goal'] as num?) ?? 0,
+          minWpm: (info['min_wpm'] as num?) ?? 0,
+          difficulty: (info['diff'] as num?) ?? 0,
+          chars: sisa,
+          rnd: rnd);
+      if (pp == null) {
+        log('[Bintang] platinum santai: goal ${info['goal']} wpm terlalu tinggi '
+            '(platinum butuh lebih dari ${edclubWpmCap - 5} wpm) - ketik secepatnya');
+        return null;
+      }
+      log('[Bintang] platinum santai: goal ${info['goal']} wpm -> ketik '
+          'rata2 ${pp.wpm.toStringAsFixed(1)} wpm tanpa salah, perkiraan '
+          '${(pp.chars * pp.dt / 60).toStringAsFixed(1)} menit');
+      return pp;
+    }
     if (target < 1 || target > 5) return null;
     final p = planStars(target,
         goal: (info['goal'] as num?) ?? 0,
         minWpm: (info['min_wpm'] as num?) ?? 0,
         minAcc: bolehSalah ? ((info['min_acc'] as num?) ?? 0) : 100,
         difficulty: (info['diff'] as num?) ?? 0,
-        chars: sisa);
+        chars: sisa,
+        rnd: rnd);
     if (p == null) return null;
     log('[Bintang] target $target: goal ${info['goal']} wpm -> ketik '
-        '${p.wpm.toStringAsFixed(1)} wpm, akurasi ${p.accuracy}% '
+        'rata2 ${p.wpm.toStringAsFixed(1)} wpm (naik-turun tiap frasa), akurasi ${p.accuracy}% '
         '(${p.errors} salah dari ${p.chars}), perkiraan '
         '${(p.chars * p.dt / 60).toStringAsFixed(1)} menit');
     return p;
@@ -497,6 +583,9 @@ extension StarLesson on Engine {
     // acak murni: di akurasi 85% salah sering menggerombol beberapa
     // berturut2 -> edclub memunculkan "focus on accuracy" (laporan 28 Nov)
     final salahDi = spreadErrors(p.chars, p.errors, rnd);
+    // kecepatan naik-turun tiap frasa, rata2 tetap p.wpm
+    final jadwal = phraseSchedule(p.chars, rnd);
+    double waktu(int k) => k < jadwal.length ? jadwal[k] : jadwal.last + (k - jadwal.length + 1);
     var hutang = 0; // salah yang tertunda karena jatuh di bukan-huruf
     var rem = rem0;
     var k = 0;
@@ -570,7 +659,7 @@ extension StarLesson on Engine {
           st.levelProgress = (1 - rem.length / totalLen).clamp(0.0, 1.0);
         }
       }
-      final tunggu = t0 + k * p.dt - now;
+      final tunggu = t0 + waktu(k) * p.dt - now;
       if (tunggu > 0) await sleep(tunggu);
     }
   }
