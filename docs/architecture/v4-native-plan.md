@@ -628,7 +628,7 @@ and only scrolls again when the current level leaves the view. Released mainly t
 from 4.1.1 (the app updater treats 4.1.1-devN as equal to 4.1.1, so dev installs need 4.1.2).
 Released 2026-11-28: GitHub v4.1.2 (target v4 a34a943, Mac from mac 791e06b), worker /api/latest 4.1.2 sha 91d54985….
 
-### 4.1.3 (dev): balloon game failures, one mode control
+### 4.1.3: balloon game failures, one mode control (released 2026-11-28, GitHub v4.1.3 target v4 ad3c0c9, Mac from mac dcbbf6c, worker sha 0a8e3eb5…)
 - Balloon Valley failed at 13 wpm (owner report 28 Nov 19:29): balloons drift down and drop when typing is
   slow; wrong keys do NOT cost lives (owner confirmed). Games now type at >= `gameMinWpm` 22 wpm and get
   lower stars from wrong keys (first-try accuracy down to `gameRealAccMin` 10%); a target that would need
