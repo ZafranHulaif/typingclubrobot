@@ -613,6 +613,13 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   Screens: docs/preview/plan-panel.png, plan-new.png, plan-pattern.png, plan-random.png,
   plan-running.png, plan-games.png.
 
+### 4.1.1 released (2026-11-28)
+GitHub release v4.1.1 (target v4 f78f6ba; assets TypingBot.exe, TypingBot-mac.zip, TypingBot-mac.dmg, Mac built
+from mac 02964c0), worker /api/latest 4.1.1 sha 639429a3…. Contains everything from 4.1.0 (never released) and
+the 4.1.1-dev1..dev4 test builds. Published without ADMIN_KEY: the owner's Cloudflare API token wrote the META
+KV directly (`exe:4.1.1:0` chunk + `release` record, old `exe:4.0.9:0` deleted), same data /api/publish
+writes; /api/download redirects to the GitHub asset anyway.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
