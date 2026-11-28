@@ -328,6 +328,9 @@ async function handle(request, ctx) {
           body: JSON.stringify({
             ts, versi: String(body.versi || "?").slice(0, 40),
             akun: String(body.akun || "?").slice(0, 60),
+            // isi laporan ikut dikirim (thread pemilik langsung bisa
+            // membaca tanpa admin key): kategori, cerita, ekor log
+            ...laporBagian(isi),
           }),
         }).then((r) => console.log("[LAPOR-HOOK] relay balas",
               r.status))
@@ -525,6 +528,17 @@ async function handle(request, ctx) {
   }
 
   return json({ error: "not_found" }, 404);
+}
+
+// Pecah isi laporan app ("kategori: ..", "=== CERITA USER ===",
+// "=== LOG ... ===") utk webhook; log dipotong dari belakang.
+function laporBagian(isi) {
+  const kat = (isi.match(/^kategori: (.*)$/m) || [])[1] || "";
+  const cer = (isi.match(/=== CERITA USER ===\n([\s\S]*?)\n\n=== LOG/) || [])[1] || "";
+  const li = isi.indexOf("=== LOG");
+  let log = li >= 0 ? isi.slice(isi.indexOf("\n", li) + 1) : "";
+  if (log.length > 12000) log = "...\n" + log.slice(-12000);
+  return { kategori: kat.slice(0, 80), cerita: cer.slice(0, 2000), log };
 }
 
 export default {

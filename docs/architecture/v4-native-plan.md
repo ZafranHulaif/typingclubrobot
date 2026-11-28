@@ -583,6 +583,14 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   level). Game rules sheet: one card per game with the same editor and a "Berikutnya" strip. The
   Rencana panel keeps its header (Mulai rencana) and the "Aturan game" bar pinned; only the part tiles
   scroll, so the game rules stay reachable however long the plan is.
+- Pattern length is capped at the part's level count: extra targets stay in the editor draft (shown as
+  "+N", restored when the range grows) but are cut off on save.
+- Test builds MUST carry a higher version than what is installed (launcher installs only when payload >
+  installed, and `-devN` ranks below the plain release). 4.1.0-test1..3 all said 4.1.0, so test2/3 never
+  installed; test builds now go 4.1.1-devN.
+- Bug reports: the worker's `LAPOR_HOOK` now points at a T3 webhook task ("Laporan bug TypingBot") that
+  summarizes each report in the owner's thread; the hook payload carries kategori / cerita / log tail
+  (`laporBagian()` in worker.js) so no admin key is needed to read it.
   Screens: docs/preview/plan-panel.png, plan-new.png, plan-pattern.png, plan-random.png,
   plan-running.png, plan-games.png.
 

@@ -265,11 +265,27 @@ class _SegmentFormState extends State<_SegmentForm> {
   int? get _from => int.tryParse(_a.text.trim());
   int? get _to => _habis ? 0 : int.tryParse(_b.text.trim());
 
+  /// jumlah level bagian ini (null = sampai habis / belum valid)
+  int? get _levels {
+    final a = _from, b = _to;
+    if (a == null || b == null || b == 0 || b < a) return null;
+    return b - a + 1;
+  }
+
+  /// aturan yang benar2 dipakai: pola dipotong sepanjang rentang level
+  /// (draf lengkapnya tetap di _sg selama lembar terbuka)
+  StarRule get _rule {
+    final n = _levels;
+    final r = _sg.rule;
+    if (r.type != 'pattern' || n == null || r.pattern.length <= n) return r;
+    return r.copy()..pattern = r.pattern.take(n).toList();
+  }
+
   bool _dirty(Segment? saved) =>
       saved == null ||
       _from != saved.from ||
       _to != saved.to ||
-      !_sg.rule.sameAs(saved.rule);
+      !_rule.sameAs(saved.rule);
 
   Future<void> _simpan(AppStore s) async {
     final a = _from;
@@ -297,6 +313,7 @@ class _SegmentFormState extends State<_SegmentForm> {
       return;
     }
     _sg
+      ..rule = _rule
       ..from = a
       ..to = b;
     final segs = s.segments;
@@ -396,6 +413,7 @@ class _SegmentFormState extends State<_SegmentForm> {
       const _Label('Target bintang', icon: Icons.star_rounded),
       RuleEditor(
         rule: _sg.rule,
+        maxPattern: _levels,
         enabled: !lihat,
         onChanged: (r) => setState(() => _sg.rule = r),
       ),
@@ -408,7 +426,7 @@ class _SegmentFormState extends State<_SegmentForm> {
         : _LevelMap(
             from: from,
             to: to == null || (to != 0 && to < from) ? from : to,
-            rule: _sg.rule,
+            rule: _rule,
             current: aktif && s.levelNum >= from ? s.levelNum : 0,
           );
 
