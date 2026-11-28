@@ -580,7 +580,9 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   Three feels with the same content: new part (green-tinted header, plus icon, "Tambahkan"), edit
   (pencil, "Belum disimpan" pill, "Simpan perubahan" only when changed), running/locked part (view only,
   "Sedang jalan" pill, a "Sekarang · Level N" card and the map window starting just before the current
-  level). Game rules sheet: one card per game with the same editor and a "Berikutnya" strip.
+  level). Game rules sheet: one card per game with the same editor and a "Berikutnya" strip. The
+  Rencana panel keeps its header (Mulai rencana) and the "Aturan game" bar pinned; only the part tiles
+  scroll, so the game rules stay reachable however long the plan is.
   Screens: docs/preview/plan-panel.png, plan-new.png, plan-pattern.png, plan-random.png,
   plan-running.png, plan-games.png.
 

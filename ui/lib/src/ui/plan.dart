@@ -132,10 +132,11 @@ class _PlanPanelState extends State<PlanPanel> {
         ));
       }
 
-      return ListView(
-        padding: const EdgeInsets.fromLTRB(10, 0, 10, 16),
-        children: [
-          Row(children: [
+      // kepala & aturan game tetap di tempat; hanya kotak2 yang bergulir
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
+          child: Row(children: [
             Expanded(
               child: Text('Rencana',
                   style: t.titleSmall!.copyWith(color: c.onSurface)),
@@ -151,28 +152,37 @@ class _PlanPanelState extends State<PlanPanel> {
               ),
             ),
           ]),
-          const SizedBox(height: 12),
-          if (putusDi < segs.length)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Text(
-                  'Bagian abu-abu tidak akan jalan karena tidak tersambung. '
-                  'Isi celahnya dulu.',
-                  style: t.bodySmall!.copyWith(color: c.tertiary)),
-            ),
-          AnimatedSize(
-            duration: Motion.medium,
-            curve: Motion.out,
-            alignment: Alignment.topCenter,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
+            children: [
+              if (putusDi < segs.length)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                      'Bagian abu-abu tidak akan jalan karena tidak tersambung. '
+                      'Isi celahnya dulu.',
+                      style: t.bodySmall!.copyWith(color: c.tertiary)),
+                ),
+              AnimatedSize(
+                duration: Motion.medium,
+                curve: Motion.out,
+                alignment: Alignment.topCenter,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          _GamesCard(
+        ),
+        Divider(height: 1, color: c.outlineVariant),
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: _GamesCard(
             selected: ed?.games == true,
             onTap: () => s.openEdit(ed?.games == true ? null : PlanEdit.games()),
           ),
-        ],
-      );
+        ),
+      ]);
     });
   }
 }
@@ -387,7 +397,8 @@ class _AddTile extends StatelessWidget {
   }
 }
 
-/// Kartu "Aturan khusus game" di bawah kotak2 bagian.
+/// Bilah "Aturan game" yang menempel di bawah panel Rencana (selalu
+/// terlihat walau rencananya panjang).
 class _GamesCard extends StatelessWidget {
   const _GamesCard({required this.onTap, this.selected = false});
   final VoidCallback onTap;
@@ -403,50 +414,46 @@ class _GamesCard extends StatelessWidget {
     final s = StoreScope.of(context);
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
+    final aktif = s.anyGameRule;
     return Press(
       child: Material(
-        color: c.surfaceContainer,
+        color: selected ? c.primary.withValues(alpha: 0.1) : c.surfaceContainer,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(Radii.lg),
+          borderRadius: BorderRadius.circular(Radii.md),
           side: BorderSide(color: selected ? c.primary : c.outlineVariant),
         ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(Radii.lg),
+          borderRadius: BorderRadius.circular(Radii.md),
           hoverColor: c.surfaceContainerHigh,
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
             child: Row(children: [
+              Icon(Icons.sports_esports_rounded, size: 18,
+                  color: aktif ? c.primary : c.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Text('Aturan game', style: t.labelLarge),
+              const SizedBox(width: 10),
               Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(children: [
-                    Icon(Icons.sports_esports_rounded, size: 16,
-                        color: s.anyGameRule ? c.primary : c.onSurfaceVariant),
-                    const SizedBox(width: 6),
-                    Text('Aturan game', style: t.labelLarge),
-                  ]),
-                  const SizedBox(height: 6),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
                   for (final k in gameKinds)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 3),
-                      child: Row(children: [
-                        Tip(
-                          message: gameNames[k]!,
-                          child: Icon(_ikon[k], size: 14, color: c.onSurfaceVariant),
-                        ),
-                        const SizedBox(width: 8),
+                    Tip(
+                      message: gameNames[k]!,
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(_ikon[k], size: 12, color: c.onSurfaceVariant),
+                        const SizedBox(width: 5),
                         Flexible(
                           child: FittedBox(
                             fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
-                            child: RuleSummary(s.gameRule(k), size: 12),
+                            alignment: Alignment.centerRight,
+                            child: RuleSummary(s.gameRule(k), size: 11),
                           ),
                         ),
                       ]),
                     ),
                 ]),
               ),
-              Icon(Icons.chevron_right_rounded, color: c.onSurfaceVariant),
+              Icon(Icons.chevron_right_rounded, size: 20, color: c.onSurfaceVariant),
             ]),
           ),
         ),
