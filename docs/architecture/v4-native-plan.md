@@ -626,6 +626,7 @@ levels stay light) instead of a 6-row window starting 2 levels before the curren
 level count. While the part runs it opens scrolled so the current level's row sits one row below the top,
 and only scrolls again when the current level leaves the view. Released mainly to test the update flow
 from 4.1.1 (the app updater treats 4.1.1-devN as equal to 4.1.1, so dev installs need 4.1.2).
+Released 2026-11-28: GitHub v4.1.2 (target v4 a34a943, Mac from mac 791e06b), worker /api/latest 4.1.2 sha 91d54985….
 
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
