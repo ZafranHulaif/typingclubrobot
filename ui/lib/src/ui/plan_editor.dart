@@ -438,11 +438,12 @@ class _SegmentFormState extends State<_SegmentForm> {
     final to = _to;
     final peta = from == null || from < 1 || from > AppStore.lastLevel
         ? null
-        : _LevelMap(
+        : (bool penuh) => _LevelMap(
             from: from,
             to: to == null || (to != 0 && to < from) ? from : to,
             rule: _rule,
             current: aktif && s.levelNum >= from ? s.levelNum : 0,
+            expand: penuh,
           );
 
     final judul = e.isNew
@@ -460,7 +461,7 @@ class _SegmentFormState extends State<_SegmentForm> {
         if (!lebar) {
           return ListView(padding: const EdgeInsets.fromLTRB(20, 18, 20, 24), children: [
             form,
-            if (peta != null) ...[const SizedBox(height: 22), peta],
+            if (peta != null) ...[const SizedBox(height: 22), peta(false)],
           ]);
         }
         return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -470,9 +471,9 @@ class _SegmentFormState extends State<_SegmentForm> {
           ),
           VerticalDivider(width: 1, color: c.outlineVariant),
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 18, 18, 24),
-              children: [?peta],
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 18, 8, 16),
+              child: peta?.call(true) ?? const SizedBox.shrink(),
             ),
           ),
         ]);
@@ -534,14 +535,16 @@ const _premium = Color(0xFFFF8FB1);
       _ => (icon: Icons.skip_next_rounded, color: c.secondary, name: 'dilewati'),
     };
 
-/// Kotak per level dgn targetnya, mulai dari level awal bagian. Saat
-/// bagian ini jalan, level sekarang jadi yang utama.
-class _LevelMap extends StatelessWidget {
+/// Kotak per level dgn targetnya, seluruh rentang bagian bisa digulir
+/// (kotak dibangun malas, hanya yang terlihat). Saat bagian ini jalan,
+/// level sekarang jadi yang utama & peta ikut bergulir ke sana.
+class _LevelMap extends StatefulWidget {
   const _LevelMap({
     required this.from,
     required this.to,
     required this.rule,
     required this.current,
+    this.expand = false,
   });
   final int from;
 
@@ -552,57 +555,139 @@ class _LevelMap extends StatelessWidget {
   /// level yang sedang dikerjakan (0 = bagian ini tidak sedang jalan)
   final int current;
 
+  /// true = mengisi tinggi yang tersedia (kolom kanan lembar lebar)
+  final bool expand;
+
+  @override
+  State<_LevelMap> createState() => _LevelMapState();
+}
+
+class _LevelMapState extends State<_LevelMap> {
   static const _kotak = 50.0;
   static const _jarak = 6.0;
+  final _ctl = ScrollController();
+
+  /// level sekarang yang terakhir digulir ke (0 = belum pernah)
+  int _diGulir = 0;
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  /// Gulir supaya baris level sekarang terlihat (satu baris sebelumnya
+  /// ikut tampil: level yang baru selesai).
+  void _gulirKe(int kolom, double baris) {
+    final cur = widget.current;
+    if (cur <= 0 || cur == _diGulir || !_ctl.hasClients) return;
+    final awal = _diGulir == 0;
+    _diGulir = cur;
+    final row = (cur - widget.from) ~/ kolom;
+    final pos = _ctl.position;
+    final atas = (math.max(0, row - 1) * baris).clamp(0.0, pos.maxScrollExtent);
+    // sudah terlihat: jangan geser (biar user bisa melihat-lihat)
+    final rowTop = row * baris;
+    if (!awal && rowTop >= pos.pixels && rowTop + baris <= pos.pixels + pos.viewportDimension) return;
+    if (awal) {
+      _ctl.jumpTo(atas);
+    } else {
+      _ctl.animateTo(atas, duration: Motion.drawer, curve: Motion.out);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final s = StoreScope.of(context);
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
+    final from = widget.from, to = widget.to, current = widget.current;
     final akhir = to == 0 ? AppStore.lastLevel : to;
     final jalan = current >= from && current <= akhir;
-    return LayoutBuilder(builder: (_, box) {
-      final kolom = math.max(4, ((box.maxWidth + _jarak) / (_kotak + _jarak)).floor());
-      // kotak melebar sedikit supaya baris pas selebar kolom
-      final ukuran = ((box.maxWidth - (kolom - 1) * _jarak) / kolom).clamp(_kotak, 64.0);
-      final baris = jalan ? 5 : 6;
-      final muat = kolom * baris;
-      // jalan: mulai sedikit sebelum level sekarang
-      final mulai = jalan ? math.max(from, current - 2) : from;
-      final sel = levelMap(
-        from: from,
-        to: to,
-        lastLevel: AppStore.lastLevel,
-        rule: rule,
-        key: 'p$from',
-        acct: s.seqAcct,
-        kinds: s.catalog,
-        seq: s.seq,
-        games: s.gameRules,
-        done: s.done,
-        start: mulai,
-        count: muat,
-      );
-      final sisa = akhir - (sel.isEmpty ? mulai - 1 : sel.last.level);
-      final kini = jalan ? sel.where((x) => x.level == current).firstOrNull : null;
-      final cur = s.curTarget;
-      final kodeKini = cur != null && cur['level'] == current
-          ? (cur['code'] as num).toInt()
-          : kini?.code;
-      // keterangan: hanya yang muncul di peta
-      final jenisLewat = <String>{
-        for (final x in sel)
-          if (x.skip) _lookOf(x.kind, c).name,
-      };
-      final adaSelesai = sel.any((x) => x.done);
-      final adaGame = sel.any((x) => x.game != null || gameKinds.contains(x.kind));
-      final adaBaru = sel.any((x) => !x.known && !x.done);
+    // seluruh rentang (hitungan ringan; kotaknya dibangun malas)
+    final sel = levelMap(
+      from: from,
+      to: to,
+      lastLevel: AppStore.lastLevel,
+      rule: widget.rule,
+      key: 'p$from',
+      acct: s.seqAcct,
+      kinds: s.catalog,
+      seq: s.seq,
+      games: s.gameRules,
+      done: s.done,
+      start: from,
+      count: akhir - from + 1,
+    );
+    final kini = jalan ? sel.where((x) => x.level == current).firstOrNull : null;
+    final cur = s.curTarget;
+    final kodeKini = cur != null && cur['level'] == current
+        ? (cur['code'] as num).toInt()
+        : kini?.code;
+    // keterangan: hanya yang muncul di peta
+    final jenisLewat = <String>{
+      for (final x in sel)
+        if (x.skip) _lookOf(x.kind, c).name,
+    };
+    final adaSelesai = sel.any((x) => x.done);
+    final adaGame = sel.any((x) => x.game != null || gameKinds.contains(x.kind));
+    final adaBaru = sel.any((x) => !x.known && !x.done);
 
-      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    final grid = LayoutBuilder(builder: (_, box) {
+      // ruang kanan utk batang gulir
+      final lebar = box.maxWidth - 10;
+      final kolom = math.max(4, ((lebar + _jarak) / (_kotak + _jarak)).floor());
+      final ukuran = (lebar - (kolom - 1) * _jarak) / kolom;
+      if (jalan) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _gulirKe(kolom, ukuran + _jarak);
+        });
+      }
+      return Scrollbar(
+        controller: _ctl,
+        thumbVisibility: sel.length > kolom * 6,
+        child: GridView.builder(
+          controller: _ctl,
+          padding: const EdgeInsets.only(right: 10, bottom: 4),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: kolom,
+            mainAxisSpacing: _jarak,
+            crossAxisSpacing: _jarak,
+          ),
+          itemCount: sel.length,
+          itemBuilder: (_, i) {
+            final x = sel[i];
+            return _LevelSquare(
+              cell: x,
+              size: ukuran,
+              // level sekarang: target yang benar2 dipakai bot
+              code: jalan && x.level == current ? kodeKini : x.code,
+              now: jalan && x.level == current,
+              first: x.level == from && !jalan,
+            );
+          },
+        ),
+      );
+    });
+
+    final legend = Wrap(spacing: 14, runSpacing: 8, children: [
+      if (adaSelesai) const _Legend(icon: Icons.check_rounded, color: _hijau, text: 'selesai'),
+      for (final k in const ['video', 'tutorial', 'test', 'hold', 'game', 'free', 'premium'])
+        if (jenisLewat.contains(_lookOf(k, c).name))
+          _Legend(icon: _lookOf(k, c).icon, color: _lookOf(k, c).color, text: _lookOf(k, c).name),
+      if (adaGame) _Legend(icon: Icons.sports_esports_rounded, color: c.tertiary, text: 'game balon/monster'),
+      if (adaBaru) const _Legend(hollow: true, text: 'belum pernah dibuka'),
+    ]);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: widget.expand ? MainAxisSize.max : MainAxisSize.min,
+      children: [
         _Label('Peta level',
             icon: Icons.grid_view_rounded,
-            trailing: Text(to == 0 ? '$from sampai habis' : (from == akhir ? '$from' : '$from–$akhir'),
+            trailing: Text(
+                '${to == 0 ? '$from sampai habis' : (from == akhir ? '$from' : '$from–$akhir')}'
+                ' · ${sel.length} level',
                 style: t.labelMedium!.copyWith(
                     color: c.onSurfaceVariant,
                     fontFeatures: const [FontFeature.tabularFigures()]))),
@@ -610,33 +695,11 @@ class _LevelMap extends StatelessWidget {
           _NowCard(level: current, code: kodeKini, cell: kini),
           const SizedBox(height: 12),
         ],
-        Wrap(spacing: _jarak, runSpacing: _jarak, children: [
-          for (final x in sel)
-            _LevelSquare(
-              cell: x,
-              size: ukuran,
-              // level sekarang: target yang benar2 dipakai bot
-              code: jalan && x.level == current ? kodeKini : x.code,
-              now: jalan && x.level == current,
-              first: x.level == from && !jalan,
-            ),
-        ]),
-        if (sisa > 0) ...[
-          const SizedBox(height: 8),
-          Text('+$sisa level lagi',
-              style: t.labelMedium!.copyWith(color: c.onSurfaceVariant)),
-        ],
-        const SizedBox(height: 14),
-        Wrap(spacing: 14, runSpacing: 8, children: [
-          if (adaSelesai) const _Legend(icon: Icons.check_rounded, color: _hijau, text: 'selesai'),
-          for (final k in const ['video', 'tutorial', 'test', 'hold', 'game', 'free', 'premium'])
-            if (jenisLewat.contains(_lookOf(k, c).name))
-              _Legend(icon: _lookOf(k, c).icon, color: _lookOf(k, c).color, text: _lookOf(k, c).name),
-          if (adaGame) _Legend(icon: Icons.sports_esports_rounded, color: c.tertiary, text: 'game balon/monster'),
-          if (adaBaru) const _Legend(hollow: true, text: 'belum pernah dibuka'),
-        ]),
-      ]);
-    });
+        if (widget.expand) Expanded(child: grid) else SizedBox(height: 380, child: grid),
+        const SizedBox(height: 12),
+        legend,
+      ],
+    );
   }
 }
 

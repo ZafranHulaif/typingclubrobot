@@ -620,6 +620,13 @@ the 4.1.1-dev1..dev4 test builds. Published without ADMIN_KEY: the owner's Cloud
 KV directly (`exe:4.1.1:0` chunk + `release` record, old `exe:4.0.9:0` deleted), same data /api/publish
 writes; /api/download redirects to the GitHub asset anyway.
 
+### 4.1.2 (2026-11-28)
+Level map scrolls over the whole part range (lazy `GridView.builder`, only visible squares are built; 600+
+levels stay light) instead of a 6-row window starting 2 levels before the current one. Header shows the
+level count. While the part runs it opens scrolled so the current level's row sits one row below the top,
+and only scrolls again when the current level leaves the view. Released mainly to test the update flow
+from 4.1.1 (the app updater treats 4.1.1-devN as equal to 4.1.1, so dev installs need 4.1.2).
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
