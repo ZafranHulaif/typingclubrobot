@@ -1412,6 +1412,11 @@ class NativeBackend implements Backend {
         }
       }
       baru.putIfAbsent('c', () => 0);
+      // judul lesson (tooltip peta), mis. 'Keys f & j'
+      final jd = RegExp(r'Lesson \d+:\s*(.+?)\.\s*(?:Lesson completed|\d out of 5)', caseSensitive: false)
+          .firstMatch(raw)?[1]
+          ?.trim();
+      if (jd != null && jd.isNotEmpty) baru['t'] = jd.length > 60 ? jd.substring(0, 60) : jd;
       if (baru.toString() != lama.toString()) {
         done['$lvl'] = baru;
         ubah = true;

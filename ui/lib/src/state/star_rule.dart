@@ -185,6 +185,7 @@ class LevelCell {
     this.game,
     this.done = false,
     this.planned,
+    this.title,
   });
   final int level;
 
@@ -211,8 +212,17 @@ class LevelCell {
   /// game yang ikut aturan khusus game ('balloon' / 'monster')
   final String? game;
 
+  /// judul lesson dari daftar level edclub (mis. 'Keys f & j'), kalau
+  /// sudah terbaca
+  final String? title;
+
   bool get known => kind.isNotEmpty;
   bool get skip => isSkipKind(kind);
+
+  /// selesai tapi edclub tidak memberi bintang ('Lesson completed'):
+  /// level tanpa bintang (video, tutorial, dll.) yang jenisnya belum
+  /// pernah dilihat bot
+  bool get noStar => done && code == null && !skip;
 }
 
 /// Hasil level selesai dari snapshot {level: {c: target, e: bintang
@@ -270,6 +280,10 @@ List<LevelCell> levelMap({
   final out = <LevelCell>[];
   for (var l = from; l <= akhir && out.length < count; l++) {
     final kind = '${kinds['$l'] ?? ''}';
+    final dc = doneCode(done, l);
+    // selesai tanpa bintang & belum pernah dapat giliran: level tanpa
+    // bintang yg dikerjakan di luar bot, tidak memakai giliran
+    final tanpaGiliran = dc == 0;
     LevelCell cell;
     final g = gs[kind];
     if (isSkipKind(kind)) {
@@ -277,8 +291,8 @@ List<LevelCell> levelMap({
     } else if (g != null) {
       final (gr, gsig, gst) = g;
       final simpan = gst.lv[l];
-      final i = gr.variable ? (simpan ?? gn[kind]!) : null;
-      if (gr.variable && simpan == null) gn[kind] = gn[kind]! + 1;
+      final i = gr.variable ? (simpan ?? (tanpaGiliran ? null : gn[kind]!)) : null;
+      if (gr.variable && simpan == null && !tanpaGiliran) gn[kind] = gn[kind]! + 1;
       cell = LevelCell(
           level: l,
           kind: kind,
@@ -288,8 +302,8 @@ List<LevelCell> levelMap({
           game: kind);
     } else {
       final simpan = st.lv[l];
-      final i = rule.variable ? (simpan ?? n) : null;
-      if (rule.variable && simpan == null) n++;
+      final i = rule.variable ? (simpan ?? (tanpaGiliran ? null : n)) : null;
+      if (rule.variable && simpan == null && !tanpaGiliran) n++;
       cell = LevelCell(
           level: l,
           kind: kind,
@@ -298,8 +312,8 @@ List<LevelCell> levelMap({
           assigned: simpan != null);
     }
     // sudah selesai: tampilkan hasilnya, bukan target aturan sekarang
-    final dc = doneCode(done, l);
     if (dc != null) {
+      final t = (done?['$l'] as Map?)?['t'];
       cell = LevelCell(
           level: l,
           kind: cell.kind,
@@ -308,7 +322,8 @@ List<LevelCell> levelMap({
           assigned: cell.assigned,
           game: cell.game,
           done: true,
-          planned: cell.code);
+          planned: cell.code,
+          title: t is String && t.isNotEmpty ? t : null);
     }
     if (l >= mulai) out.add(cell);
   }

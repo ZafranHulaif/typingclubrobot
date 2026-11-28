@@ -147,4 +147,25 @@ void main() {
     expect(isSkipKind('free'), isTrue);
     expect(isSkipKind('star'), isFalse);
   });
+
+  test('peta level: selesai tanpa bintang tidak memakai giliran pola', () {
+    final r = StarRule(type: 'pattern', pattern: [2, 4]);
+    final sel = levelMap(
+      from: 10,
+      to: 13,
+      lastLevel: 685,
+      rule: r,
+      key: 'p10',
+      acct: 'a',
+      kinds: const {},
+      seq: const {},
+      done: {
+        '11': {'c': 0, 't': 'Keys f & j'},
+      },
+    );
+    expect([for (final x in sel) x.code], [2, null, 4, 2]);
+    expect(sel[1].noStar, isTrue);
+    expect(sel[1].title, 'Keys f & j');
+    expect(sel[0].noStar, isFalse);
+  });
 }
