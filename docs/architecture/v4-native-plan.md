@@ -590,7 +590,11 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   installed; test builds now go 4.1.1-devN.
 - Bug reports: the worker's `LAPOR_HOOK` now points at a T3 webhook task ("Laporan bug TypingBot") that
   summarizes each report in the owner's thread; the hook payload carries kategori / cerita / log tail
-  (`laporBagian()` in worker.js) so no admin key is needed to read it.
+  (`laporBagian()` in worker.js) so no admin key is needed to read it. Deployed 2026-11-28 (version
+  8718c9c5) with wrangler; live script was diffed against the repo first (identical apart from the hook).
+- Mistake placement (`spreadErrors()` in stars.dart): errors are spread evenly over the lesson with up to
+  a quarter-gap of jitter, never closer than half the average gap. Pure random placement clumped mistakes
+  at 85% and edclub showed "focus on accuracy" (owner report 28 Nov).
   Screens: docs/preview/plan-panel.png, plan-new.png, plan-pattern.png, plan-random.png,
   plan-running.png, plan-games.png.
 

@@ -33,6 +33,28 @@ void main() {
     }
   });
 
+  test('salah ketik tersebar rata, tidak pernah menggerombol', () {
+    final rnd = Random(7);
+    for (final (chars, acc) in [(400, 85), (148, 85), (441, 90), (320, 95), (60, 85)]) {
+      final e = (chars * (100 - acc) / 100).ceil();
+      for (var rep = 0; rep < 50; rep++) {
+        final pos = spreadErrors(chars, e, rnd).toList()..sort();
+        expect(pos.length, e);
+        expect(pos.first, greaterThanOrEqualTo(2));
+        expect(pos.last, lessThanOrEqualTo(chars - 3));
+        final stride = (chars - 4) / e;
+        for (var i = 1; i < pos.length; i++) {
+          // tidak ada dua salah lebih rapat dari setengah jarak rata2
+          expect(pos[i] - pos[i - 1], greaterThanOrEqualTo((stride / 2).floor()),
+              reason: '$chars/$acc: $pos');
+          expect(pos[i] - pos[i - 1], greaterThan(1), reason: 'salah berturut2: $pos');
+        }
+      }
+    }
+    // tetap acak: dua kali panggil tidak sama
+    expect(spreadErrors(400, 60, Random(1)), isNot(spreadErrors(400, 60, Random(2))));
+  });
+
   test('planStars: lesson pendek tanpa salah ketik', () {
     final p = planStars(4, goal: 10, minWpm: 3, minAcc: 80, chars: 20)!;
     expect(p.errors, 0);
