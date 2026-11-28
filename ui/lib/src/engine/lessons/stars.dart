@@ -372,7 +372,7 @@ extension StarLesson on Engine {
     final info = await runJs(lessonGoalJs, frame);
     if (m == null && lihat == 0) {
       if (info is Map) {
-        levelKind?.call(_truthy(info['objc']) || _truthy(info['test']) ? 'free' : 'star');
+        levelKind?.call(_truthy(info['objc']) || _truthy(info['test']) ? 'test' : 'star');
       }
       return null;
     }
@@ -385,7 +385,7 @@ extension StarLesson on Engine {
       return null;
     }
     if (_truthy(info['objc']) || _truthy(info['test'])) {
-      levelKind?.call('free');
+      levelKind?.call('test');
       if (m != null) st.lessonGoal = {'kind': 'skip'};
       return null;
     }
@@ -554,8 +554,12 @@ extension StarLesson on Engine {
     final m = manual?.call(kind);
     final lihat = m != null ? 0 : starTarget?.call(kind, false) ?? 0;
     // jenis level (peta level): data game sudah terbaca, gratis
-    final bebas = _truthy(s['objc']) || _truthy(s['test']) || jenis.isEmpty || !_truthy(s['blok']);
-    levelKind?.call(bebas ? 'free' : jenis);
+    final tes = _truthy(s['objc']) || _truthy(s['test']);
+    levelKind?.call(tes
+        ? 'test'
+        : jenis.isEmpty || !_truthy(s['blok'])
+            ? 'game'
+            : jenis);
     if (m == null && lihat == 0) return null;
     final tgt = lihat < 0 ? 'pola/acak' : '$lihat';
     if (_truthy(s['objc']) || _truthy(s['test'])) {

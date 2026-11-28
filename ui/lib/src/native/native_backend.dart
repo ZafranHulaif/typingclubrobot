@@ -39,6 +39,10 @@ import 'accounts.dart';
 import 'view_bridge.dart';
 
 const homeUrl = 'https://www.edclub.com/student/course/3';
+
+/// Label tiap baris daftar level yang sedang dirender.
+const _bacaLabelJs = r'''() => [...document.querySelectorAll('[aria-label^="Lesson "]')]
+    .map(e => e.getAttribute('aria-label') || '').slice(0, 800)''';
 const signinUrl = 'https://www.edclub.com/signin';
 
 /// URL mulai OAuth Google edclub + prompt=none: Google langsung balik
@@ -1151,6 +1155,11 @@ class NativeBackend implements Backend {
       final v = _view;
       if (v == null || v.disposed) return;
       try {
+        // bintang asli & selesai dari label baris yang tampil
+        try {
+          final lb = await v.eval('($_bacaLabelJs)()');
+          if (lb is List) _readEarned(lb);
+        } catch (_) {}
         final r = await v.eval('($bacaUnlockJs)()');
         if (r is! List || r.isEmpty) return;
         final n = r.whereType<num>().map((e) => e.toInt()).fold<int>(0, max);
@@ -1283,22 +1292,147 @@ class NativeBackend implements Backend {
       'acct': acct,
       // {tanda: {n, lv: {level: giliran}}}: peta level di editor
       'seq': seq,
+      // level selesai akun ini {level: {c: target, e: bintang asli}}
+      'done': _doneFor(acct),
     };
     _events.add(SidecarEvent('state', {'plan': _snap['plan']}));
   }
 
   /// Catat jenis level sekarang (peta level di editor rencana). Jenis
-  /// yang dinilai bintang tidak diturunkan jadi 'free' (mis. tahan tombol
-  /// di tengah lesson berbintang).
+  /// yang dinilai bintang tidak diturunkan jadi jenis lewati (mis. tahan
+  /// tombol di tengah lesson berbintang).
   void _recordKind(Engine e, String kind) {
     final l = _levelNow(e);
     if (l <= 0) return;
     final cat = _snap['catalog']!;
-    final lama = cat['$l'];
-    if (lama == kind || (kind == 'free' && lama != null && lama != 'free')) return;
+    final lama = '${cat['$l'] ?? ''}';
+    if (lama == kind) return;
+    // 'premium' = tanda lemah: modal 'Upgrade to Pro' bisa juga muncul di
+    // level biasa (mis. layar skor). Hanya dicatat kalau level ini belum
+    // dikenal, dan pengamatan lain (lesson diketik, video, ...) menimpanya.
+    if (kind == 'premium' && lama.isNotEmpty) return;
+    if (isSkipKind(kind) && kind != 'premium' && scoredKinds.contains(lama)) return;
+    if (kind == 'free' && lama.isNotEmpty) return;
     _snap['catalog'] = {...cat, '$l': kind};
     _saveSettings({'level_kinds': _snap['catalog']});
     _events.add(SidecarEvent('state', {'catalog': _snap['catalog']}));
+  }
+
+  // ------------------------------------------------ level selesai (peta)
+  /// settings 'level_done' {akun: {level: {c: target yang dipakai, e:
+  /// bintang asli dari daftar level}}}: peta level tetap menunjukkan
+  /// hasilnya walau aturan bagian diganti.
+  Map<String, dynamic> _doneFor(String acct) => Map<String, dynamic>.from(
+      (((_settings['level_done'] as Map?) ?? const {})[acct] as Map?) ?? const {});
+
+  void _saveDone(String acct, Map<String, dynamic> done) {
+    _saveSettings({
+      'level_done': {...((_settings['level_done'] as Map?) ?? const {}), acct: done}
+    });
+    _set('plan', {'done': done});
+  }
+
+  int _prevLvl = 0;
+  int? _prevCode;
+
+  /// Target level [lvl] yang sedang dipakai (kode; null = tanpa target).
+  int? _codeNow(int lvl) {
+    final cur = _snap['plan']?['cur'];
+    if (cur is Map && cur['level'] == lvl) return (cur['code'] as num).toInt();
+    final sp = _snap['speed']!;
+    if (sp['manual'] == true) {
+      final g = sp['guess'];
+      return g is Map && sp['level'] == lvl
+          ? codeOf((g['stars'] as num).toInt(), g['silver'] == true)
+          : null;
+    }
+    final a = (sp['auto'] as num?)?.toInt();
+    if (a == null || a < 0) return null;
+    return a == 0 ? platinumCode : a;
+  }
+
+  /// Bot maju ke level berikutnya = level sebelumnya selesai: catat.
+  void _doneTick(Engine e, bool jalan, int lvl) {
+    if (!jalan) {
+      // rentang habis: level terakhir juga selesai
+      if (e.st.rangeDone && _prevLvl > 0) _markDone(_prevLvl, _prevCode);
+      _prevLvl = 0;
+      _prevCode = null;
+      return;
+    }
+    if (lvl <= 0) return;
+    if (lvl == _prevLvl) {
+      _prevCode = _codeNow(lvl) ?? _prevCode;
+      return;
+    }
+    if (_prevLvl > 0 && lvl > _prevLvl) _markDone(_prevLvl, _prevCode);
+    _prevLvl = lvl;
+    _prevCode = _codeNow(lvl);
+  }
+
+  void _markDone(int lvl, int? code) {
+    final kind = '${_snap['catalog']!['$lvl'] ?? ''}';
+    // premium dilompati, bukan selesai (kecuali ternyata diketik: ada
+    // target tercatat = level biasa yang kebetulan memunculkan modal Pro)
+    if (kind == 'premium' && code == null) return;
+    final acct = accounts.active() ?? '';
+    final done = _doneFor(acct);
+    final lama = Map<String, dynamic>.from((done['$lvl'] as Map?) ?? const {});
+    final c = isSkipKind(kind) && kind != 'premium' ? 0 : (code ?? 0);
+    if (lama['c'] == c) return;
+    done['$lvl'] = {...lama, 'c': c};
+    _saveDone(acct, done);
+  }
+
+  bool _labelLogged = false;
+
+  /// Daftar level: bintang asli tiap baris yang tampil (aria-label
+  /// 'Lesson N: ... K out of 5 stars earned' / 'Lesson completed').
+  /// Daftarnya virtual (hanya baris yang terlihat), jadi terkumpul
+  /// sedikit demi sedikit.
+  void _readEarned(List labels) {
+    final acct = accounts.active() ?? '';
+    final done = _doneFor(acct);
+    var ubah = false;
+    for (final raw in labels.whereType<String>()) {
+      final m = RegExp(r'Lesson (\d+)').firstMatch(raw);
+      if (m == null) continue;
+      final lvl = int.parse(m[1]!);
+      final st = RegExp(r'(\d) out of 5 stars? earned', caseSensitive: false).firstMatch(raw);
+      final selesai = RegExp(r'completed', caseSensitive: false).hasMatch(raw);
+      if (st == null && !selesai) continue;
+      final lama = Map<String, dynamic>.from((done['$lvl'] as Map?) ?? const {});
+      final baru = {...lama};
+      if (st != null) {
+        final n = int.parse(st[1]!);
+        if (n > 0) {
+          baru['e'] = n >= 5 && RegExp(r'platinum|silver', caseSensitive: false).hasMatch(raw)
+              ? platinumCode
+              : n;
+        }
+      }
+      baru.putIfAbsent('c', () => 0);
+      if (baru.toString() != lama.toString()) {
+        done['$lvl'] = baru;
+        ubah = true;
+      }
+    }
+    if (!_labelLogged && labels.isNotEmpty) {
+      // contoh format label sekali per sesi (bahan membaca jenis level
+      // & premium dari daftar; tanpa data akun)
+      _labelLogged = true;
+      final contoh = labels.whereType<String>().take(400).toList();
+      final pilih = <String>{};
+      for (final x in contoh) {
+        final pola = x.replaceAll(RegExp(r'\d+'), '#');
+        if (pilih.every((p) => p.replaceAll(RegExp(r'\d+'), '#') != pola)) pilih.add(x);
+        if (pilih.length >= 8) break;
+      }
+      for (final x in pilih) {
+        _log('[DAFTAR] contoh label: ${x.length > 160 ? x.substring(0, 160) : x}');
+      }
+    }
+    if (ubah) _saveDone(acct, done);
   }
 
   /// Semua tanda aturan yang masih dipakai akun ini.
@@ -1662,7 +1796,18 @@ class NativeBackend implements Backend {
     final r = _ruleFor(e, kind);
     if (r == null) return 0;
     final (rule, key) = r;
-    if (!rule.variable) return engineTarget(rule.code);
+    if (!rule.variable) {
+      // target tetap: tetap dicatat utk level sekarang (peta level)
+      if (assign) {
+        final lvl = _levelNow(e) > 0 ? _levelNow(e) : _starLvl;
+        if (lvl > 0) {
+          _set('plan', {
+            'cur': {'level': lvl, 'code': rule.code, 'kind': kind}
+          });
+        }
+      }
+      return engineTarget(rule.code);
+    }
     if (key == 'g:?') return -1;
     final acct = accounts.active() ?? '';
     final sig = rule.sig(key);
@@ -1733,6 +1878,7 @@ class NativeBackend implements Backend {
       'position': e.levels.posisi,
     });
     _planTick(jalan, lvl);
+    _doneTick(e, jalan, lvl);
     _askTick(e);
     _loginTick(e);
   }

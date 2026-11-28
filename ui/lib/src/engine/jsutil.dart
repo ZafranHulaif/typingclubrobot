@@ -230,6 +230,8 @@ extension JsUtil on Engine {
     for (final fr in await edclubFrames()) {
       final r = await runJs(proModalJs, fr);
       if (r is! Map) continue;
+      // level ini terkunci Pro (peta level di editor rencana)
+      levelKind?.call('premium');
       if (r['x'] != null && st.proXTries < 3) {
         st.proXTries += 1;
         try {

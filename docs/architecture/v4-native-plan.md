@@ -599,6 +599,17 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   startPlan saves it first (invalid draft = error shown, no start). A new-part draft can start an empty
   plan. Worker: reports over 20000 chars keep the header + the END of the log (they used to keep the
   start, dropping the newest lines). Status-slot messages are capped at 420 px with a tooltip.
+- Level map colors (docs/preview/plan-map-colors.png): finished = green + check, showing its own stars
+  (settings `level_done` {acct: {level: {c: target used, e: real stars}}}, marked when the bot moves past a
+  level or the range ends; `e` read from the level list aria-labels "K out of 5 stars earned" while the
+  list page is open, rows are virtualized so it fills in gradually). Switching the rule no longer repaints
+  finished levels. Skip kinds are now specific: video / tutorial / test / hold / game (other) / premium,
+  each with its own icon (lilac; premium = pink lock). 'premium' is a weak mark: the "Upgrade to Pro"
+  modal can also appear on normal levels, so it is only stored for levels with no other kind and any real
+  observation overwrites it. First level-list read per session logs up to 8 sample labels as
+  `[DAFTAR] contoh label:` to learn whether edclub exposes type / premium there.
+- Star scale: thin green outline on the hovered cell, pattern chips get a hover outline, "platinum"
+  label is one line under the scale.
   Screens: docs/preview/plan-panel.png, plan-new.png, plan-pattern.png, plan-random.png,
   plan-running.png, plan-games.png.
 
