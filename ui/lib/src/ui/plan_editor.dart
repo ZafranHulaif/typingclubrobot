@@ -629,7 +629,8 @@ class _LevelMapState extends State<_LevelMap> {
       for (final x in sel)
         if (x.skip) _lookOf(x.kind, c).name,
     };
-    final adaSelesai = sel.any((x) => x.done);
+    final adaSelesai = sel.any((x) => x.done && !x.noStar);
+    final adaKosong = sel.any((x) => x.noStar);
     final adaGame = sel.any((x) => x.game != null || gameKinds.contains(x.kind));
     final adaBaru = sel.any((x) => !x.known && !x.done);
 
@@ -672,6 +673,8 @@ class _LevelMapState extends State<_LevelMap> {
 
     final legend = Wrap(spacing: 14, runSpacing: 8, children: [
       if (adaSelesai) const _Legend(icon: Icons.check_rounded, color: _hijau, text: 'selesai'),
+      if (adaKosong)
+        _Legend(icon: Icons.star_outline_rounded, color: _hijau.withValues(alpha: 0.6), text: 'selesai tanpa bintang'),
       for (final k in const ['video', 'tutorial', 'test', 'hold', 'game', 'free', 'premium'])
         if (jenisLewat.contains(_lookOf(k, c).name))
           _Legend(icon: _lookOf(k, c).icon, color: _lookOf(k, c).color, text: _lookOf(k, c).name),
@@ -769,17 +772,22 @@ class _LevelSquare extends StatelessWidget {
     final lewat = x.skip && !(x.done && x.kind == 'premium');
     final look = lewat ? _lookOf(x.kind, c) : null;
     final selesai = x.done && !now;
+    // selesai tanpa bintang (video/tutorial yg jenisnya tak terlihat bot)
+    final kosong = selesai && x.noStar && code == null;
     final game = x.game != null || gameKinds.contains(x.kind);
     String bintang(int k) => k >= platinumCode ? 'platinum' : '$k bintang';
     final pesan = [
       'Level ${x.level}',
+      if (x.title != null) x.title!,
       if (look != null)
         x.kind == 'premium' ? 'premium (terkunci Pro), dilewati' : '${look.name}, dilewati tanpa bintang'
+      else if (kosong)
+        'selesai, level tanpa bintang (video, tutorial, dll.)'
       else if (selesai)
         code == null ? 'selesai' : 'selesai: ${bintang(code!)}'
       else if (code != null)
         'target ${bintang(code!)}',
-      if (selesai && !lewat && x.planned != null && x.planned != code)
+      if (selesai && !lewat && !kosong && x.planned != null && x.planned != code)
         'kalau diulang: target ${bintang(x.planned!)}',
       if (x.game != null) 'aturan ${gameNames[x.game]!.toLowerCase()}',
       if (!x.known && !x.done) 'belum pernah dibuka, jenisnya belum diketahui',
@@ -791,6 +799,9 @@ class _LevelSquare extends StatelessWidget {
     if (now) {
       latar = c.primary.withValues(alpha: 0.16);
       garis = c.primary;
+    } else if (kosong) {
+      latar = _hijau.withValues(alpha: 0.04);
+      garis = _hijau.withValues(alpha: 0.3);
     } else if (selesai) {
       latar = _hijau.withValues(alpha: 0.12);
       garis = _hijau.withValues(alpha: 0.55);
@@ -846,7 +857,9 @@ class _LevelSquare extends StatelessWidget {
             child: Center(
               child: look != null
                   ? Icon(look.icon, size: 17, color: look.color)
-                  : code == null
+                  : kosong
+                      ? Icon(Icons.star_outline_rounded, size: 17, color: _hijau.withValues(alpha: 0.5))
+                      : code == null
                       ? const SizedBox.shrink()
                       : TargetBadge(code!, size: 13, dim: !x.known && !now && !x.done),
             ),

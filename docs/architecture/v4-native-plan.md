@@ -642,6 +642,13 @@ Released 2026-11-28: GitHub v4.1.2 (target v4 a34a943, Mac from mac 791e06b), wo
   speed+accuracy sliders), view-only while a plan runs. StarPicker, SpeedButton, _SpeedLocked, _GuessChip
   removed. Screens: docs/preview/mode-control.png.
 
+### 4.1.4 (in progress)
+- Map: levels the edclub list reports as "Lesson completed" (no star count) and whose kind the bot never saw
+  were empty green squares. They are star-less levels (video / tutorial / ...) finished outside the bot:
+  `LevelCell.noStar` renders them faint green with a hollow star ("selesai tanpa bintang" in the legend), and
+  they no longer take a pattern / random turn in `levelMap`. The list label's lesson title is stored as
+  `level_done[acct][level].t` and shown in the square's tooltip. Screen: docs/preview/plan-map-nostar.png.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,
