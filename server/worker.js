@@ -289,7 +289,16 @@ async function handle(request, ctx) {
     try { body = await request.json(); } catch (e) {
       return json({ error: "bad_json" }, 400);
     }
-    const isi = String(body.isi || "").slice(0, 20000);
+    // batas 20000 karakter: simpan kepala (versi/kategori/cerita) + EKOR
+    // log. Dulu .slice(0, 20000) membuang baris log TERBARU (yang justru
+    // dicari) begitu log 400 baris kepanjangan.
+    let isi = String(body.isi || "");
+    if (isi.length > 20000) {
+      const li = isi.indexOf("=== LOG");
+      const kepala = li >= 0 ? isi.slice(0, Math.min(li, 6000)) : "";
+      const judul = "=== LOG (dipotong, bagian akhir) ===\n...\n";
+      isi = kepala + judul + isi.slice(-(20000 - kepala.length - judul.length));
+    }
     if (isi.length < 20) return json({ error: "kosong" }, 400);
     const ip = request.headers.get("CF-Connecting-IP") || "?";
     const rkey = `laporan-rl:${ip}`;

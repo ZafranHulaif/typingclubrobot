@@ -142,9 +142,10 @@ class _PlanPanelState extends State<PlanPanel> {
                   style: t.titleSmall!.copyWith(color: c.onSurface)),
             ),
             Press(
-              enabled: segs.isNotEmpty && !s.busy && s.licensed,
+              // draf bagian baru juga boleh: Mulai menyimpannya dulu
+              enabled: (segs.isNotEmpty || ed?.isNew == true) && !s.busy && s.licensed,
               child: FilledButton.icon(
-                onPressed: segs.isNotEmpty && !s.busy && s.licensed
+                onPressed: (segs.isNotEmpty || ed?.isNew == true) && !s.busy && s.licensed
                     ? s.startPlan
                     : null,
                 icon: const Icon(Icons.play_arrow_rounded, size: 18),

@@ -233,6 +233,7 @@ class _SegmentFormState extends State<_SegmentForm> {
   late final _a = TextEditingController(text: '${_sg.from}');
   late final _b = TextEditingController(text: _sg.to == 0 ? '' : '${_sg.to}');
   late bool _habis = _sg.to == 0;
+  late final AppStore _store;
 
   @override
   void initState() {
@@ -240,15 +241,27 @@ class _SegmentFormState extends State<_SegmentForm> {
     // peta level ikut angka yang sedang diketik
     _a.addListener(_ulang);
     _b.addListener(_ulang);
+    // Mulai rencana menyimpan lembar ini dulu
+    _store = StoreScope.read(context)..saveDraft = _simpanDraft;
   }
 
   void _ulang() => setState(() {});
 
   @override
   void dispose() {
+    if (_store.saveDraft == _simpanDraft) _store.saveDraft = null;
     _a.dispose();
     _b.dispose();
     super.dispose();
+  }
+
+  Future<bool> _simpanDraft() async {
+    final saved = _saved(_store);
+    if (saved != null && _store.locked(saved)) return true;
+    if (!_dirty(saved)) return true;
+    final ok = await _simpan(_store);
+    if (ok) _store.say('Perubahan disimpan dulu.');
+    return ok;
   }
 
   bool get _isFirst {
@@ -287,30 +300,30 @@ class _SegmentFormState extends State<_SegmentForm> {
       _to != saved.to ||
       !_rule.sameAs(saved.rule);
 
-  Future<void> _simpan(AppStore s) async {
+  Future<bool> _simpan(AppStore s) async {
     final a = _from;
     final b = _to;
     if (a == null) {
       s.say('Isi level awal dengan angka ya.', error: true);
-      return;
+      return false;
     }
     if (b == null) {
       s.say('Isi sampai level berapa, atau centang "Sampai habis".', error: true);
-      return;
+      return false;
     }
     if (a < 1 || a > AppStore.lastLevel || b > AppStore.lastLevel) {
       s.say('Level 1 sampai ${AppStore.lastLevel} ya.', error: true);
-      return;
+      return false;
     }
     if (b != 0 && b < a) {
       s.say('Level akhir harus sesudah level awal.', error: true);
-      return;
+      return false;
     }
     // hanya bagian pertama yg harus mulai di level terbuka; sisanya
     // terbuka sendiri selagi bot jalan
     if (_isFirst && s.unlocked > 0 && a > s.unlocked) {
       s.say('Level $a belum terbuka. Level terbuka terakhir: ${s.unlocked}.', error: true);
-      return;
+      return false;
     }
     _sg
       ..rule = _rule
@@ -321,12 +334,14 @@ class _SegmentFormState extends State<_SegmentForm> {
     if (i == null) {
       segs.add(_sg);
     } else {
-      if (i >= segs.length) return;
+      if (i >= segs.length) return false;
       segs[i] = _sg;
     }
     // bagian pengisi celah masuk di tengah: urutkan
     segs.sort((x, y) => x.from.compareTo(y.from));
-    if (await s.savePlan(segs)) s.openEdit(null);
+    if (!await s.savePlan(segs)) return false;
+    s.openEdit(null);
+    return true;
   }
 
   Future<void> _hapus(AppStore s) async {
@@ -783,6 +798,28 @@ class _GamesFormState extends State<_GamesForm> {
   late final Map<String, StarRule> _r = {
     for (final k in gameKinds) k: StoreScope.read(context).gameRule(k),
   };
+  late final AppStore _store;
+
+  @override
+  void initState() {
+    super.initState();
+    _store = StoreScope.read(context)..saveDraft = _simpanDraft;
+  }
+
+  @override
+  void dispose() {
+    if (_store.saveDraft == _simpanDraft) _store.saveDraft = null;
+    super.dispose();
+  }
+
+  bool get _dirty => gameKinds.any((k) => !_r[k]!.sameAs(_store.gameRule(k)));
+
+  Future<bool> _simpanDraft() async {
+    if (!_dirty) return true;
+    if (!await _store.saveGames(_r)) return false;
+    _store.openEdit(null);
+    return true;
+  }
 
   static const _ikon = {
     'balloon': Icons.bubble_chart_rounded,
@@ -794,7 +831,7 @@ class _GamesFormState extends State<_GamesForm> {
     final s = StoreScope.of(context);
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
-    final dirty = gameKinds.any((k) => !_r[k]!.sameAs(s.gameRule(k)));
+    final dirty = _dirty;
     return _Frame(
       feel: _Feel.games,
       title: 'Aturan khusus game',
