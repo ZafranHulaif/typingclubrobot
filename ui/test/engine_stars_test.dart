@@ -50,7 +50,7 @@ void main() {
     await page.attach();
     final logs = <String>[];
     final eng = Engine(page: page, random: Random(3), onLog: logs.add)..st.speedWpm = 400;
-    eng.starTarget = () => 4;
+    eng.starTarget = (_, _) => 4;
     fake.onEval = (n) {
       if (fake.lesson!.done || n > 200000) eng.st.stop = true;
     };
@@ -112,7 +112,7 @@ void main() {
     await page.attach();
     final logs = <String>[];
     final eng = Engine(page: page, random: Random(5), onLog: logs.add)..st.speedWpm = 400;
-    eng.starTarget = () => target;
+    eng.starTarget = (_, _) => target;
     var sesudah = 0;
     fake.onEval = (n) {
       // beberapa putaran setelah tamat supaya log hasil sempat keluar
@@ -180,7 +180,7 @@ void main() {
     await page.attach();
     final logs = <String>[];
     final eng = Engine(page: page, random: Random(5), onLog: logs.add)..st.speedWpm = 400;
-    eng.starTarget = () => 4;
+    eng.starTarget = (_, _) => 4;
     fake.onEval = (n) {
       // selama ditahan belum ada huruf yang masuk
       if (nStat <= 15) expect(fake.game!.valids, 0);
@@ -199,7 +199,7 @@ void main() {
     await page.attach();
     final logs = <String>[];
     final eng = Engine(page: page, random: Random(3), onLog: logs.add)..st.speedWpm = 400;
-    eng.starTarget = () => 0;
+    eng.starTarget = (_, _) => 0;
     fake.onEval = (n) {
       if (fake.lesson!.done || n > 20000) eng.st.stop = true;
     };
@@ -263,8 +263,8 @@ void main() {
     await page.attach();
     final logs = <String>[];
     final eng = Engine(page: page, random: Random(3), onLog: logs.add)..st.speedWpm = 40;
-    eng.starTarget = () => 5; // diabaikan: mode Manual menang
-    eng.manual = () => (wpm: 40, acc: 90);
+    eng.starTarget = (_, _) => 5; // diabaikan: mode Manual menang
+    eng.manual = (_) => (wpm: 40, acc: 90);
     Map<String, dynamic>? goal;
     fake.onEval = (n) {
       goal ??= eng.st.lessonGoal;
@@ -292,7 +292,7 @@ void main() {
     await page.attach();
     final logs = <String>[];
     final eng = Engine(page: page, random: Random(3), onLog: logs.add)..st.speedWpm = 400;
-    eng.manual = () => (wpm: 400, acc: 100);
+    eng.manual = (_) => (wpm: 400, acc: 100);
     fake.onEval = (n) {
       if (fake.lesson!.done || n > 20000) eng.st.stop = true;
     };
@@ -309,7 +309,7 @@ void main() {
     await page.attach();
     final logs = <String>[];
     final eng = Engine(page: page, random: Random(5), onLog: logs.add)..st.speedWpm = 40;
-    eng.manual = () => (wpm: 40, acc: 90);
+    eng.manual = (_) => (wpm: 40, acc: 90);
     var sesudah = 0;
     fake.onEval = (n) {
       if (game.ended) sesudah++;

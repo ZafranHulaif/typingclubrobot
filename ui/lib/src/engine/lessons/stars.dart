@@ -93,6 +93,14 @@ const gamePacingOn = true;
 /// akun tes, belum bisa diuji) tetap diketik secepatnya.
 const gamePaceTypes = ['balloonvalley', 'monsterattack'];
 
+/// Jenis game yang bisa diatur dari nama app + host (huruf kecil):
+/// 'balloon' / 'monster', '' = game lain (diketik secepatnya).
+String gameKindOf(String nama) => nama.contains('balloonvalley')
+    ? 'balloon'
+    : nama.contains('monsterattack')
+        ? 'monster'
+        : '';
+
 /// Batas atas kecepatan di game: game kalah kalau wpm > 250.
 const gamePaceMaxWpm = 150;
 
@@ -331,16 +339,17 @@ extension StarLesson on Engine {
       } catch (_) {}
       if (st.statusLabel.isEmpty) await sleep(0.3);
     }
-    final m = manual?.call();
-    final target = m != null ? 0 : starTarget?.call() ?? 0;
-    if (m == null && (target < 1 || target > 5)) return null;
+    final m = manual?.call('lesson');
+    // lihat dulu tanpa mengambil giliran: platinum tetap = tak perlu dibaca
+    final lihat = m != null ? 0 : starTarget?.call('lesson', false) ?? 0;
+    if (m == null && lihat == 0) return null;
     final info = await runJs(lessonGoalJs, frame);
     if (info is! Map) {
       log(m != null
           ? '[Manual] target kecepatan lesson tidak terbaca - ketik biasa '
               '(${m.wpm} wpm, tanpa salah)'
-          : '[Bintang] target $target, tapi target kecepatan lesson tidak '
-              'terbaca - ketik biasa');
+          : '[Bintang] target ${lihat < 0 ? 'pola/acak' : lihat}, tapi target '
+              'kecepatan lesson tidak terbaca - ketik biasa');
       return null;
     }
     if (_truthy(info['objc']) || _truthy(info['test'])) {
@@ -355,6 +364,9 @@ extension StarLesson on Engine {
     // mode lain (blokir) -> tanpa salah, hanya kecepatan
     final bolehSalah = '${info['on_error']}' == 'continue';
     if (m != null) return _manualLesson(m, info, sisa, bolehSalah);
+    // level ini dinilai bintang: ambil target (giliran pola/acak)
+    final target = starTarget?.call('lesson', true) ?? 0;
+    if (target < 1 || target > 5) return null;
     final p = planStars(target,
         goal: (info['goal'] as num?) ?? 0,
         minWpm: (info['min_wpm'] as num?) ?? 0,
@@ -500,25 +512,35 @@ extension StarLesson on Engine {
     _gamePaceUrl = url;
     _gamePace = null;
     _gameReset();
-    final m = manual?.call();
-    final target = m != null ? 0 : starTarget?.call() ?? 0;
-    if (m == null && (target < 1 || target > 5)) return null;
+    final nama = '${s['app']} ${s['host']}'.toLowerCase();
+    final label = '${s['app']}'.split('.').last;
+    final jenis = gameKindOf(nama);
+    final kind = jenis.isEmpty ? 'game' : jenis;
+    final m = manual?.call(kind);
+    final lihat = m != null ? 0 : starTarget?.call(kind, false) ?? 0;
+    if (m == null && lihat == 0) return null;
+    final tgt = lihat < 0 ? 'pola/acak' : '$lihat';
     if (_truthy(s['objc']) || _truthy(s['test'])) {
       if (m != null) st.lessonGoal = {'kind': 'skip'};
       return null;
     }
-    final nama = '${s['app']} ${s['host']}'.toLowerCase();
-    final label = '${s['app']}'.split('.').last;
     if (m != null) return _manualGame(m, s, label, nama);
-    if (!gamePaceTypes.any(nama.contains)) {
-      log('[Bintang] target $target, tapi game $label belum teruji untuk '
+    if (jenis.isEmpty) {
+      log('[Bintang] target $tgt, tapi game $label belum teruji untuk '
           'target bintang - diketik secepatnya');
       return null;
     }
     if (!_truthy(s['blok'])) {
-      log('[Bintang] target $target, tapi game $label bukan mode blokir - '
+      log('[Bintang] target $tgt, tapi game $label bukan mode blokir - '
           'diketik secepatnya');
       return null;
+    }
+    // game ini dinilai bintang & bisa diatur: ambil target
+    final target = starTarget?.call(kind, true) ?? 0;
+    if (target < 1 || target > 5) return null;
+    // mode Manual dgn aturan khusus game: perkiraan = target aturan
+    if (manual?.call('lesson') != null) {
+      st.lessonGoal = {'kind': 'rule', 'stars': target};
     }
     final p = planGame(target,
         goal: (s['goal'] as num?) ?? 0,
@@ -540,7 +562,7 @@ extension StarLesson on Engine {
   /// Mode Manual di game: hanya game yang teruji & mode blokir yang diatur
   /// (sama dgn target bintang); lainnya diketik seperti biasa.
   GamePace? _manualGame(({int wpm, int acc}) m, Map s, String label, String nama) {
-    if (!gamePaceTypes.any(nama.contains) || !_truthy(s['blok'])) {
+    if (gameKindOf(nama).isEmpty || !_truthy(s['blok'])) {
       st.lessonGoal = {'kind': 'game_free'};
       log('[Manual] game $label tidak bisa diatur - diketik seperti biasa');
       return null;
@@ -582,20 +604,21 @@ extension StarLesson on Engine {
   /// Data game belum terbaca (core belum siap): tahan dulu supaya huruf
   /// pertama tidak diketik secepatnya; menyerah setelah 15 putaran.
   bool gamePaceHold() {
-    // mode Manual = sama2 perlu data game dulu (anggap target 'ada')
-    final target = manual?.call() != null ? 1 : starTarget?.call() ?? 0;
+    // mode Manual = sama2 perlu data game dulu (anggap target 'ada');
+    // -1 = pola/acak (juga diatur)
+    final target = manual?.call('game') != null ? 1 : starTarget?.call('game', false) ?? 0;
     final url = page.url;
     if (_gameHoldUrl != url) {
       _gameHoldUrl = url;
       _gameHoldN = 0;
     }
     _gameHoldN += 1;
-    if (target >= 1 && target <= 5 && _gameHoldN <= 15) return true;
+    if (target != 0 && _gameHoldN <= 15) return true;
     _gamePaceUrl = url;
     _gamePace = null;
-    if (target >= 1 && target <= 5) {
-      log('[Bintang] target $target, tapi data game tidak terbaca - '
-          'diketik secepatnya');
+    if (target != 0) {
+      log('[Bintang] target ${target < 0 ? 'pola/acak' : target}, tapi data '
+          'game tidak terbaca - diketik secepatnya');
     }
     return false;
   }

@@ -546,6 +546,30 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   Screens: docs/preview/manual-mode.png, docs/preview/star-picker.png.
 - Not yet: remembering goals of visited levels so the Rencana editor can show estimates ahead.
 
+### 4.1.0: Rencana star rules (idea from a user: "2,4,4,3,4", balloon games always 3 stars)
+- Each plan part has a rule (state/star_rule.dart, shared by backend + UI): **Tetap** (one target),
+  **Pola** (sequence repeated, e.g. 2,4,4,3,4; p = platinum) or **Acak** (random in a range, platinum
+  allowed). Target code 1-5, 6 = platinum. Old `{stars, silver}` parts load as Tetap and the JSON still
+  carries stars/silver.
+- **Aturan khusus game** (settings `game_rules`, one for all accounts): balloon / monster game =
+  Ikut bagian | Tetap | Pola | Acak. Applies in every mode (free, plan, Manual) and wins over the part.
+  Only these two games can be steered (live-tested); other games stay full speed.
+- Patterns follow the order of **scorable** levels, not level numbers: the engine asks
+  `starTarget(kind, assign: true)` only once the level is known to be scored and steerable (lesson goal
+  read, not objc/test; game data read, tested game in block mode). Videos, tutorials, test levels and
+  untested games never take a slot. Peeks (`assign: false`, UI / hold logic) return -1 for an
+  unassigned pattern/random level.
+- Assignments per account: settings `star_seq` {account: {rule sig: {n, lv: {level: slot}}}}. A retried or
+  reopened level keeps its slot. The sig = key (`p<from>` / `g:balloon`) + rule, so changing a rule starts
+  the sequence fresh (old sigs pruned on plan.set / games.set). Random = stable hash of
+  `account|sig#slot` (differs per account, same on every device, previewable). bot.log:
+  `[Bintang] level 42: pola 2,4,4,3,4, level berbintang ke-3 -> target 4`.
+- UI: tiles show the rule (repeat icon + sequence, shuffle icon + range); editing opens a wide sheet next
+  to the Rencana panel (plan_editor.dart, Esc closes) with the rule editor (rule_editor.dart: chips + typed
+  pattern, range pickers, preview of the next 12 targets continuing from the used slots). Capsule shows the
+  current level's target while a plan runs, and a game icon when game rules are on.
+  Screens: docs/preview/plan-panel.png, plan-pattern.png, plan-games.png.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,

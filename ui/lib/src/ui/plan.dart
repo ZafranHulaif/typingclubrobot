@@ -1,11 +1,11 @@
 // Panel Rencana (kiri, menimpa halaman): bagian-bagian level berurutan,
 // masing2 dgn target bintang. Kotak: rentang di atas, bintang di bawah. Kotak aktif terisi
 // pelan2 dari bawah sesuai progres bagian itu.
-import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../state/store.dart';
 import '../theme/theme.dart';
+import 'rule_editor.dart';
 import 'widgets/common.dart';
 
 class PlanPanel extends StatefulWidget {
@@ -15,10 +15,6 @@ class PlanPanel extends StatefulWidget {
 }
 
 class _PlanPanelState extends State<PlanPanel> {
-  int? _edit; // indeks kotak yang sedang diubah
-  Segment? _draft; // bagian baru (belum disimpan sampai "Buat")
-  int? _draftGap; // draf mengisi celah sebelum bagian ke-i (null = Tambah biasa)
-
   /// Indeks bagian pertama yang tidak tersambung ke sebelumnya (ada celah
   /// atau sebelumnya 'sampai habis'). Bagian dari sini tidak akan jalan.
   static int putus(List<Segment> segs) {
@@ -28,13 +24,11 @@ class _PlanPanelState extends State<PlanPanel> {
     return segs.length;
   }
 
-  void _isiCelah(List<Segment> segs, int i) {
+  void _isiCelah(AppStore s, List<Segment> segs, int i) {
     final prev = segs[i - 1];
-    setState(() {
-      _edit = null;
-      _draftGap = i;
-      _draft = Segment(prev.to + 1, segs[i].from - 1, prev.stars, silver: prev.silver);
-    });
+    s.openEdit(PlanEdit.draft(
+        Segment.withRule(prev.to + 1, segs[i].from - 1, prev.rule.copy()),
+        gap: i));
   }
 
   void _tambah(AppStore s) {
@@ -50,25 +44,10 @@ class _PlanPanelState extends State<PlanPanel> {
           : 'Rencana sudah sampai level terakhir (${AppStore.lastLevel}).');
       return;
     }
-    setState(() {
-      _edit = null;
-      _draftGap = null;
-      _draft = Segment(mulai, (mulai + 9).clamp(mulai, AppStore.lastLevel),
-          segs.isEmpty ? 5 : segs.last.stars,
-          silver: segs.isEmpty || segs.last.silver);
-    });
-  }
-
-  Future<bool> _simpan(AppStore s, Segment sg, int? index) async {
-    final segs = s.segments;
-    if (index == null) {
-      segs.add(sg);
-    } else {
-      segs[index] = sg;
-    }
-    // bagian pengisi celah masuk di tengah: urutkan
-    segs.sort((a, b) => a.from.compareTo(b.from));
-    return s.savePlan(segs);
+    s.openEdit(PlanEdit.draft(Segment.withRule(
+        mulai,
+        (mulai + 9).clamp(mulai, AppStore.lastLevel),
+        segs.isEmpty ? StarRule.fixed(platinumCode) : segs.last.rule.copy())));
   }
 
   @override
@@ -77,38 +56,17 @@ class _PlanPanelState extends State<PlanPanel> {
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
     final segs = s.segments;
-    if (_edit != null && _edit! >= segs.length) _edit = null;
-    if (_edit != null && s.locked(segs[_edit!])) _edit = null;
-
-    Widget editor() => Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: _Editor(
-            key: ValueKey(_draft != null ? 'baru' : _edit),
-            initial: _draft ?? segs[_edit!],
-            isNew: _draft != null,
-            isFirst: _draft != null ? segs.isEmpty || _draftGap == 0 : _edit == 0,
-            onSave: (sg) async {
-              if (await _simpan(s, sg, _draft != null ? null : _edit)) {
-                setState(() {
-                  _draft = null;
-                  _draftGap = null;
-                  _edit = null;
-                });
-              }
-            },
-            onDelete: _draft != null
-                ? null
-                : () async {
-                    final l = s.segments..removeAt(_edit!);
-                    if (await s.savePlan(l)) setState(() => _edit = null);
-                  },
-            onCancel: () => setState(() {
-              _draft = null;
-              _draftGap = null;
-              _edit = null;
-            }),
-          ),
-        );
+    final ed = s.edit;
+    // bagian yang sedang diubah jadi terkunci (bot jalan): tutup lembarnya
+    if (ed != null && ed.index != null &&
+        (ed.index! >= segs.length || s.locked(segs[ed.index!]))) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (s.edit == ed) s.openEdit(null);
+      });
+    }
+    final editIdx = ed?.index;
+    final draftGap = ed != null && ed.isNew ? ed.gap : null;
+    final draftAdd = ed != null && ed.isNew && ed.gap == null;
 
     return LayoutBuilder(builder: (_, box) {
       const gap = 8.0;
@@ -117,24 +75,21 @@ class _PlanPanelState extends State<PlanPanel> {
       // kotak2 + Tambah, dua per baris; editor muncul tepat di bawah
       // baris kotak yang dipilih (tak perlu gulir ke bawah)
       final putusDi = putus(segs);
-      int? editAt; // posisi kotak yang editornya dibuka
       final kotak = <Widget>[];
       for (final (i, sg) in segs.indexed) {
         // celah sebelum bagian ini: kotak 'Tambah' pengisi
         if (i > 0 && segs[i - 1].to != 0 && sg.from > segs[i - 1].to + 1) {
-          if (_draft != null && _draftGap == i) editAt = kotak.length;
           kotak.add(SizedBox(
             width: w,
             height: h,
             child: _GapTile(
               from: segs[i - 1].to + 1,
               to: sg.from - 1,
-              selected: _draft != null && _draftGap == i,
-              onTap: () => _isiCelah(segs, i),
+              selected: draftGap == i,
+              onTap: () => _isiCelah(s, segs, i),
             ),
           ));
         }
-        if (_draft == null && _edit == i) editAt = kotak.length;
         kotak.add(
           SizedBox(
             width: w,
@@ -151,30 +106,25 @@ class _PlanPanelState extends State<PlanPanel> {
               progress: s.planRunning && i == s.activeSegment && sg.to != 0
                   ? s.doneInActive / (sg.to - sg.from + 1)
                   : 0,
-              selected: _edit == i,
+              selected: editIdx == i,
               locked: s.locked(sg),
               muted: i >= putusDi,
+              cur: s.planRunning && i == s.activeSegment ? s.curTarget : null,
               onTap: () {
                 if (s.locked(sg)) {
                   s.say('Bagian ini sedang dikerjakan. Stop dulu untuk mengubahnya.');
                   return;
                 }
-                setState(() {
-                  _draft = null;
-                  _draftGap = null;
-                  _edit = _edit == i ? null : i;
-                });
+                s.openEdit(editIdx == i ? null : PlanEdit.segment(i, sg));
               },
             ),
           ),
         );
       }
-      if (_draft != null && _draftGap == null) editAt = kotak.length;
       kotak.add(SizedBox(
           width: w,
           height: h,
-          child: _AddTile(
-              selected: _draft != null && _draftGap == null, onTap: () => _tambah(s))));
+          child: _AddTile(selected: draftAdd, onTap: () => _tambah(s))));
       final rows = <Widget>[];
       for (var r = 0; r * 2 < kotak.length; r++) {
         final isi = kotak.sublist(r * 2, (r * 2 + 2).clamp(0, kotak.length));
@@ -185,7 +135,6 @@ class _PlanPanelState extends State<PlanPanel> {
             if (isi.length > 1) ...[const SizedBox(width: gap), isi[1]],
           ]),
         ));
-        if (editAt != null && editAt ~/ 2 == r) rows.add(editor());
       }
 
       return ListView(
@@ -222,6 +171,11 @@ class _PlanPanelState extends State<PlanPanel> {
             alignment: Alignment.topCenter,
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows),
           ),
+          const SizedBox(height: 16),
+          _GamesCard(
+            selected: ed?.games == true,
+            onTap: () => s.openEdit(ed?.games == true ? null : PlanEdit.games()),
+          ),
         ],
       );
     });
@@ -239,8 +193,11 @@ class _Tile extends StatefulWidget {
     required this.onTap,
     this.locked = false,
     this.muted = false,
+    this.cur,
   });
   final bool locked;
+  /// target level yang sedang dikerjakan (bagian aktif, pola/acak)
+  final Map<String, dynamic>? cur;
   /// tidak tersambung ke bagian sebelumnya: tidak akan jalan
   final bool muted;
   final Segment seg;
@@ -331,7 +288,18 @@ class _TileState2 extends State<_Tile> {
                                 : '$n level',
                         style: t.bodySmall!.copyWith(color: c.onSurfaceVariant)),
                     const Spacer(),
-                    StarRow(sg.stars, silver: sg.silver, size: 15),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: RuleSummary(sg.rule, size: 15),
+                    ),
+                    if (active && sg.rule.variable && widget.cur != null) ...[
+                      const SizedBox(height: 4),
+                      Row(children: [
+                        Text('sekarang ', style: t.labelSmall!.copyWith(color: c.onSurfaceVariant)),
+                        TargetBadge((widget.cur!['code'] as num).toInt(), size: 12),
+                      ]),
+                    ],
                   ]),
                 ),
               ),
@@ -424,153 +392,65 @@ class _AddTile extends StatelessWidget {
   }
 }
 
-// ------------------------------------------------------------- editor
-class _Editor extends StatefulWidget {
-  const _Editor({
-    super.key,
-    required this.initial,
-    required this.isNew,
-    required this.onSave,
-    required this.onCancel,
-    this.onDelete,
-    this.isFirst = false,
-  });
-  final bool isFirst;
-  final Segment initial;
-  final bool isNew;
-  final Future<void> Function(Segment) onSave;
-  final VoidCallback onCancel;
-  final VoidCallback? onDelete;
-  @override
-  State<_Editor> createState() => _EditorState();
-}
-
-class _EditorState extends State<_Editor> {
-  late Segment _sg;
-  final _a = TextEditingController();
-  final _b = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _sg = widget.initial.copy();
-    _a.text = '${_sg.from}';
-    _b.text = _sg.to == 0 ? '' : '${_sg.to}';
-  }
-
-  @override
-  void dispose() {
-    _a.dispose();
-    _b.dispose();
-    super.dispose();
-  }
-
-  Future<void> _simpan(AppStore s) async {
-    final a = int.tryParse(_a.text.trim());
-    final b = _b.text.trim().isEmpty ? 0 : int.tryParse(_b.text.trim());
-    if (a == null || b == null) {
-      s.say('Isi level dengan angka ya.', error: true);
-      return;
-    }
-    if (a < 1 || a > AppStore.lastLevel || b > AppStore.lastLevel) {
-      s.say('Level 1 sampai ${AppStore.lastLevel} ya.', error: true);
-      return;
-    }
-    if (b != 0 && b < a) {
-      s.say('Level akhir harus sesudah level awal.', error: true);
-      return;
-    }
-    // hanya bagian pertama yg harus mulai di level terbuka; sisanya
-    // terbuka sendiri selagi bot jalan
-    if (widget.isFirst && s.unlocked > 0 && a > s.unlocked) {
-      s.say('Level $a belum terbuka. Level terbuka terakhir: ${s.unlocked}.',
-          error: true);
-      return;
-    }
-    _sg
-      ..from = a
-      ..to = b;
-    await widget.onSave(_sg);
-  }
+/// Kartu "Aturan khusus game" di bawah kotak2 bagian.
+class _GamesCard extends StatelessWidget {
+  const _GamesCard({required this.onTap, this.selected = false});
+  final VoidCallback onTap;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
     final s = StoreScope.of(context);
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
-    InputDecoration dec(String label, [String? hint]) => InputDecoration(
-          labelText: label,
-          hintText: hint,
-          isDense: true,
-        );
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
+    final redup = t.bodySmall!.copyWith(color: c.onSurfaceVariant);
+    return Press(
+      child: Material(
         color: c.surfaceContainer,
-        borderRadius: BorderRadius.circular(Radii.lg),
-        border: Border.all(color: c.primary.withValues(alpha: 0.5)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.lg),
+          side: BorderSide(color: selected ? c.primary : c.outlineVariant),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(Radii.lg),
+          hoverColor: c.surfaceContainerHigh,
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            child: Row(children: [
+              Icon(Icons.sports_esports_rounded, size: 20,
+                  color: s.anyGameRule ? c.primary : c.onSurfaceVariant),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Aturan khusus game', style: t.labelLarge),
+                  const SizedBox(height: 4),
+                  for (final k in gameKinds)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Row(children: [
+                        SizedBox(
+                            width: 58,
+                            child: Text(gameNames[k]!.replaceFirst('Game ', ''), style: redup)),
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: RuleSummary(s.gameRule(k), size: 12),
+                          ),
+                        ),
+                      ]),
+                    ),
+                ]),
+              ),
+              Icon(Icons.chevron_right_rounded, color: c.onSurfaceVariant),
+            ]),
+          ),
+        ),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (widget.isNew)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Text('Bagian baru',
-                style: t.labelLarge!.copyWith(color: c.onSurface)),
-          ),
-        Row(children: [
-          Expanded(
-            child: TextField(
-              controller: _a,
-              autofocus: widget.isNew,
-              style: t.bodyMedium,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: dec('Dari'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              controller: _b,
-              style: t.bodyMedium,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              onSubmitted: (_) => _simpan(s),
-              decoration: dec('Sampai', 'habis'),
-            ),
-          ),
-        ]),
-        const SizedBox(height: 10),
-        Row(children: [
-          StarPicker(
-            size: 11,
-            stars: _sg.stars,
-            silver: _sg.silver,
-            onChanged: (st, sv) => setState(() {
-              _sg.stars = st;
-              _sg.silver = sv;
-            }),
-          ),
-          const Spacer(),
-          if (widget.onDelete != null)
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: c.error),
-              onPressed: widget.onDelete,
-              child: const Text('Hapus'),
-            )
-          else
-            TextButton(onPressed: widget.onCancel, child: const Text('Batal')),
-          const SizedBox(width: 4),
-          Press(
-            child: FilledButton(
-              onPressed: () => _simpan(s),
-              child: Text(widget.isNew ? 'Buat' : 'Simpan'),
-            ),
-          ),
-        ]),
-      ]),
     );
   }
 }
-
 
 // ------------------------------------------------------------- pemilih bintang
 /// Chip tenang: angka berwarna bintang + ikon. Hover = sorot, klik = daftar

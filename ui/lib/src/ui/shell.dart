@@ -9,6 +9,8 @@ import '../state/store.dart';
 import '../theme/theme.dart';
 import 'menus.dart';
 import 'plan.dart';
+import 'plan_editor.dart';
+import 'rule_editor.dart';
 import 'web_area.dart';
 import 'widgets/common.dart';
 import 'widgets/logo.dart';
@@ -39,6 +41,8 @@ class Shell extends StatelessWidget {
                     // panel Rencana menimpa halaman (tidak mendorongnya):
                     // halaman dilubangi di kotak panel (WebHole)
                     _PlanDrawer(),
+                    // lembar editor rencana, di samping panel
+                    _EditorSlot(),
                   ]),
                 ),
               ]),
@@ -111,6 +115,33 @@ class _PlanDrawerState extends State<_PlanDrawer>
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Tempat lembar editor: kanan panel Rencana, lebar maks 680. Jendela
+/// sempit = menimpa panel juga.
+class _EditorSlot extends StatelessWidget {
+  const _EditorSlot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: LayoutBuilder(builder: (_, box) {
+        const kiriPanel = 12 + _PlanDrawerState.lebar + 8;
+        final muat = box.maxWidth - kiriPanel - 12 >= 400;
+        final left = muat ? kiriPanel : 12.0;
+        final w = (box.maxWidth - left - 12).clamp(0.0, 680.0);
+        return Stack(children: [
+          Positioned(
+            left: left,
+            top: 0,
+            bottom: 12,
+            width: w,
+            child: const PlanEditorSheet(),
+          ),
+        ]);
+      }),
     );
   }
 }
@@ -346,7 +377,7 @@ class _Capsule extends StatelessWidget {
               if (seg != null)
                 Padding(
                   padding: const EdgeInsets.only(left: 8),
-                  child: StarRow(seg.stars, silver: seg.silver, size: 13),
+                  child: _PlanTarget(seg),
                 ),
             ]),
           )
@@ -357,6 +388,7 @@ class _Capsule extends StatelessWidget {
                   padding: EdgeInsets.only(left: 2),
                   child: _GuessChip(),
                 ),
+                if (s.anyGameRule) const _GameRuleMark(),
               ])
             : Row(mainAxisSize: MainAxisSize.min, children: [
                 mode(Icons.tune_rounded, 'Bebas'),
@@ -372,6 +404,7 @@ class _Capsule extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (s.anyGameRule) const _GameRuleMark(),
               ]);
 
     return Container(
@@ -414,6 +447,65 @@ class _Capsule extends StatelessWidget {
           ),
         ),
       ]),
+    );
+  }
+}
+
+/// Kapsul saat rencana jalan: target level ini. Pola/acak: target yang
+/// sudah ditentukan untuk level ini, kalau belum = ringkasan aturannya.
+class _PlanTarget extends StatelessWidget {
+  const _PlanTarget(this.seg);
+  final Segment seg;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final c = Theme.of(context).colorScheme;
+    final cur = s.curTarget;
+    final kini = cur != null && cur['level'] == s.levelNum && s.levelNum > 0;
+    if (!kini) {
+      return seg.rule.variable
+          ? RuleSummary(seg.rule, size: 13)
+          : StarRow(seg.stars, silver: seg.silver, size: 13);
+    }
+    final code = (cur['code'] as num).toInt();
+    final game = gameKinds.contains(cur['kind']);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      if (game || seg.rule.variable)
+        Padding(
+          padding: const EdgeInsets.only(right: 4),
+          child: Icon(
+              game
+                  ? Icons.sports_esports_rounded
+                  : seg.rule.type == 'pattern'
+                      ? Icons.repeat_rounded
+                      : Icons.shuffle_rounded,
+              size: 13,
+              color: c.onSurfaceVariant),
+        ),
+      StarRow(starsOfCode(code), silver: silverOfCode(code), size: 13),
+    ]);
+  }
+}
+
+/// Tanda kecil di kapsul: ada aturan khusus game (tanpa rencana).
+class _GameRuleMark extends StatelessWidget {
+  const _GameRuleMark();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final c = Theme.of(context).colorScheme;
+    final isi = [
+      for (final k in gameKinds)
+        if (!s.gameRule(k).follow) '${gameNames[k]}: ${s.gameRule(k).label}',
+    ].join(', ');
+    return Tip(
+      message: 'Aturan khusus game aktif. $isi',
+      child: Padding(
+        padding: const EdgeInsets.only(left: 4),
+        child: Icon(Icons.sports_esports_rounded, size: 14, color: c.onSurfaceVariant),
+      ),
     );
   }
 }

@@ -4,24 +4,61 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 
 import '../bridge/bridge.dart';
+import 'star_rule.dart';
+
+export 'star_rule.dart';
 
 class Segment {
-  Segment(this.from, this.to, this.stars, {this.silver = false});
+  Segment(this.from, this.to, int stars, {bool silver = false})
+      : rule = StarRule.fixed(codeOf(stars, silver));
+  Segment.withRule(this.from, this.to, this.rule);
   int from;
   int to; // 0 = sampai habis
-  int stars;
-  bool silver;
+  /// target bintang bagian ini: tetap / pola / acak
+  StarRule rule;
 
-  factory Segment.fromJson(Map m) => Segment(
+  /// target tetap (aturan pola/acak: target tertinggi, utk tampilan lama)
+  int get stars => starsOfCode(rule.code);
+  bool get silver => rule.type == 'fixed' && silverOfCode(rule.code);
+
+  factory Segment.fromJson(Map m) => Segment.withRule(
         (m['from'] as num).toInt(),
         ((m['to'] as num?) ?? 0).toInt(),
-        ((m['stars'] as num?) ?? 5).toInt(),
-        silver: m['silver'] == true,
+        StarRule.fromJson(m),
       );
-  Map<String, dynamic> toJson() =>
-      {'from': from, 'to': to, 'stars': stars, 'silver': silver && stars == 5};
-  Segment copy() => Segment(from, to, stars, silver: silver);
+  Map<String, dynamic> toJson() => {'from': from, 'to': to, ...rule.toJson()};
+  Segment copy() => Segment.withRule(from, to, rule.copy());
   String get label => to == 0 ? '$from+' : (from == to ? '$from' : '$from–$to');
+
+  /// kunci urutan bintang (sama dgn backend)
+  String get seqKey => 'p$from';
+}
+
+/// Yang sedang dibuka di lembar editor rencana (di samping panel).
+class PlanEdit {
+  /// ubah bagian ke-[index] yang sudah ada
+  PlanEdit.segment(int this.index, Segment this.seg)
+      : gap = null,
+        games = false;
+
+  /// bagian baru; [gap] = mengisi celah sebelum bagian ke-gap
+  PlanEdit.draft(Segment this.seg, {this.gap})
+      : index = null,
+        games = false;
+
+  /// aturan khusus game
+  PlanEdit.games()
+      : index = null,
+        seg = null,
+        gap = null,
+        games = true;
+
+  final int? index;
+  final Segment? seg;
+  final int? gap;
+  final bool games;
+
+  bool get isNew => seg != null && index == null;
 }
 
 class AppStore extends ChangeNotifier {
@@ -44,6 +81,9 @@ class AppStore extends ChangeNotifier {
   Timer? _flashT;
 
   bool planOpen = false;
+
+  /// lembar editor rencana yang terbuka (null = tertutup)
+  PlanEdit? edit;
 
   /// level terakhir kursus (Typing Jungle)
   static const lastLevel = 685;
@@ -169,7 +209,36 @@ class AppStore extends ChangeNotifier {
 
   void togglePlan() {
     planOpen = !planOpen;
+    if (!planOpen) edit = null;
     notifyListeners();
+  }
+
+  void openEdit(PlanEdit? e) {
+    edit = e;
+    notifyListeners();
+  }
+
+  // ---------------------------------------------- aturan & urutan bintang
+  Map<String, dynamic> get games => _m('games');
+  StarRule gameRule(String kind) =>
+      StarRule.fromJson((games[kind] as Map?) ?? const {'rule': 'follow'});
+  bool get anyGameRule => gameKinds.any((k) => !gameRule(k).follow);
+
+  /// kunci akun utk benih acak (sama dgn backend)
+  String get seqAcct => (plan['acct'] as String?) ?? '';
+
+  /// giliran yang sudah terpakai utk aturan bertanda [sig]
+  int usedFor(String sig) => ((plan['used'] as Map?)?[sig] as num?)?.toInt() ?? 0;
+
+  /// target level yang sedang dikerjakan (pola/acak/game): {level, code, kind}
+  Map<String, dynamic>? get curTarget => (plan['cur'] as Map?)?.cast<String, dynamic>();
+
+  Future<bool> saveGames(Map<String, StarRule> rules) async {
+    final r = await call('games.set', {for (final e in rules.entries) e.key: e.value.toJson()});
+    if (r != null && phase == 'running') {
+      say('Aturan game berlaku mulai game berikutnya.');
+    }
+    return r != null;
   }
 
   /// Panggil sidecar; error ramah tampil di slot status. null = gagal.

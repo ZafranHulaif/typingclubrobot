@@ -77,11 +77,16 @@ class Engine {
 
   /// Target bintang level sekarang (N7): 1-5 = atur kecepatan/akurasi,
   /// 0/null = perak (ketik secepatnya tanpa salah, perilaku lama).
-  int Function()? starTarget;
+  /// [kind] = 'lesson' | 'balloon' | 'monster' | 'game' (game apa saja,
+  /// belum terbaca). [assign] = level ini PASTI dinilai bintang & bisa
+  /// diatur: aturan pola/acak mengambil giliran berikutnya. Tanpa assign
+  /// (cuma melihat): -1 = target belum ditentukan (pola/acak).
+  int Function(String kind, bool assign)? starTarget;
 
   /// Mode Manual: kecepatan (wpm bersih) & akurasi (%) pilihan user,
-  /// bintang tinggal hasilnya. null = mode bintang / rencana.
-  ({int wpm, int acc})? Function()? manual;
+  /// bintang tinggal hasilnya. null = mode bintang / rencana / ada aturan
+  /// khusus untuk game [kind].
+  ({int wpm, int acc})? Function(String kind)? manual;
 
   // pacing target bintang di game (per lesson, lihat lessons/stars.dart)
   GamePace? _gamePace;
