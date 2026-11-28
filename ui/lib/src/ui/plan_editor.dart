@@ -518,6 +518,22 @@ class _SegmentFormState extends State<_SegmentForm> {
 }
 
 // ------------------------------------------------------------- peta level
+/// Warna peta: selesai = hijau, dilewati = ungu muda + ikon jenisnya,
+/// premium = merah muda + gembok.
+const _hijau = Color(0xFF5BD68A);
+const _premium = Color(0xFFFF8FB1);
+
+/// Tampilan tiap jenis level yang dilewati (ikon, warna, nama).
+({IconData icon, Color color, String name}) _lookOf(String kind, ColorScheme c) => switch (kind) {
+      'video' => (icon: Icons.play_circle_outline_rounded, color: c.secondary, name: 'video'),
+      'tutorial' => (icon: Icons.school_outlined, color: c.secondary, name: 'tutorial'),
+      'test' => (icon: Icons.quiz_outlined, color: c.secondary, name: 'tes'),
+      'hold' => (icon: Icons.keyboard_outlined, color: c.secondary, name: 'tahan tombol'),
+      'game' => (icon: Icons.sports_esports_outlined, color: c.secondary, name: 'game lain'),
+      'premium' => (icon: Icons.lock_rounded, color: _premium, name: 'premium'),
+      _ => (icon: Icons.skip_next_rounded, color: c.secondary, name: 'dilewati'),
+    };
+
 /// Kotak per level dgn targetnya, mulai dari level awal bagian. Saat
 /// bagian ini jalan, level sekarang jadi yang utama.
 class _LevelMap extends StatelessWidget {
@@ -564,18 +580,24 @@ class _LevelMap extends StatelessWidget {
         kinds: s.catalog,
         seq: s.seq,
         games: s.gameRules,
+        done: s.done,
         start: mulai,
         count: muat,
       );
       final sisa = akhir - (sel.isEmpty ? mulai - 1 : sel.last.level);
-      final adaLewat = sel.any((x) => x.kind == 'free');
-      final adaGame = sel.any((x) => x.game != null || gameKinds.contains(x.kind));
-      final adaBaru = sel.any((x) => !x.known);
       final kini = jalan ? sel.where((x) => x.level == current).firstOrNull : null;
       final cur = s.curTarget;
       final kodeKini = cur != null && cur['level'] == current
           ? (cur['code'] as num).toInt()
           : kini?.code;
+      // keterangan: hanya yang muncul di peta
+      final jenisLewat = <String>{
+        for (final x in sel)
+          if (x.skip) _lookOf(x.kind, c).name,
+      };
+      final adaSelesai = sel.any((x) => x.done);
+      final adaGame = sel.any((x) => x.game != null || gameKinds.contains(x.kind));
+      final adaBaru = sel.any((x) => !x.known && !x.done);
 
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         _Label('Peta level',
@@ -596,7 +618,6 @@ class _LevelMap extends StatelessWidget {
               // level sekarang: target yang benar2 dipakai bot
               code: jalan && x.level == current ? kodeKini : x.code,
               now: jalan && x.level == current,
-              done: jalan && x.level < current,
               first: x.level == from && !jalan,
             ),
         ]),
@@ -606,9 +627,12 @@ class _LevelMap extends StatelessWidget {
               style: t.labelMedium!.copyWith(color: c.onSurfaceVariant)),
         ],
         const SizedBox(height: 14),
-        Wrap(spacing: 14, runSpacing: 6, children: [
-          if (adaLewat) _Legend(icon: Icons.skip_next_rounded, text: 'dilewati'),
-          if (adaGame) _Legend(icon: Icons.sports_esports_rounded, text: 'game'),
+        Wrap(spacing: 14, runSpacing: 8, children: [
+          if (adaSelesai) const _Legend(icon: Icons.check_rounded, color: _hijau, text: 'selesai'),
+          for (final k in const ['video', 'tutorial', 'test', 'hold', 'game', 'free', 'premium'])
+            if (jenisLewat.contains(_lookOf(k, c).name))
+              _Legend(icon: _lookOf(k, c).icon, color: _lookOf(k, c).color, text: _lookOf(k, c).name),
+          if (adaGame) _Legend(icon: Icons.sports_esports_rounded, color: c.tertiary, text: 'game balon/monster'),
           if (adaBaru) const _Legend(hollow: true, text: 'belum pernah dibuka'),
         ]),
       ]);
@@ -627,7 +651,9 @@ class _NowCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
-    final lewat = cell?.kind == 'free';
+    final x = cell;
+    final lewat = x != null && x.skip;
+    final look = lewat ? _lookOf(x.kind, c) : null;
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 16, 12),
       decoration: BoxDecoration(
@@ -644,11 +670,11 @@ class _NowCard extends StatelessWidget {
               style: t.titleLarge!.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
         ]),
         const Spacer(),
-        if (lewat)
+        if (look != null)
           Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.skip_next_rounded, size: 18, color: c.onSurfaceVariant),
-            const SizedBox(width: 4),
-            Text('tanpa bintang', style: t.labelMedium!.copyWith(color: c.onSurfaceVariant)),
+            Icon(look.icon, size: 18, color: look.color),
+            const SizedBox(width: 6),
+            Text('${look.name}, tanpa bintang', style: t.labelMedium!.copyWith(color: look.color)),
           ])
         else if (code != null)
           StarRow(starsOfCode(code!), silver: silverOfCode(code!), size: 20),
@@ -663,14 +689,12 @@ class _LevelSquare extends StatelessWidget {
     required this.size,
     required this.code,
     this.now = false,
-    this.done = false,
     this.first = false,
   });
   final LevelCell cell;
   final double size;
   final int? code;
   final bool now;
-  final bool done;
   final bool first;
 
   @override
@@ -678,90 +702,102 @@ class _LevelSquare extends StatelessWidget {
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
     final x = cell;
-    final lewat = x.kind == 'free';
+    // 'premium' yang ternyata selesai = level biasa (modal Pro kebetulan)
+    final lewat = x.skip && !(x.done && x.kind == 'premium');
+    final look = lewat ? _lookOf(x.kind, c) : null;
+    final selesai = x.done && !now;
     final game = x.game != null || gameKinds.contains(x.kind);
+    String bintang(int k) => k >= platinumCode ? 'platinum' : '$k bintang';
     final pesan = [
       'Level ${x.level}',
-      if (lewat)
-        'dilewati, tanpa bintang'
+      if (look != null)
+        x.kind == 'premium' ? 'premium (terkunci Pro), dilewati' : '${look.name}, dilewati tanpa bintang'
+      else if (selesai)
+        code == null ? 'selesai' : 'selesai: ${bintang(code!)}'
       else if (code != null)
-        'target ${codeLabel(code!)}${code! < platinumCode ? ' bintang' : ''}',
+        'target ${bintang(code!)}',
+      if (selesai && !lewat && x.planned != null && x.planned != code)
+        'kalau diulang: target ${bintang(x.planned!)}',
       if (x.game != null) 'aturan ${gameNames[x.game]!.toLowerCase()}',
-      if (x.idx != null && !lewat) 'urutan ke-${x.idx! + 1}',
-      if (!x.known) 'belum pernah dibuka',
+      if (!x.known && !x.done) 'belum pernah dibuka, jenisnya belum diketahui',
     ].join(' · ');
+
+    // warna kotak
+    final Color latar;
+    final Color garis;
+    if (now) {
+      latar = c.primary.withValues(alpha: 0.16);
+      garis = c.primary;
+    } else if (selesai) {
+      latar = _hijau.withValues(alpha: 0.12);
+      garis = _hijau.withValues(alpha: 0.55);
+    } else if (look != null) {
+      latar = look.color.withValues(alpha: 0.1);
+      garis = look.color.withValues(alpha: 0.4);
+    } else if (x.known) {
+      latar = c.surfaceContainerHigh;
+      garis = first ? c.primary.withValues(alpha: 0.5) : c.outlineVariant;
+    } else {
+      latar = Colors.transparent;
+      garis = first ? c.primary.withValues(alpha: 0.5) : c.outlineVariant.withValues(alpha: 0.8);
+    }
+
+    // ikon kecil pojok kanan atas
+    final Widget? pojok = selesai
+        ? const Icon(Icons.check_rounded, size: 12, color: _hijau)
+        : game
+            ? Icon(Icons.sports_esports_rounded,
+                size: 11, color: x.game != null ? c.tertiary : c.outline)
+            : null;
+
     return Tip(
       message: pesan,
-      child: AnimatedOpacity(
-        duration: Motion.medium,
-        opacity: done ? 0.4 : 1,
-        child: AnimatedContainer(
-          duration: Motion.short,
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            color: now
-                ? c.primary.withValues(alpha: 0.16)
-                : x.known
-                    ? c.surfaceContainerHigh
-                    : Colors.transparent,
-            borderRadius: BorderRadius.circular(Radii.md),
-            border: Border.all(
-              color: now
-                  ? c.primary
-                  : first
-                      ? c.primary.withValues(alpha: 0.5)
-                      : x.known
-                          ? c.outlineVariant
-                          : c.outlineVariant.withValues(alpha: 0.7),
-              width: now ? 2 : 1,
+      child: AnimatedContainer(
+        duration: Motion.short,
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: latar,
+          borderRadius: BorderRadius.circular(Radii.md),
+          border: Border.all(color: garis, width: now ? 2 : 1),
+        ),
+        child: Stack(children: [
+          Positioned(
+            left: 5,
+            top: 3,
+            child: Text('${x.level}',
+                style: t.labelSmall!.copyWith(
+                    fontSize: 10,
+                    color: now
+                        ? c.primary
+                        : selesai
+                            ? _hijau
+                            : look?.color.withValues(alpha: 0.9) ?? c.onSurfaceVariant,
+                    fontFeatures: const [FontFeature.tabularFigures()])),
+          ),
+          if (pojok != null) Positioned(right: 4, top: 4, child: pojok),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 7,
+            child: Center(
+              child: look != null
+                  ? Icon(look.icon, size: 17, color: look.color)
+                  : code == null
+                      ? const SizedBox.shrink()
+                      : TargetBadge(code!, size: 13, dim: !x.known && !now && !x.done),
             ),
           ),
-          child: Stack(children: [
-            Positioned(
-              left: 5,
-              top: 3,
-              child: Text('${x.level}',
-                  style: t.labelSmall!.copyWith(
-                      fontSize: 10,
-                      color: now ? c.primary : c.onSurfaceVariant,
-                      fontFeatures: const [FontFeature.tabularFigures()])),
-            ),
-            if (game && !done)
-              Positioned(
-                right: 4,
-                top: 4,
-                child: Icon(Icons.sports_esports_rounded,
-                    size: 11, color: x.game != null ? c.tertiary : c.outline),
-              ),
-            if (done)
-              Positioned(
-                right: 4,
-                top: 4,
-                child: Icon(Icons.check_rounded, size: 11, color: c.primary),
-              ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 7,
-              child: Center(
-                child: lewat
-                    ? Icon(Icons.skip_next_rounded, size: 16, color: c.outline)
-                    : code == null
-                        ? const SizedBox.shrink()
-                        : TargetBadge(code!, size: 13, dim: !x.known && !now),
-              ),
-            ),
-          ]),
-        ),
+        ]),
       ),
     );
   }
 }
 
 class _Legend extends StatelessWidget {
-  const _Legend({this.icon, this.hollow = false, required this.text});
+  const _Legend({this.icon, this.color, this.hollow = false, required this.text});
   final IconData? icon;
+  final Color? color;
   final bool hollow;
   final String text;
 
@@ -769,19 +805,19 @@ class _Legend extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
+    final w = color ?? c.outline;
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      if (hollow)
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(3),
-            border: Border.all(color: c.outline),
-          ),
-        )
-      else
-        Icon(icon, size: 14, color: c.outline),
-      const SizedBox(width: 5),
+      Container(
+        width: 18,
+        height: 18,
+        decoration: BoxDecoration(
+          color: hollow ? null : w.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: hollow ? c.outline : w.withValues(alpha: 0.5)),
+        ),
+        child: hollow ? null : Icon(icon, size: 12, color: w),
+      ),
+      const SizedBox(width: 6),
       Text(text, style: t.labelSmall!.copyWith(color: c.onSurfaceVariant)),
     ]);
   }

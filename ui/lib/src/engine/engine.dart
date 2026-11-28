@@ -89,8 +89,9 @@ class Engine {
 
   /// Jenis level yang sedang dibuka, utk peta level di editor rencana:
   /// 'star' (lesson dinilai bintang), 'balloon' / 'monster' (game yang
-  /// bisa diatur), 'free' (video, tutorial, game lain, lesson tanpa
-  /// bintang: tidak memakai giliran pola).
+  /// bisa diatur), atau yang dilewati tanpa giliran pola: 'video',
+  /// 'tutorial', 'test' (tes/objektif), 'hold' (tahan tombol), 'game'
+  /// (game lain), 'premium' (terkunci Pro).
   void Function(String kind)? levelKind;
 
   /// false = jenis level ini belum dikenal: info lesson tetap dibaca

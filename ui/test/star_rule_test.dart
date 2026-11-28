@@ -120,4 +120,31 @@ void main() {
     expect([for (final x in w) x.level], [380, 381, 382]);
     expect([for (final x in w) x.code], [2, 4, 3]);
   });
+
+  test('peta level: level selesai tetap menunjukkan hasilnya, jenis lewati rinci', () {
+    final r = StarRule.fixed(2);
+    final sel = levelMap(
+      from: 80,
+      to: 86,
+      lastLevel: 685,
+      rule: r,
+      key: 'p80',
+      acct: 'a',
+      kinds: {'82': 'video', '83': 'premium', '84': 'tutorial'},
+      seq: const {},
+      done: {
+        '80': {'c': 5},
+        '81': {'c': 4, 'e': 3},
+        '82': {'c': 0},
+      },
+    );
+    // aturan diganti jadi tetap 2: yang selesai tidak ikut berubah
+    expect([for (final x in sel) x.code], [5, 3, null, null, null, 2, 2]);
+    expect([for (final x in sel) x.done], [true, true, true, false, false, false, false]);
+    expect(sel[0].planned, 2);
+    expect(sel[3].skip, isTrue);
+    expect(sel[4].kind, 'tutorial');
+    expect(isSkipKind('free'), isTrue);
+    expect(isSkipKind('star'), isFalse);
+  });
 }

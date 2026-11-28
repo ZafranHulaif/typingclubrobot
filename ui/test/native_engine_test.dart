@@ -275,6 +275,8 @@ void main() {
     // jenis level tercatat utk peta level editor
     expect((last['catalog'] as Map)['1'], 'star');
     expect((last['catalog'] as Map)['2'], 'star');
+    // level 1 selesai (bot maju ke level 2): target yang dipakai tercatat
+    expect(((plan()['done'] as Map)['1'] as Map)['c'], 2);
     // level 2 diulang: tetap target 4, tidak mengambil giliran baru
     logs.clear();
     fake.lesson = FakeLesson(text, label: 'L2');
@@ -321,7 +323,7 @@ void main() {
     await pumpEventQueue();
     expect(plan()['seq'], isEmpty);
     expect(logs.any((l) => l.contains('level berbintang ke-')), isFalse);
-    expect((last['catalog'] as Map)['1'], 'free');
+    expect((last['catalog'] as Map)['1'], 'test');
   });
 
   test('aturan khusus game: tersimpan, ikut rencana = default', () async {

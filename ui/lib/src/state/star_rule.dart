@@ -164,6 +164,16 @@ const gameKinds = ['balloon', 'monster'];
 const gameNames = {'balloon': 'Game balon', 'monster': 'Game monster'};
 
 // ------------------------------------------------------------ peta level
+/// Jenis level yang dinilai bintang & bisa diatur (memakai giliran pola).
+const scoredKinds = {'star', 'balloon', 'monster'};
+
+/// Jenis level yang dilewati tanpa giliran: video, tutorial, tes/objektif,
+/// tahan tombol, game lain (belum bisa diatur), premium (terkunci Pro).
+/// 'free' = catatan lama (sebelum jenisnya dirinci).
+const skipKinds = {'free', 'video', 'tutorial', 'test', 'hold', 'game', 'premium'};
+
+bool isSkipKind(String k) => skipKinds.contains(k);
+
 /// Satu kotak di peta level editor rencana.
 class LevelCell {
   const LevelCell({
@@ -173,12 +183,20 @@ class LevelCell {
     this.idx,
     this.assigned = false,
     this.game,
+    this.done = false,
+    this.planned,
   });
   final int level;
 
-  /// jenis dari katalog: 'star' / 'free' / 'balloon' / 'monster';
-  /// '' = level belum pernah dibuka (dianggap berbintang)
+  /// jenis dari katalog: [scoredKinds] / [skipKinds]; '' = level belum
+  /// pernah dibuka (dianggap berbintang)
   final String kind;
+
+  /// sudah selesai di akun ini ([code] = bintang hasilnya / targetnya)
+  final bool done;
+
+  /// level selesai: target menurut aturan sekarang (kalau diulang)
+  final int? planned;
 
   /// target (kode) level ini; null = tanpa target (video, tutorial, dll.)
   final int? code;
@@ -194,6 +212,18 @@ class LevelCell {
   final String? game;
 
   bool get known => kind.isNotEmpty;
+  bool get skip => isSkipKind(kind);
+}
+
+/// Hasil level selesai dari snapshot {level: {c: target, e: bintang
+/// asli}} -> kode (bintang asli didahulukan).
+int? doneCode(Map? done, int level) {
+  final m = done?['$level'];
+  if (m is! Map) return null;
+  final e = m['e'], c = m['c'];
+  if (e is num && e > 0) return e.toInt().clamp(1, platinumCode);
+  if (c is num && c > 0) return c.toInt();
+  return 0; // selesai tanpa bintang tercatat
 }
 
 /// Urutan (tanda aturan) tersimpan: giliran berikutnya + giliran per level.
@@ -222,6 +252,7 @@ List<LevelCell> levelMap({
   required Map kinds,
   required Map? seq,
   Map<String, StarRule> games = const {},
+  Map? done,
   int start = 0,
   int count = 30,
 }) {
@@ -241,7 +272,7 @@ List<LevelCell> levelMap({
     final kind = '${kinds['$l'] ?? ''}';
     LevelCell cell;
     final g = gs[kind];
-    if (kind == 'free') {
+    if (isSkipKind(kind)) {
       cell = LevelCell(level: l, kind: kind);
     } else if (g != null) {
       final (gr, gsig, gst) = g;
@@ -265,6 +296,19 @@ List<LevelCell> levelMap({
           code: i == null ? rule.code : rule.at(i, '$acct|$sig'),
           idx: i,
           assigned: simpan != null);
+    }
+    // sudah selesai: tampilkan hasilnya, bukan target aturan sekarang
+    final dc = doneCode(done, l);
+    if (dc != null) {
+      cell = LevelCell(
+          level: l,
+          kind: cell.kind,
+          code: dc == 0 ? null : dc,
+          idx: cell.idx,
+          assigned: cell.assigned,
+          game: cell.game,
+          done: true,
+          planned: cell.code);
     }
     if (l >= mulai) out.add(cell);
   }

@@ -230,6 +230,9 @@ class AppStore extends ChangeNotifier {
   /// urutan tersimpan akun aktif: {tanda aturan: {n, lv: {level: giliran}}}
   Map? get seq => plan['seq'] as Map?;
 
+  /// level selesai akun aktif: {level: {c: target, e: bintang asli}}
+  Map? get done => plan['done'] as Map?;
+
   /// giliran yang sudah terpakai utk aturan bertanda [sig]
   int usedFor(String sig) => seqState(seq, sig).n;
 

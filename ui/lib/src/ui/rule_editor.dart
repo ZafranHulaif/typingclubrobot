@@ -185,6 +185,21 @@ class _StarScaleState extends State<StarScale> {
                     ),
                   ),
                 ),
+                // sorotan tipis di kotak yang ditunjuk kursor (belum dipilih)
+                if (_hover != null && (_hover! < lo || _hover! > hi))
+                  Positioned(
+                    left: _hover! * w + 2,
+                    width: w - 4,
+                    top: 2,
+                    bottom: 2,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: c.primary.withValues(alpha: 0.07),
+                        borderRadius: BorderRadius.circular(Radii.sm),
+                        border: Border.all(color: c.primary.withValues(alpha: 0.55)),
+                      ),
+                    ),
+                  ),
                 // pilihan / rentang
                 AnimatedPositioned(
                   duration: Motion.short,
@@ -211,7 +226,7 @@ class _StarScaleState extends State<StarScale> {
                           curve: Motion.out,
                           scale: _hover == i ? 1.12 : 1,
                           child: TargetBadge(StarScale.codes[i],
-                              size: 14, dim: i < lo || i > hi),
+                              size: 14, dim: (i < lo || i > hi) && _hover != i),
                         ),
                       ),
                     ),
@@ -219,22 +234,40 @@ class _StarScaleState extends State<StarScale> {
               ]),
             ),
             const SizedBox(height: 4),
-            Row(children: [
-              for (var i = 0; i < n; i++)
-                SizedBox(
-                  width: w,
-                  child: Text(
-                    i == n - 1 ? 'platinum' : '',
-                    textAlign: TextAlign.center,
-                    style: t.labelSmall!.copyWith(color: silverStar.withValues(alpha: 0.8)),
-                  ),
-                ),
-            ]),
+            // satu baris, rata kanan di bawah kotak platinum (dulu terpotong
+            // jadi dua baris kalau kotaknya sempit)
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                'platinum',
+                maxLines: 1,
+                softWrap: false,
+                style: t.labelSmall!.copyWith(color: silverStar.withValues(alpha: 0.8)),
+              ),
+            ),
           ]),
         ),
       );
     });
   }
+}
+
+/// Lacak kursor di atas [builder] (sorotan hover yang jelas).
+class Hovered extends StatefulWidget {
+  const Hovered({super.key, required this.builder});
+  final Widget Function(bool hover) builder;
+  @override
+  State<Hovered> createState() => _HoveredState();
+}
+
+class _HoveredState extends State<Hovered> {
+  bool _h = false;
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+        onEnter: (_) => setState(() => _h = true),
+        onExit: (_) => setState(() => _h = false),
+        child: widget.builder(_h),
+      );
 }
 
 /// Kotak target kecil (pola): klik = skala bintang + hapus.
@@ -261,13 +294,23 @@ class CodePicker extends StatelessWidget {
       alignRight: false,
       width: 320,
       trigger: (_, toggle, open) => Press(
-        child: Material(
-          color: open ? c.primary.withValues(alpha: 0.14) : c.surfaceContainerHigh,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(Radii.md),
-            side: BorderSide(color: open ? c.primary : c.outlineVariant),
-          ),
-          child: InkWell(
+        child: Hovered(
+          builder: (hover) => Material(
+            color: open
+                ? c.primary.withValues(alpha: 0.14)
+                : hover
+                    ? c.primary.withValues(alpha: 0.07)
+                    : c.surfaceContainerHigh,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(Radii.md),
+              side: BorderSide(
+                  color: open
+                      ? c.primary
+                      : hover
+                          ? c.primary.withValues(alpha: 0.55)
+                          : c.outlineVariant),
+            ),
+            child: InkWell(
             borderRadius: BorderRadius.circular(Radii.md),
             hoverColor: c.surfaceContainerHighest,
             onTap: toggle,
@@ -286,6 +329,7 @@ class CodePicker extends StatelessWidget {
               ]),
             ),
           ),
+        ),
         ),
       ),
       content: (_, close) => Padding(

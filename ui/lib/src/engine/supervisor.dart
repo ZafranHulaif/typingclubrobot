@@ -366,6 +366,7 @@ extension Supervisor on Engine {
     if (pm is Map && _truthy(pm['zombie'])) {
       if (st.premlockSince == 0) {
         st.premlockSince = now;
+        levelKind?.call('premium');
         log('[Premium] modal fullscreen tanpa X (checkout Stripe) - menunggu...');
       } else if (now - st.premlockSince > 12.0) {
         if (await skipToNextLesson('modal premium tak tertutup')) {
@@ -465,6 +466,8 @@ extension Supervisor on Engine {
             }
           }
         }
+        // catat jenis SEBELUM dilompati (sesudahnya level sudah berganti)
+        if (stalled > 20) levelKind?.call('premium');
         if (stalled > 20 &&
             await skipToNextLesson('layar gelap premium tanpa tombol lanjut')) {
           st.lastActionTime = now;
