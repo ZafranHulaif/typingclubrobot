@@ -328,11 +328,19 @@ class _Capsule extends StatelessWidget {
     };
 
     final Widget kata = s.flash != null
-        ? Text(s.flash!,
+        // lebar dibatasi: pesan panjang dulu mendorong bar atas melebar
+        ? ConstrainedBox(
             key: ValueKey('f${s.flash}'),
-            overflow: TextOverflow.ellipsis,
-            style: t.bodyMedium!
-                .copyWith(color: s.flashError ? c.error : c.onSurface))
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Tip(
+              message: s.flash!,
+              child: Text(s.flash!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: t.bodyMedium!
+                      .copyWith(color: s.flashError ? c.error : c.onSurface)),
+            ),
+          )
         : Row(key: ValueKey('st${look.label}$info'), mainAxisSize: MainAxisSize.min, children: [
             StatusDot(color: look.color, pulse: look.live),
             const SizedBox(width: 6),

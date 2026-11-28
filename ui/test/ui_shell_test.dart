@@ -103,14 +103,26 @@ void main() {
     await t.enterText(find.byType(TextField).at(1), '200');
     await _settle(t);
     expect(find.text('+3'), findsNothing);
-    // peta level mulai dari level awal bagian
+    // Mulai rencana dgn lembar belum disimpan: simpan dulu (lewat saveDraft)
+    expect(store.saveDraft, isNotNull);
+    final ok = await t.runAsync(() => store.saveDraft!());
+    await _settle(t);
+    expect(ok, isTrue);
+    expect(store.segments.first.rule.pattern, [2, 4, 4, 3, 4]);
+    expect(find.text('Bagian 51–200'), findsNothing);
+    expect(store.saveDraft, isNull);
+    // buka lagi: peta level mulai dari level awal bagian; simpan biasa
+    await t.tap(find.text('51–200'));
+    await _settle(t);
     expect(find.text('51'), findsWidgets);
     expect(find.textContaining('level lagi'), findsOneWidget);
+    expect(find.text('Belum disimpan'), findsNothing);
+    await t.tap(find.text('Acak'));
+    await _settle(t);
     await t.tap(find.text('Simpan perubahan'));
     await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await _settle(t);
-    expect(store.segments.first.rule.type, 'pattern');
-    expect(store.segments.first.rule.pattern, [2, 4, 4, 3, 4]);
+    expect(store.segments.first.rule.type, 'random');
     expect(find.text('Bagian 51–200'), findsNothing);
 
     // aturan khusus game: balon selalu 3 bintang

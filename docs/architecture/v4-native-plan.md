@@ -595,6 +595,10 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
 - Mistake placement (`spreadErrors()` in stars.dart): errors are spread evenly over the lesson with up to
   a quarter-gap of jitter, never closer than half the average gap. Pure random placement clumped mistakes
   at 85% and edclub showed "focus on accuracy" (owner report 28 Nov).
+- "Mulai rencana" with the editor sheet open and changed: the sheet registers `AppStore.saveDraft`;
+  startPlan saves it first (invalid draft = error shown, no start). A new-part draft can start an empty
+  plan. Worker: reports over 20000 chars keep the header + the END of the log (they used to keep the
+  start, dropping the newest lines). Status-slot messages are capped at 420 px with a tooltip.
   Screens: docs/preview/plan-panel.png, plan-new.png, plan-pattern.png, plan-random.png,
   plan-running.png, plan-games.png.
 

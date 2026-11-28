@@ -273,8 +273,16 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  /// Lembar editor yang terbuka: simpan perubahannya (true = tersimpan /
+  /// tak ada perubahan, false = isian salah, pesan sudah tampil).
+  Future<bool> Function()? saveDraft;
+
   Future<void> startPlan() async {
     if (busy) return;
+    // editor masih terbuka dgn perubahan belum disimpan: simpan dulu,
+    // supaya yang jalan = yang terlihat (laporan 28 Nov)
+    final d = saveDraft;
+    if (d != null && !await d()) return;
     await call('bot.start', {'mode': 'plan'});
   }
 
