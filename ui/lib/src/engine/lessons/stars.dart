@@ -328,6 +328,30 @@ ManualPace? guessManual(Map g, int wpm, int acc) {
   return null;
 }
 
+/// Posisi salah ketik untuk [chars] karakter: [errors] posisi tersebar
+/// rata di [2, chars-3], tiap posisi digeser acak maks seperempat jarak
+/// antar-salah. Jarak antar-salah selalu >= setengah jarak rata2, jadi
+/// tidak pernah menggerombol (edclub menegur salah yang beruntun).
+Set<int> spreadErrors(int chars, int errors, Random rnd) {
+  const lo = 2;
+  final hi = chars - 3;
+  final span = hi - lo + 1;
+  if (errors <= 0 || span <= 0) return {};
+  if (errors >= span) return {for (var i = lo; i <= hi; i++) i};
+  final stride = span / errors;
+  final out = <int>{};
+  for (var i = 0; i < errors; i++) {
+    final tengah = lo + (i + 0.5) * stride;
+    final geser = (rnd.nextDouble() - 0.5) * stride * 0.5;
+    out.add((tengah + geser).floor().clamp(lo, hi));
+  }
+  // jarak rapat sekali (stride < 2) bisa bertabrakan: isi sisanya
+  for (var i = lo; out.length < errors && i <= hi; i++) {
+    out.add(i);
+  }
+  return out;
+}
+
 extension StarLesson on Engine {
   /// Rencana bintang untuk lesson di [frame] (null = ketik biasa).
   Future<StarPace?> starPace(Frame frame) async {
@@ -424,9 +448,10 @@ extension StarLesson on Engine {
   /// acak (hanya huruf). Return 'done' | 'stall' | 'gone' | 'stop'.
   Future<String> typePaced(Frame frame, String rem0, StarPace p,
       {String? avoid}) async {
-    // posisi salah: acak di [2, chars-3]
-    final calon = [for (var i = 2; i < p.chars - 2; i++) i]..shuffle(rnd);
-    final salahDi = calon.take(p.errors).toSet();
+    // posisi salah: tersebar rata (acak sedikit) di [2, chars-3]. Dulu
+    // acak murni: di akurasi 85% salah sering menggerombol beberapa
+    // berturut2 -> edclub memunculkan "focus on accuracy" (laporan 28 Nov)
+    final salahDi = spreadErrors(p.chars, p.errors, rnd);
     var hutang = 0; // salah yang tertunda karena jatuh di bukan-huruf
     var rem = rem0;
     var k = 0;
