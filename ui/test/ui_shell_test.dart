@@ -115,7 +115,7 @@ void main() {
     await t.tap(find.text('51–200'));
     await _settle(t);
     expect(find.text('51'), findsWidgets);
-    expect(find.textContaining('level lagi'), findsOneWidget);
+    expect(find.textContaining('· 150 level'), findsOneWidget);
     expect(find.text('Belum disimpan'), findsNothing);
     await t.tap(find.text('Acak'));
     await _settle(t);
