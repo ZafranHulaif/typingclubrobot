@@ -185,18 +185,37 @@ void main() {
       expect(fake.named('navigate').length, nav0);
     });
 
-    test('target bintang selain perak mengunci kecepatan', () async {
+    test('mode bintang mengunci kecepatan, mode Manual membukanya', () async {
       _listen(be);
       await be.connect();
       await _flush();
-      // default perak: kecepatan bebas
-      expect((_last['speed'] as Map)['auto'], 0);
+      Map sp() => _last['speed'] as Map;
+      // default platinum mode bintang: terkunci, secepatnya
+      expect(sp()['locked'], true);
+      expect(sp()['auto'], 0);
+      expect(sp()['auto_wpm'], 400);
       await be.request('free.set', {'stars': 4});
       await _flush();
-      expect((_last['speed'] as Map)['auto'], 4);
+      expect(sp()['auto'], 4);
+      expect(sp()['locked'], true);
+      // Manual: target bintang tetap tersimpan utk nanti
+      await be.request('free.set', {'mode': 'manual'});
+      await _flush();
+      expect(sp()['locked'], false);
+      expect(sp()['manual'], true);
+      expect((_last['free'] as Map)['stars'], 4);
+      // akurasi dibatasi 85-100 & tersimpan
+      await be.request('speed.set', {'acc': 50});
+      await _flush();
+      expect(sp()['acc'], 85);
+      final saved = jsonDecode(File('${tmp.path}/typingbot_settings.json').readAsStringSync());
+      expect(saved['acc'], 85);
+      expect(saved['free']['mode'], 'manual');
+      // pilih bintang lagi = kembali ke mode bintang
       await be.request('free.set', {'stars': 5, 'silver': true});
       await _flush();
-      expect((_last['speed'] as Map)['auto'], 0);
+      expect(sp()['locked'], true);
+      expect((_last['free'] as Map)['mode'], 'stars');
     });
 
     test('tanpa runtime WebView2: pesan, tak ada webview', () async {

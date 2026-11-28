@@ -4,24 +4,61 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 
 import '../bridge/bridge.dart';
+import 'star_rule.dart';
+
+export 'star_rule.dart';
 
 class Segment {
-  Segment(this.from, this.to, this.stars, {this.silver = false});
+  Segment(this.from, this.to, int stars, {bool silver = false})
+      : rule = StarRule.fixed(codeOf(stars, silver));
+  Segment.withRule(this.from, this.to, this.rule);
   int from;
   int to; // 0 = sampai habis
-  int stars;
-  bool silver;
+  /// target bintang bagian ini: tetap / pola / acak
+  StarRule rule;
 
-  factory Segment.fromJson(Map m) => Segment(
+  /// target tetap (aturan pola/acak: target tertinggi, utk tampilan lama)
+  int get stars => starsOfCode(rule.code);
+  bool get silver => rule.type == 'fixed' && silverOfCode(rule.code);
+
+  factory Segment.fromJson(Map m) => Segment.withRule(
         (m['from'] as num).toInt(),
         ((m['to'] as num?) ?? 0).toInt(),
-        ((m['stars'] as num?) ?? 5).toInt(),
-        silver: m['silver'] == true,
+        StarRule.fromJson(m),
       );
-  Map<String, dynamic> toJson() =>
-      {'from': from, 'to': to, 'stars': stars, 'silver': silver && stars == 5};
-  Segment copy() => Segment(from, to, stars, silver: silver);
+  Map<String, dynamic> toJson() => {'from': from, 'to': to, ...rule.toJson()};
+  Segment copy() => Segment.withRule(from, to, rule.copy());
   String get label => to == 0 ? '$from+' : (from == to ? '$from' : '$from–$to');
+
+  /// kunci urutan bintang (sama dgn backend)
+  String get seqKey => 'p$from';
+}
+
+/// Yang sedang dibuka di lembar editor rencana (di samping panel).
+class PlanEdit {
+  /// ubah bagian ke-[index] yang sudah ada
+  PlanEdit.segment(int this.index, Segment this.seg)
+      : gap = null,
+        games = false;
+
+  /// bagian baru; [gap] = mengisi celah sebelum bagian ke-gap
+  PlanEdit.draft(Segment this.seg, {this.gap})
+      : index = null,
+        games = false;
+
+  /// aturan khusus game
+  PlanEdit.games()
+      : index = null,
+        seg = null,
+        gap = null,
+        games = true;
+
+  final int? index;
+  final Segment? seg;
+  final int? gap;
+  final bool games;
+
+  bool get isNew => seg != null && index == null;
 }
 
 class AppStore extends ChangeNotifier {
@@ -44,6 +81,9 @@ class AppStore extends ChangeNotifier {
   Timer? _flashT;
 
   bool planOpen = false;
+
+  /// lembar editor rencana yang terbuka (null = tertutup)
+  PlanEdit? edit;
 
   /// level terakhir kursus (Typing Jungle)
   static const lastLevel = 685;
@@ -80,12 +120,24 @@ class AppStore extends ChangeNotifier {
   Map<String, dynamic> get free => _m('free');
   int get freeStars => (free['stars'] as num?)?.toInt() ?? 5;
   bool get freeSilver => free['silver'] == true;
+  /// mode tanpa rencana: 'stars' (pilih bintang) / 'manual' (atur
+  /// kecepatan & akurasi sendiri, bintang = perkiraan)
+  bool get freeManual => free['mode'] == 'manual';
   bool get licensed => license['state'] == null || license['state'] == 'ok';
   int get levelNum => (level['num'] as num?)?.toInt() ?? 0;
   int get wpm => (speed['wpm'] as num?)?.toInt() ?? 400;
-  /// target bintang yang mengunci kecepatan (0 = bebas)
+  /// akurasi pilihan mode Manual (%)
+  int get acc => (speed['acc'] as num?)?.toInt() ?? 100;
+  /// dial kecepatan terkunci (mode bintang / rencana jalan)
+  bool get speedLocked => speed['locked'] != false;
+  /// target bintang yang mengunci kecepatan (0 = platinum)
   int get autoStars => (speed['auto'] as num?)?.toInt() ?? 0;
   int get autoWpm => (speed['auto_wpm'] as num?)?.toInt() ?? 0;
+  /// perkiraan bintang mode Manual di level ini (null = belum terbaca)
+  Map<String, dynamic>? get guess => (speed['guess'] as Map?)?.cast<String, dynamic>();
+  /// catatan perkiraan: batas yang dinaikkan / alasan tanpa perkiraan
+  String get guessNote => (speed['note'] as String?) ?? '';
+  int get guessLevel => (speed['level'] as num?)?.toInt() ?? 0;
   List<int> get tiers =>
       ((speed['tiers'] as List?) ?? const [40, 85, 140, 200, 300, 400])
           .map((e) => (e as num).toInt())
@@ -157,7 +209,36 @@ class AppStore extends ChangeNotifier {
 
   void togglePlan() {
     planOpen = !planOpen;
+    if (!planOpen) edit = null;
     notifyListeners();
+  }
+
+  void openEdit(PlanEdit? e) {
+    edit = e;
+    notifyListeners();
+  }
+
+  // ---------------------------------------------- aturan & urutan bintang
+  Map<String, dynamic> get games => _m('games');
+  StarRule gameRule(String kind) =>
+      StarRule.fromJson((games[kind] as Map?) ?? const {'rule': 'follow'});
+  bool get anyGameRule => gameKinds.any((k) => !gameRule(k).follow);
+
+  /// kunci akun utk benih acak (sama dgn backend)
+  String get seqAcct => (plan['acct'] as String?) ?? '';
+
+  /// giliran yang sudah terpakai utk aturan bertanda [sig]
+  int usedFor(String sig) => ((plan['used'] as Map?)?[sig] as num?)?.toInt() ?? 0;
+
+  /// target level yang sedang dikerjakan (pola/acak/game): {level, code, kind}
+  Map<String, dynamic>? get curTarget => (plan['cur'] as Map?)?.cast<String, dynamic>();
+
+  Future<bool> saveGames(Map<String, StarRule> rules) async {
+    final r = await call('games.set', {for (final e in rules.entries) e.key: e.value.toJson()});
+    if (r != null && phase == 'running') {
+      say('Aturan game berlaku mulai game berikutnya.');
+    }
+    return r != null;
   }
 
   /// Panggil sidecar; error ramah tampil di slot status. null = gagal.
@@ -193,6 +274,14 @@ class AppStore extends ChangeNotifier {
     // sedang mengetik tanpa rencana: lesson ini tetap, ganti di level berikutnya
     if (r != null && phase == 'running' && !planRunning) {
       say('Target bintang baru berlaku mulai level berikutnya.');
+    }
+  }
+
+  /// Ganti mode tanpa rencana: bintang <-> manual.
+  Future<void> setFreeMode(bool manual) async {
+    final r = await call('free.set', {'mode': manual ? 'manual' : 'stars'});
+    if (r != null && phase == 'running' && !planRunning) {
+      say('Mode baru berlaku penuh mulai level berikutnya.');
     }
   }
 

@@ -93,6 +93,14 @@ const gamePacingOn = true;
 /// akun tes, belum bisa diuji) tetap diketik secepatnya.
 const gamePaceTypes = ['balloonvalley', 'monsterattack'];
 
+/// Jenis game yang bisa diatur dari nama app + host (huruf kecil):
+/// 'balloon' / 'monster', '' = game lain (diketik secepatnya).
+String gameKindOf(String nama) => nama.contains('balloonvalley')
+    ? 'balloon'
+    : nama.contains('monsterattack')
+        ? 'monster'
+        : '';
+
 /// Batas atas kecepatan di game: game kalah kalau wpm > 250.
 const gamePaceMaxWpm = 150;
 
@@ -156,6 +164,170 @@ bool gameMiss(GamePace p,
   return (rvBefore + 0.5) / (idx + 1) > q;
 }
 
+/// Akurasi terendah yang bisa dipilih di mode Manual (sama dgn batas aman
+/// planStars).
+const manualAccMin = 85;
+
+/// Bintang dari rasio edclub (lihat rumus di atas).
+int starsOf(double ratio) => ratio >= 1
+    ? 5
+    : ratio >= .8
+        ? 4
+        : ratio >= .6
+            ? 3
+            : ratio >= .4
+                ? 2
+                : ratio >= .2
+                    ? 1
+                    : 0;
+
+/// Mode Manual: hasil kecepatan & akurasi pilihan user di satu lesson.
+/// Kebalikan planStars: bintang tidak dipilih, tinggal dihitung. Kalau
+/// pilihan user di bawah batas minimum level (= 0 bintang, level tidak
+/// lulus & bot tertahan di 'Try again'), dinaikkan secukupnya.
+class ManualPace {
+  ManualPace({
+    required this.wpm,
+    required this.acc,
+    required this.errors,
+    required this.chars,
+    required this.ratio,
+    required this.wpmRaised,
+    required this.accRaised,
+    required this.accFixed,
+  });
+
+  /// wpm bersih yang dipakai (sudah dinaikkan kalau perlu)
+  final double wpm;
+
+  /// akurasi yang dipakai (%)
+  final int acc;
+  final int errors;
+  final int chars;
+  final double ratio;
+
+  /// kecepatan user di bawah min_wpm level -> dinaikkan
+  final bool wpmRaised;
+
+  /// akurasi user di bawah min_accuracy level -> dinaikkan
+  final bool accRaised;
+
+  /// level tidak bisa diberi salah ketik (mode blokir / lesson pendek)
+  final bool accFixed;
+
+  int get stars => starsOf(ratio);
+
+  /// platinum: rasio penuh tanpa satu pun salah
+  bool get silver => errors == 0 && ratio >= 2;
+
+  /// jeda antar tombol (detik), seperti StarPace
+  double get dt => 60.0 * (chars - errors) / (5 * wpm * max(chars - 1, 1));
+
+  StarPace get pace => StarPace(
+      stars: stars, wpm: wpm, errors: errors, chars: chars, dt: dt, ratio: ratio);
+}
+
+/// Hitung mode Manual untuk lesson biasa. [canErr] = salah ketik boleh
+/// maju (on_error 'continue'); selain itu akurasi selalu 100%.
+ManualPace planManual(
+    {required int wpm,
+    required int acc,
+    required num goal,
+    num minWpm = 0,
+    num minAcc = 0,
+    num difficulty = 0,
+    required int chars,
+    bool canErr = true}) {
+  final g = max(1.0, (goal + difficulty).toDouble());
+  final minW = max(0.0, (minWpm + difficulty).toDouble());
+  // margin sama dgn planStars (edclub membulatkan wpm)
+  final wMin = minW > 0 ? (minW * 1.2 + 0.5).ceilToDouble() : 0.0;
+  final w = max(wpm.toDouble(), wMin);
+  final fixed = !canErr || chars < 25;
+  var a = acc.clamp(1, 100);
+  var accRaised = false;
+  if (fixed) {
+    a = 100;
+  } else {
+    // batas + 5 poin (sama dgn planStars)
+    final floor = min(100, minAcc.ceil() + 5);
+    if (minAcc > 0 && a < floor) {
+      a = floor;
+      accRaised = true;
+    }
+  }
+  final e = fixed ? 0 : (chars * (100 - a) / 100).floor();
+  final af = (chars - e) / max(chars, 1);
+  final ratio = min(2.0, af * af * min(w, 200) / g);
+  return ManualPace(
+      wpm: w,
+      acc: e == 0 ? 100 : (100 * af).floor(),
+      errors: e,
+      chars: chars,
+      ratio: ratio,
+      wpmRaised: w > wpm,
+      accRaised: accRaised,
+      accFixed: fixed && acc < 100);
+}
+
+/// Mode Manual di game (yang teruji, mode blokir). Game berwaktu: kecepatan
+/// minimal 1.25x goal (lihat planGame), maksimal [gamePaceMaxWpm]. Akurasi =
+/// akurasi asli (huruf benar-pertama-kali); akurasi biasa tetap 100%.
+/// null = game diketik seperti biasa (secepatnya): 100% dan >= batas atas,
+/// sama dgn perilaku sebelum mode Manual, atau goal terlalu tinggi.
+(GamePace, ManualPace)? planManualGame(
+    {required int wpm,
+    required int acc,
+    required num goal,
+    num minWpm = 0,
+    num difficulty = 0}) {
+  final g = max(1.0, (goal + difficulty).toDouble());
+  final minW = max(0.0, (minWpm + difficulty).toDouble());
+  final lower = max(g * 1.25, minW * 1.2 + 0.5).ceilToDouble();
+  if (lower > gamePaceMaxWpm) return null;
+  final a = acc.clamp(1, 100);
+  if (a == 100 && wpm >= gamePaceMaxWpm) return null;
+  final w = wpm.toDouble().clamp(lower, gamePaceMaxWpm.toDouble());
+  // rasio TANPA batas 2 utk loop game: gameMiss mengejar akurasi asli
+  // ratio * goal / wpm = a (dibatasi 2 -> akurasi asli ikut turun)
+  final raw = a / 100 * w / g;
+  final ratio = min(2.0, raw);
+  final mp = ManualPace(
+      wpm: w,
+      acc: a,
+      errors: a == 100 ? 0 : 1,
+      chars: 0,
+      ratio: ratio,
+      wpmRaised: w > wpm,
+      accRaised: false,
+      accFixed: false);
+  return (GamePace(stars: mp.stars, ratio: raw, goal: g, wpm: w), mp);
+}
+
+/// Perkiraan bintang mode Manual untuk target lesson [g] (isi
+/// EngineState.lessonGoal) dengan pengaturan [wpm]/[acc] sekarang.
+/// null = tidak bisa diperkirakan (level tes, game yang tidak diatur).
+ManualPace? guessManual(Map g, int wpm, int acc) {
+  num n(String k) => (g[k] as num?) ?? 0;
+  switch (g['kind']) {
+    case 'lesson':
+      return planManual(
+          wpm: wpm,
+          acc: acc,
+          goal: n('goal'),
+          minWpm: n('min_wpm'),
+          minAcc: n('min_acc'),
+          difficulty: n('diff'),
+          chars: n('chars').toInt(),
+          canErr: g['can_err'] == true);
+    case 'game':
+      return planManualGame(
+              wpm: wpm, acc: acc, goal: n('goal'), minWpm: n('min_wpm'), difficulty: n('diff'))
+          ?.$2;
+  }
+  return null;
+}
+
 extension StarLesson on Engine {
   /// Rencana bintang untuk lesson di [frame] (null = ketik biasa).
   Future<StarPace?> starPace(Frame frame) async {
@@ -167,15 +339,23 @@ extension StarLesson on Engine {
       } catch (_) {}
       if (st.statusLabel.isEmpty) await sleep(0.3);
     }
-    final target = starTarget?.call() ?? 0;
-    if (target < 1 || target > 5) return null;
+    final m = manual?.call('lesson');
+    // lihat dulu tanpa mengambil giliran: platinum tetap = tak perlu dibaca
+    final lihat = m != null ? 0 : starTarget?.call('lesson', false) ?? 0;
+    if (m == null && lihat == 0) return null;
     final info = await runJs(lessonGoalJs, frame);
     if (info is! Map) {
-      log('[Bintang] target $target, tapi target kecepatan lesson tidak '
-          'terbaca - ketik biasa');
+      log(m != null
+          ? '[Manual] target kecepatan lesson tidak terbaca - ketik biasa '
+              '(${m.wpm} wpm, tanpa salah)'
+          : '[Bintang] target ${lihat < 0 ? 'pola/acak' : lihat}, tapi target '
+              'kecepatan lesson tidak terbaca - ketik biasa');
       return null;
     }
-    if (_truthy(info['objc']) || _truthy(info['test'])) return null;
+    if (_truthy(info['objc']) || _truthy(info['test'])) {
+      if (m != null) st.lessonGoal = {'kind': 'skip'};
+      return null;
+    }
     final n = (info['n'] as num?)?.toInt() ?? 0;
     final pos = max((info['pos'] as num?)?.toInt() ?? 0, 0);
     final sisa = n - pos;
@@ -183,6 +363,10 @@ extension StarLesson on Engine {
     // akurasi diatur lewat salah ketik yang maju (on_error 'continue');
     // mode lain (blokir) -> tanpa salah, hanya kecepatan
     final bolehSalah = '${info['on_error']}' == 'continue';
+    if (m != null) return _manualLesson(m, info, sisa, bolehSalah);
+    // level ini dinilai bintang: ambil target (giliran pola/acak)
+    final target = starTarget?.call('lesson', true) ?? 0;
+    if (target < 1 || target > 5) return null;
     final p = planStars(target,
         goal: (info['goal'] as num?) ?? 0,
         minWpm: (info['min_wpm'] as num?) ?? 0,
@@ -195,6 +379,34 @@ extension StarLesson on Engine {
         '(${p.errors} salah dari ${p.chars}), perkiraan '
         '${(p.chars * p.dt / 60).toStringAsFixed(1)} menit');
     return p;
+  }
+
+  /// Mode Manual di lesson biasa: catat target lesson (perkiraan bintang di
+  /// UI), lalu rencana ketik. null = cukup jalur ketik biasa (100% tanpa
+  /// kecepatan yang perlu dinaikkan, persis perilaku lama).
+  StarPace? _manualLesson(({int wpm, int acc}) m, Map info, int sisa, bool bolehSalah) {
+    final goal = {
+      'kind': 'lesson',
+      'goal': (info['goal'] as num?) ?? 0,
+      'min_wpm': (info['min_wpm'] as num?) ?? 0,
+      'min_acc': (info['min_acc'] as num?) ?? 0,
+      'diff': (info['diff'] as num?) ?? 0,
+      'chars': sisa,
+      'can_err': bolehSalah,
+    };
+    st.lessonGoal = goal;
+    final p = guessManual(goal, m.wpm, m.acc)!;
+    final naik = [
+      if (p.wpmRaised) 'kecepatan dinaikkan ke ${p.wpm.round()} wpm (minimum level ini)',
+      if (p.accRaised) 'akurasi dinaikkan ke ${p.acc}% (minimum level ini)',
+      if (p.accFixed) 'akurasi 100% (level ini tidak bisa diberi salah ketik)',
+    ];
+    log('[Manual] ${m.wpm} wpm, akurasi ${m.acc}%: goal ${info['goal']} wpm '
+        '-> ketik ${p.wpm.round()} wpm, akurasi ${p.acc}% (${p.errors} salah '
+        'dari ${p.chars}), perkiraan ${p.silver ? '5 platinum' : '${p.stars} bintang'}'
+        '${naik.isEmpty ? '' : ' - ${naik.join(', ')}'}');
+    if (p.errors == 0 && !p.wpmRaised) return null;
+    return p.pace;
   }
 
   /// Ketik sisa lesson sesuai [p]: jadwal jam dinding (tombol ke-k pada
@@ -300,20 +512,35 @@ extension StarLesson on Engine {
     _gamePaceUrl = url;
     _gamePace = null;
     _gameReset();
-    final target = starTarget?.call() ?? 0;
-    if (target < 1 || target > 5) return null;
-    if (_truthy(s['objc']) || _truthy(s['test'])) return null;
     final nama = '${s['app']} ${s['host']}'.toLowerCase();
     final label = '${s['app']}'.split('.').last;
-    if (!gamePaceTypes.any(nama.contains)) {
-      log('[Bintang] target $target, tapi game $label belum teruji untuk '
+    final jenis = gameKindOf(nama);
+    final kind = jenis.isEmpty ? 'game' : jenis;
+    final m = manual?.call(kind);
+    final lihat = m != null ? 0 : starTarget?.call(kind, false) ?? 0;
+    if (m == null && lihat == 0) return null;
+    final tgt = lihat < 0 ? 'pola/acak' : '$lihat';
+    if (_truthy(s['objc']) || _truthy(s['test'])) {
+      if (m != null) st.lessonGoal = {'kind': 'skip'};
+      return null;
+    }
+    if (m != null) return _manualGame(m, s, label, nama);
+    if (jenis.isEmpty) {
+      log('[Bintang] target $tgt, tapi game $label belum teruji untuk '
           'target bintang - diketik secepatnya');
       return null;
     }
     if (!_truthy(s['blok'])) {
-      log('[Bintang] target $target, tapi game $label bukan mode blokir - '
+      log('[Bintang] target $tgt, tapi game $label bukan mode blokir - '
           'diketik secepatnya');
       return null;
+    }
+    // game ini dinilai bintang & bisa diatur: ambil target
+    final target = starTarget?.call(kind, true) ?? 0;
+    if (target < 1 || target > 5) return null;
+    // mode Manual dgn aturan khusus game: perkiraan = target aturan
+    if (manual?.call('lesson') != null) {
+      st.lessonGoal = {'kind': 'rule', 'stars': target};
     }
     final p = planGame(target,
         goal: (s['goal'] as num?) ?? 0,
@@ -332,6 +559,43 @@ extension StarLesson on Engine {
     return p;
   }
 
+  /// Mode Manual di game: hanya game yang teruji & mode blokir yang diatur
+  /// (sama dgn target bintang); lainnya diketik seperti biasa.
+  GamePace? _manualGame(({int wpm, int acc}) m, Map s, String label, String nama) {
+    if (gameKindOf(nama).isEmpty || !_truthy(s['blok'])) {
+      st.lessonGoal = {'kind': 'game_free'};
+      log('[Manual] game $label tidak bisa diatur - diketik seperti biasa');
+      return null;
+    }
+    final goal = {
+      'kind': 'game',
+      'goal': (s['goal'] as num?) ?? 0,
+      'min_wpm': (s['min_wpm'] as num?) ?? 0,
+      'diff': (s['diff'] as num?) ?? 0,
+    };
+    st.lessonGoal = goal;
+    final r = planManualGame(
+        wpm: m.wpm,
+        acc: m.acc,
+        goal: goal['goal'] as num,
+        minWpm: goal['min_wpm'] as num,
+        difficulty: goal['diff'] as num);
+    if (r == null) {
+      st.lessonGoal = {'kind': 'game_free'};
+      log('[Manual] game $label diketik seperti biasa (secepatnya)');
+      return null;
+    }
+    final (p, mp) = r;
+    _gamePace = p;
+    st.paceWpm = p.wpm;
+    log('[Manual] game $label: goal ${s['goal']} wpm -> ketik '
+        '${p.wpm.toStringAsFixed(0)} wpm, akurasi asli ~${mp.acc}%, perkiraan '
+        '${mp.silver ? '5 platinum' : '${mp.stars} bintang'}'
+        '${mp.wpmRaised ? ' (kecepatan dinaikkan, game berwaktu)' : ''}'
+        '${mp.wpm < m.wpm ? ' (game maks $gamePaceMaxWpm wpm)' : ''}');
+    return p;
+  }
+
   /// false = sudah pasti tidak diatur di lesson ini (hemat satu eval per
   /// putaran saat target perak / game belum teruji).
   bool get gamePaceMaybe =>
@@ -340,19 +604,21 @@ extension StarLesson on Engine {
   /// Data game belum terbaca (core belum siap): tahan dulu supaya huruf
   /// pertama tidak diketik secepatnya; menyerah setelah 15 putaran.
   bool gamePaceHold() {
-    final target = starTarget?.call() ?? 0;
+    // mode Manual = sama2 perlu data game dulu (anggap target 'ada');
+    // -1 = pola/acak (juga diatur)
+    final target = manual?.call('game') != null ? 1 : starTarget?.call('game', false) ?? 0;
     final url = page.url;
     if (_gameHoldUrl != url) {
       _gameHoldUrl = url;
       _gameHoldN = 0;
     }
     _gameHoldN += 1;
-    if (target >= 1 && target <= 5 && _gameHoldN <= 15) return true;
+    if (target != 0 && _gameHoldN <= 15) return true;
     _gamePaceUrl = url;
     _gamePace = null;
-    if (target >= 1 && target <= 5) {
-      log('[Bintang] target $target, tapi data game tidak terbaca - '
-          'diketik secepatnya');
+    if (target != 0) {
+      log('[Bintang] target ${target < 0 ? 'pola/acak' : target}, tapi data '
+          'game tidak terbaca - diketik secepatnya');
     }
     return false;
   }

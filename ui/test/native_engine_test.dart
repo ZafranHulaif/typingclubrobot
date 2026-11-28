@@ -186,10 +186,11 @@ void main() {
       ]
     });
     expect(be.engine!.st.levelEnd, 50);
-    // kecepatan langsung berlaku di mesin & tersimpan
+    // rencana = mode bintang: dial tersimpan, mesin tetap secepatnya
     await be.request('speed.set', {'wpm': 140});
-    expect(be.engine!.st.speedWpm, 140);
+    expect(be.engine!.st.speedWpm, 400);
     expect(File('${tmp.path}/typingbot_settings.json').readAsStringSync(), contains('"speed": 140'));
+    expect((last['speed'] as Map)['locked'], true);
     // ganti akun saat jalan = ditolak
     expect(() => be.request('acct.switch', {'name': 'budi'}), throwsA(isA<RpcException>()));
     expect(() => be.request('bot.start'), throwsA(isA<RpcException>()));
@@ -211,6 +212,151 @@ void main() {
     await waitFor(() => be.running, ms: 3000);
     expect(be.engine!.st.levelEnd, 0);
   });
+
+  test('mode Manual: dial berlaku langsung, perkiraan bintang level ini di snapshot', () async {
+    final text = List.filled(20, 'asdf jkl ').join();
+    fake.lesson = FakeLesson(text, label: 'L1');
+    fake.lessonGoal = {
+      'goal': 10, 'min_wpm': 3, 'min_acc': 80, 'on_error': 'continue',
+      'objc': false, 'test': false, 'diff': 0, 'n': text.length, 'pos': 0, 'total': 0,
+    };
+    await be.request('free.set', {'mode': 'manual'});
+    await be.request('speed.set', {'wpm': 140, 'acc': 95});
+    Map sp() => last['speed'] as Map;
+    expect(sp()['manual'], true);
+    expect(sp()['locked'], false);
+    expect(sp()['guess'], isNull); // belum ada level
+    await be.request('bot.start', {'mode': 'free'});
+    await waitFor(() => be.running);
+    expect(be.engine!.st.speedWpm, 140);
+    await waitFor(() => sp()['guess'] != null);
+    // goal 10, 140 wpm, 95% -> rasio penuh, ada salah = 5 (bukan platinum)
+    expect((sp()['guess'] as Map)['stars'], 5);
+    expect((sp()['guess'] as Map)['silver'], false);
+    // geser ke 100% -> perkiraan ikut berubah (platinum)
+    await be.request('speed.set', {'acc': 100});
+    await waitFor(() => (sp()['guess'] as Map)['silver'] == true);
+    await be.request('speed.set', {'wpm': 85});
+    expect(be.engine!.st.speedWpm, 85);
+    // balik ke mode bintang = dial terkunci, mesin secepatnya
+    await be.request('free.set', {'mode': 'stars'});
+    expect(be.engine!.st.speedWpm, 400);
+    await waitFor(() => sp()['locked'] == true && sp()['guess'] == null);
+    expect(logs.any((l) => l.startsWith('[Manual] 140 wpm, akurasi 95%')), isTrue);
+  });
+
+  test('rencana pola: tiap level berbintang dapat giliran, tersimpan & sama saat diulang', () async {
+    final text = List.filled(8, 'asdf jkl ').join();
+    fake.lesson = FakeLesson(text, label: 'L1');
+    fake.nextUrl = _l2;
+    fake.nextLesson = FakeLesson(text, label: 'L2');
+    fake.lessonGoal = {
+      'goal': 10, 'min_wpm': 3, 'min_acc': 80, 'on_error': 'continue',
+      'objc': false, 'test': false, 'diff': 0, 'n': text.length, 'pos': 0, 'total': 0,
+    };
+    await be.request('plan.set', {
+      'segments': [
+        {'from': 1, 'to': 20, 'rule': 'pattern', 'pattern': [2, 4]},
+      ]
+    });
+    expect((plan()['segments'] as List).single['pattern'], [2, 4]);
+    await be.request('bot.start', {'mode': 'plan'});
+    await waitFor(() => fake.url == _l2 && fake.lesson!.done, ms: 20000);
+    await be.request('bot.stop');
+    await be.stopped;
+    expect(logs.any((l) => l.startsWith('[Bintang] level 1: pola 2,4, level berbintang ke-1 -> target 2')), isTrue,
+        reason: logs.where((l) => l.startsWith('[Bintang]')).join('\n'));
+    expect(logs.any((l) => l.startsWith('[Bintang] level 2: pola 2,4, level berbintang ke-2 -> target 4')), isTrue);
+    expect(logs.any((l) => l.startsWith('[Bintang] target 2: goal 10')), isTrue);
+    expect(logs.any((l) => l.startsWith('[Bintang] target 4: goal 10')), isTrue);
+    final sig = ((plan()['used'] as Map).keys).single;
+    expect((plan()['used'] as Map)[sig], 2);
+    // level 2 diulang: tetap target 4, tidak mengambil giliran baru
+    logs.clear();
+    fake.lesson = FakeLesson(text, label: 'L2');
+    await be.request('bot.start', {'mode': 'plan'});
+    await waitFor(() => fake.lesson!.done, ms: 20000);
+    await be.request('bot.stop');
+    await be.stopped;
+    expect(logs.any((l) => l.contains('ke-3')), isFalse);
+    expect(logs.any((l) => l.startsWith('[Bintang] target 4: goal 10')), isTrue);
+    // pola diubah = urutan lama dibuang
+    await be.request('plan.set', {
+      'segments': [
+        {'from': 1, 'to': 20, 'rule': 'pattern', 'pattern': [3]},
+      ]
+    });
+    await pumpEventQueue();
+    expect(plan()['used'], isEmpty);
+    // pola kosong ditolak
+    expect(
+        () => be.request('plan.set', {
+              'segments': [
+                {'from': 1, 'to': 20, 'rule': 'pattern', 'pattern': []},
+              ]
+            }),
+        throwsA(isA<RpcException>()));
+  });
+
+  test('level tanpa nilai bintang (tes/objektif) tidak memakai giliran', () async {
+    final text = List.filled(8, 'asdf jkl ').join();
+    fake.lesson = FakeLesson(text, label: 'L1');
+    fake.lessonGoal = {
+      'goal': 10, 'min_wpm': 3, 'min_acc': 80, 'on_error': 'continue',
+      'objc': true, 'test': false, 'diff': 0, 'n': text.length, 'pos': 0, 'total': 0,
+    };
+    await be.request('plan.set', {
+      'segments': [
+        {'from': 1, 'to': 20, 'rule': 'random', 'min': 2, 'max': 4},
+      ]
+    });
+    await be.request('bot.start', {'mode': 'plan'});
+    await waitFor(() => fake.lesson!.done, ms: 20000);
+    await be.request('bot.stop');
+    await be.stopped;
+    await pumpEventQueue();
+    expect(plan()['used'], isEmpty);
+    expect(logs.any((l) => l.contains('level berbintang ke-')), isFalse);
+  });
+
+  test('aturan khusus game: tersimpan, ikut bagian = default, Manual tetap untuk lesson', () async {
+    Map games() => last['games'] as Map;
+    expect(games()['balloon']['rule'], 'follow');
+    await be.request('games.set', {
+      'balloon': {'rule': 'fixed', 'stars': 3},
+      'monster': {'rule': 'random', 'min': 3, 'max': 6},
+    });
+    expect(games()['balloon']['stars'], 3);
+    expect(games()['monster']['max'], 6);
+    final saved = jsonDecode(File('${tmp.path}/typingbot_settings.json').readAsStringSync());
+    expect(saved['game_rules']['balloon']['rule'], 'fixed');
+    expect(
+        () => be.request('games.set', {'balloon': {'rule': 'pattern', 'pattern': []}}),
+        throwsA(isA<RpcException>()));
+  });
+
+  for (final manual in [false, true]) {
+    test('game balon selalu 3 bintang (${manual ? 'mode Manual' : 'platinum'}): aturan khusus menang', () async {
+      final game = FakeGame(List.filled(12, 'asdfj').join(), goal: 10);
+      fake.url = 'https://www.edclub.com/sportal/program-3/2953.play';
+      fake.game = game;
+      await be.request('games.set', {'balloon': {'rule': 'fixed', 'stars': 3}});
+      if (manual) {
+        await be.request('free.set', {'mode': 'manual'});
+        await be.request('speed.set', {'wpm': 400, 'acc': 100});
+      }
+      await be.request('bot.start', {'mode': 'free'});
+      await waitFor(() => game.ended, ms: 20000);
+      if (manual) {
+        await waitFor(() => (last['speed'] as Map)['guess'] != null);
+        expect(((last['speed'] as Map)['guess'] as Map)['stars'], 3);
+      }
+      await be.request('bot.stop');
+      await be.stopped;
+      expect(game.stars, 3, reason: 'rasio ${game.ratio}');
+      expect(logs.any((l) => l.startsWith('[Bintang] game BalloonValley target 3')), isTrue);
+    });
+  }
 
   test('Stop saat menunggu = kembali siap', () async {
     fake.url = 'https://www.edclub.com/student/course/3';
@@ -328,6 +474,37 @@ void main() {
     expect(() => b2.request('bot.start', {'mode': 'plan'}),
         throwsA(isA<RpcException>().having((e) => e.code, 'code', 'locked_level')));
     b2.close();
+  });
+
+  test('pindah ke 4.1: platinum + kecepatan diturunkan = mode Manual 100%', () async {
+    Future<Map<String, dynamic>> buka(String json) async {
+      File('${tmp.path}/typingbot_settings.json').writeAsStringSync(json);
+      final b2 = NativeBackend(
+          version: 't', host: WebHost(), accounts: AccountStore(tmp.path), checkLicense: false);
+      final got = <String, dynamic>{};
+      b2.events.listen((e) {
+        if (e.name == 'snapshot') got.addAll(Map<String, dynamic>.from(e.data as Map));
+      });
+      await b2.connect();
+      await Future<void>.delayed(Duration.zero);
+      b2.close();
+      return got;
+    }
+
+    var g = await buka('{"speed": 140, "free": {"stars": 5, "silver": true}}');
+    expect((g['free'] as Map)['mode'], 'manual');
+    expect((g['speed'] as Map)['acc'], 100);
+    expect((g['speed'] as Map)['locked'], false);
+    // kecepatan maksimal / target bintang lain = tetap mode bintang
+    g = await buka('{"speed": 400, "free": {"stars": 5, "silver": true}}');
+    expect((g['free'] as Map)['mode'], 'stars');
+    expect((g['speed'] as Map)['auto_wpm'], 400);
+    g = await buka('{"speed": 140, "free": {"stars": 3, "silver": false}}');
+    expect((g['free'] as Map)['mode'], 'stars');
+    // pilihan yang sudah tersimpan dihormati
+    g = await buka('{"speed": 400, "acc": 90, "free": {"stars": 4, "mode": "manual"}}');
+    expect((g['free'] as Map)['mode'], 'manual');
+    expect((g['speed'] as Map)['acc'], 90);
   });
 
   test('pengaturan lama (speed/plan) dimuat saat buka', () async {

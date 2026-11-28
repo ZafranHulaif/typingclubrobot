@@ -27,6 +27,7 @@ import '../net/machine.dart' as machine;
 import '../net/report.dart';
 import '../net/updater.dart';
 import '../web/js_diag.dart';
+import '../state/star_rule.dart';
 import '../web/js_init.dart';
 import '../web/js_back.dart';
 import '../web/ad_block.dart';
@@ -96,12 +97,21 @@ class NativeBackend implements Backend {
     _settings = _loadSettings();
     _bootPlan = _planFor(this.accounts.active() ?? '');
     final wpm = ((_settings['speed'] as num?) ?? 400).toInt().clamp(40, 400);
+    final acc = ((_settings['acc'] as num?) ?? 100).toInt().clamp(manualAccMin, 100);
+    final fs = (_settings['free'] as Map?) ?? const {};
+    final silver = (fs['silver'] ?? true) == true;
+    // mode Manual (4.1.0): dulu bintang 5 platinum = kecepatan bebas.
+    // Pengguna lama yang menurunkan kecepatan dgn platinum pindah ke
+    // Manual 100% (perilaku sama persis); lainnya tetap mode bintang.
+    final fmode = fs['mode'] == 'manual' || (fs['mode'] == null && silver && wpm < 400)
+        ? 'manual'
+        : 'stars';
     _snap = {
       'app': {'version': version, 'platform': Platform.isMacOS ? 'macos' : 'windows', 'mode': 'native'},
       'bot': {'phase': 'idle', 'needs_login': false},
       'level': <String, dynamic>{},
       'range': <String, dynamic>{},
-      'speed': {'wpm': wpm},
+      'speed': {'wpm': wpm, 'acc': acc},
       // bisu: semua suara halaman edclub (disimpan, ikut tiap ganti akun)
       'sound': {'muted': _settings['muted'] == true},
       'account': {'active': '', 'list': <Map<String, dynamic>>[]},
@@ -114,12 +124,18 @@ class NativeBackend implements Backend {
       'web': {'url': '', 'title': ''},
       // target bintang utk Mulai tanpa rencana
       'free': {
-        'stars': ((((_settings['free'] as Map?) ?? const {})['stars'] as num?) ?? 5).toInt().clamp(1, 5),
+        'stars': ((fs['stars'] as num?) ?? 5).toInt().clamp(1, 5),
         // default perak (= ketik secepatnya, perilaku sebelum N7)
-        'silver': (((_settings['free'] as Map?) ?? const {})['silver'] ?? true) == true,
+        'silver': silver,
+        // 'stars' = pilih bintang (kecepatan & akurasi otomatis) /
+        // 'manual' = atur kecepatan & akurasi sendiri, bintang = perkiraan
+        'mode': fmode,
       },
     };
     _snap['plan']!['segments'] = _bootPlan;
+    // aturan khusus game (semua akun, semua mode)
+    _snap['games'] = _gameRulesJson();
+    _syncSeq(this.accounts.active() ?? '');
     _syncSpeedLock();
     _snap['range']!['unlocked'] = _unlockedFor(this.accounts.active() ?? '');
   }
@@ -492,6 +508,7 @@ class NativeBackend implements Backend {
     _viewAcct = name;
     if (_snap['sound']!['muted'] == true) _applyMute(v);
     _set('plan', {'segments': _planFor(name ?? '')});
+    _syncSeq(name ?? '');
     _set('range', {'unlocked': _unlockedFor(name ?? '')});
     _labelDone = false;
     _rtSaved = '';
@@ -947,11 +964,17 @@ class NativeBackend implements Backend {
         _applyVisible();
         return true;
       case 'speed.set':
-        final w = ((p['wpm'] as num?)?.toInt() ?? 400).clamp(40, 400);
-        _engine?.st.speedWpm = w;
-        _set('speed', {'wpm': w});
-        if (p['save'] != false) _saveSettings({'speed': w});
-        return {'wpm': w};
+        final sp = _snap['speed']!;
+        final w = ((p['wpm'] as num?)?.toInt() ?? (sp['wpm'] as int?) ?? 400).clamp(40, 400);
+        final a = ((p['acc'] as num?)?.toInt() ?? (sp['acc'] as int?) ?? 100)
+            .clamp(manualAccMin, 100);
+        // kecepatan dial hanya dipakai mode Manual tanpa rencana
+        final e = _engine;
+        if (e != null && _manualOn) e.st.speedWpm = w;
+        _set('speed', {'wpm': w, 'acc': a});
+        if (p['save'] != false) _saveSettings({'speed': w, 'acc': a});
+        _syncSpeedLock();
+        return {'wpm': w, 'acc': a};
       case 'sound.set':
         final on = p['muted'] == true;
         _set('sound', {'muted': on});
@@ -961,6 +984,8 @@ class NativeBackend implements Backend {
         return {'muted': on};
       case 'plan.set':
         return _planSet(p['segments']);
+      case 'games.set':
+        return _gamesSet(p);
       case 'settings.get':
         return Map<String, dynamic>.from(_settings);
       case 'settings.set':
@@ -974,10 +999,17 @@ class NativeBackend implements Backend {
       case 'bot.resume':
         return _resume();
       case 'free.set':
-        final st = ((p['stars'] as num?) ?? 5).toInt().clamp(1, 5);
-        final f = {'stars': st, 'silver': p['silver'] == true && st == 5};
+        final cur = _snap['free']!;
+        final st = ((p['stars'] as num?) ?? (cur['stars'] as int?) ?? 5).toInt().clamp(1, 5);
+        final sv = p.containsKey('stars') ? p['silver'] == true : cur['silver'] == true;
+        final md = p['mode'] == null
+            ? (p.containsKey('stars') ? 'stars' : '${cur['mode'] ?? 'stars'}')
+            : (p['mode'] == 'manual' ? 'manual' : 'stars');
+        final f = {'stars': st, 'silver': sv && st == 5, 'mode': md};
         _set('free', f);
         _saveSettings({'free': f});
+        final e = _engine;
+        if (e != null) e.st.speedWpm = _engineWpm;
         _syncSpeedLock();
         return f;
       case 'bot.recover':
@@ -1095,8 +1127,8 @@ class NativeBackend implements Backend {
       if (b > lastLevel) b = lastLevel;
       if (b != 0 && b < a) continue;
       if (out.isNotEmpty && (out.last['to'] == 0 || a <= (out.last['to'] as int))) continue;
-      final st = ((sg['stars'] as num?) ?? 5).toInt().clamp(1, 5);
-      out.add({'from': a, 'to': b, 'stars': st, 'silver': sg['silver'] == true && st == 5});
+      final r = StarRule.fromJson(sg);
+      out.add({'from': a, 'to': b, ...(r.follow ? StarRule.fixed(platinumCode) : r).toJson()});
     }
     return out;
   }
@@ -1151,7 +1183,10 @@ class NativeBackend implements Backend {
       final m = sg as Map;
       final a = (m['from'] as num).toInt();
       final b = ((m['to'] as num?) ?? 0).toInt();
-      final st = ((m['stars'] as num?) ?? 5).toInt().clamp(1, 5);
+      if (m['rule'] == 'pattern' && (m['pattern'] as List? ?? const []).isEmpty) {
+        throw RpcException('bad_input', 'Polanya masih kosong. Tambah minimal satu target ya.');
+      }
+      final r = StarRule.fromJson(m);
       if (a < 1 || (b != 0 && b < a)) {
         throw RpcException('bad_input', 'Rentang $a-$b tidak valid.');
       }
@@ -1163,7 +1198,7 @@ class NativeBackend implements Backend {
         throw RpcException(
             'bad_input', 'Bagian harus berurutan dan tidak tumpang tindih.');
       }
-      out.add({'from': a, 'to': b, 'stars': st, 'silver': m['silver'] == true && st == 5});
+      out.add({'from': a, 'to': b, ...(r.follow ? StarRule.fixed(platinumCode) : r).toJson()});
     }
     final lock = _snap['plan']!['lock_until'] as int?;
     if (running && lock != null) {
@@ -1182,7 +1217,84 @@ class NativeBackend implements Backend {
     _saveSettings({
       'plans': {...((_settings['plans'] as Map?) ?? const {}), key: out}
     });
+    _pruneSeq(key);
     return {'segments': out};
+  }
+
+  // ------------------------------------------------- aturan & urutan bintang
+  /// Aturan khusus game tersimpan (settings 'game_rules'); default ikut bagian.
+  Map<String, dynamic> _gameRulesJson() {
+    final raw = (_settings['game_rules'] as Map?) ?? const {};
+    return {
+      for (final k in gameKinds)
+        k: (raw[k] is Map ? StarRule.fromJson(raw[k] as Map) : StarRule.follow()).toJson(),
+    };
+  }
+
+  StarRule _gameRule(String kind) {
+    final g = (_snap['games']?[kind] as Map?) ?? const {'rule': 'follow'};
+    return StarRule.fromJson(g);
+  }
+
+  /// Ada aturan khusus untuk game [kind] ('game' = game apa saja).
+  bool _gameRuleOn(String kind) => kind == 'game'
+      ? gameKinds.any((k) => !_gameRule(k).follow)
+      : gameKinds.contains(kind) && !_gameRule(kind).follow;
+
+  Map<String, dynamic> _gamesSet(Map p) {
+    final out = <String, dynamic>{};
+    for (final k in gameKinds) {
+      final m = p[k];
+      if (m is Map && m['rule'] == 'pattern' && (m['pattern'] as List? ?? const []).isEmpty) {
+        throw RpcException('bad_input',
+            'Pola ${gameNames[k]!.toLowerCase()} masih kosong. Tambah minimal satu target ya.');
+      }
+      out[k] = (m is Map ? StarRule.fromJson(m) : _gameRule(k)).toJson();
+    }
+    _set('games', out);
+    _saveSettings({'game_rules': out});
+    _pruneSeq(accounts.active() ?? '');
+    _syncSpeedLock();
+    return out;
+  }
+
+  /// Urutan bintang per akun: settings 'star_seq' {akun: {tanda aturan:
+  /// {n: giliran berikutnya, lv: {level: giliran}}}}. Level yang sudah
+  /// dapat giliran tetap sama saat diulang / bot dibuka lagi.
+  Map<String, dynamic> _seqFor(String acct) => Map<String, dynamic>.from(
+      (((_settings['star_seq'] as Map?) ?? const {})[acct] as Map?) ?? const {});
+
+  void _saveSeq(String acct, Map<String, dynamic> seq) {
+    _saveSettings({
+      'star_seq': {...((_settings['star_seq'] as Map?) ?? const {}), acct: seq}
+    });
+    _syncSeq(acct);
+  }
+
+  /// UI: giliran terpakai per aturan (pratinjau "berikutnya") + kunci akun
+  /// (benih acak sama dgn backend).
+  void _syncSeq(String acct) {
+    final seq = _seqFor(acct);
+    _snap['plan'] = {
+      ...?_snap['plan'],
+      'acct': acct,
+      'used': {for (final e in seq.entries) e.key: ((e.value as Map)['n'] as num?)?.toInt() ?? 0},
+    };
+    _events.add(SidecarEvent('state', {'plan': _snap['plan']}));
+  }
+
+  /// Semua tanda aturan yang masih dipakai akun ini.
+  Set<String> _liveSigs() => {
+        for (final sg in _segments) StarRule.fromJson(sg).sig('p${sg['from']}'),
+        for (final k in gameKinds) _gameRule(k).sig('g:$k'),
+      };
+
+  /// Aturan diubah: urutan lama dibuang (pola/acak mulai dari awal).
+  void _pruneSeq(String acct) {
+    final seq = _seqFor(acct);
+    final hidup = _liveSigs();
+    final sisa = {for (final e in seq.entries) if (hidup.contains(e.key)) e.key: e.value};
+    if (sisa.length != seq.length) _saveSeq(acct, sisa);
   }
 
   // ------------------------------------------------------------ bot
@@ -1329,13 +1441,19 @@ class NativeBackend implements Backend {
       onLog: _log,
     );
     eng.st
-      ..speedWpm = (_snap['speed']!['wpm'] as int?) ?? 400
+      ..speedWpm = _engineWpm
       ..levelStart = mulai
       ..levelEnd = akhir
       ..rangeJumpDone = mulai <= 1
       ..rangeReady = true;
     eng.askLocked = _askLocked;
-    eng.starTarget = () => _starTargetFor(eng);
+    eng.starTarget = (kind, assign) => _starTargetFor(eng, kind: kind, assign: assign);
+    eng.manual = (kind) => _manualOn && !_gameRuleOn(kind)
+        ? (
+            wpm: (_snap['speed']!['wpm'] as int?) ?? 400,
+            acc: (_snap['speed']!['acc'] as int?) ?? 100,
+          )
+        : null;
     if (mulai > 1 || akhir > 0) {
       _log('Rentang level aktif: $mulai - ${akhir == 0 ? 'akhir kursus' : akhir}.');
     }
@@ -1404,7 +1522,7 @@ class NativeBackend implements Backend {
       'phase': done ? 'done' : 'idle',
       'needs_login': _urlNeedsLogin,
     });
-    _set('plan', {'active': null, 'lock_until': null, 'done_in_active': 0});
+    _set('plan', {'active': null, 'lock_until': null, 'done_in_active': 0, 'cur': null});
     _set('level', {'progress': 0.0});
     _log('Bot berhenti.');
   }
@@ -1412,25 +1530,86 @@ class NativeBackend implements Backend {
   /// Tunggu sampai loop bot benar2 selesai (tes / tutup app).
   Future<void> get stopped => _run ?? Future.value();
 
-  /// Kecepatan terkunci target bintang (UI: gembok di tombol kecepatan).
-  /// auto = bintang target (0 = perak, kecepatan bebas), auto_wpm = wpm
-  /// yang sedang dipakai di lesson ini (0 = belum ada lesson).
+  /// Mode Manual aktif: tanpa rencana & mode 'manual' (rencana selalu
+  /// pakai target bintang tiap bagian).
+  bool get _manualOn => _mode != 'plan' && _snap['free']?['mode'] == 'manual';
+
+  /// Kecepatan jalur ketik biasa: dial di mode Manual, selain itu
+  /// maksimal (mode bintang: kecepatan & akurasi otomatis, platinum =
+  /// secepatnya). Selama rencana jalan _mode = 'plan'.
+  int get _engineWpm =>
+      _manualOn ? ((_snap['speed']!['wpm'] as int?) ?? 400) : 400;
+
+  /// Keadaan tombol kecepatan (UI):
+  /// - locked: dial terkunci (mode bintang / rencana jalan)
+  /// - auto: bintang target (0 = platinum), auto_wpm: wpm lesson ini
+  /// - manual: mode Manual aktif; guess = perkiraan level ini (null =
+  ///   belum terbaca), note = alasan tanpa perkiraan / batas yang dinaikkan
   void _syncSpeedLock() {
-    final e = _engine;
+    final e = running ? _engine : null;
+    final plan = e != null && _mode == 'plan';
+    final manual = !plan && _snap['free']?['mode'] == 'manual';
     var tgt = 0;
     var pw = 0.0;
-    if (e != null && running) {
+    if (e != null && !manual) {
       tgt = _starTargetFor(e);
+      // pola/acak: target level ini kalau sudah dapat giliran
+      final cur = _snap['plan']?['cur'];
+      if (tgt < 0 && cur is Map && cur['level'] == _levelNow(e)) {
+        tgt = engineTarget((cur['code'] as num).toInt());
+      }
       pw = e.st.paceWpm;
-    } else {
+    } else if (!manual) {
       final f = _snap['free'];
       if (f != null && f['silver'] != true) tgt = ((f['stars'] as num?) ?? 5).toInt();
     }
-    _set('speed', {'auto': tgt, 'auto_wpm': pw.round()});
+    Map<String, dynamic>? guess;
+    var note = '';
+    final g = e?.st.lessonGoal;
+    if (manual && g != null && g['kind'] == 'rule') {
+      // aturan khusus game menang atas mode Manual
+      final n = (g['stars'] as num?)?.toInt() ?? 0;
+      guess = {'stars': n == 0 ? 5 : n, 'silver': n == 0};
+      note = 'Aturan khusus game: target bintang, bukan kecepatan & akurasimu.';
+    } else if (manual && g != null) {
+      final sp = _snap['speed']!;
+      final mp = guessManual(g, (sp['wpm'] as int?) ?? 400, (sp['acc'] as int?) ?? 100);
+      if (mp != null) {
+        guess = {'stars': mp.stars, 'silver': mp.silver, 'wpm': mp.wpm.round(), 'acc': mp.acc};
+        // kalimat utuh, langsung tampil di UI
+        note = [
+          if (mp.wpmRaised) 'Kecepatan naik ke ${mp.wpm.round()} wpm (minimum level ini).',
+          if (mp.accRaised) 'Akurasi naik ke ${mp.acc}% (minimum level ini).',
+          if (mp.accFixed) 'Level ini selalu 100%, salah ketik tidak bisa lanjut.',
+          if (g['kind'] == 'game' && mp.wpm < ((sp['wpm'] as int?) ?? 400))
+            'Game maksimal ${mp.wpm.round()} wpm.',
+        ].join(' ');
+      } else {
+        note = g['kind'] == 'skip' ? 'tidak dinilai bintang' : 'game ini diketik seperti biasa';
+      }
+    }
+    _set('speed', {
+      'locked': !manual,
+      'auto': tgt,
+      // platinum = selalu secepatnya
+      'auto_wpm': manual ? 0 : (pw > 0 ? pw.round() : (tgt == 0 ? 400 : 0)),
+      'manual': manual,
+      'guess': guess,
+      'note': note,
+      'level': e != null && (guess != null || note.isNotEmpty) ? _levelNow(e) : 0,
+    });
   }
 
-  /// Target bintang level sekarang: 1-5, atau 0 = perak (secepatnya).
-  int _starTargetFor(Engine e) {
+  /// Aturan yang berlaku untuk [kind] di level sekarang + kunci tandanya
+  /// (null = tidak ada target: platinum).
+  (StarRule, String)? _ruleFor(Engine e, String kind) {
+    if (gameKinds.contains(kind)) {
+      final g = _gameRule(kind);
+      if (!g.follow) return (g, 'g:$kind');
+    } else if (kind == 'game' && _gameRuleOn('game')) {
+      // game belum terbaca & ada aturan khusus: anggap diatur
+      return (StarRule(type: 'random', min: 1, max: 5), 'g:?');
+    }
     Map? sg;
     if (_mode == 'plan') {
       final segs = _segments;
@@ -1447,13 +1626,50 @@ class NativeBackend implements Backend {
         }
       }
       if (sg == null && lvl == 0 && segs.isNotEmpty) sg = segs.first;
-      if (sg == null) return 0;
-    } else {
-      sg = _snap['free'];
+      if (sg == null) return null;
+      return (StarRule.fromJson(sg), 'p${sg['from']}');
     }
-    if (sg == null || sg['silver'] == true) return 0;
-    final n = ((sg['stars'] as num?) ?? 5).toInt();
-    return n.clamp(1, 5);
+    sg = _snap['free'];
+    if (sg == null) return null;
+    return (StarRule.fixed(codeOf(((sg['stars'] as num?) ?? 5).toInt(), sg['silver'] == true)), 'free');
+  }
+
+  /// Target bintang level sekarang: 1-5, 0 = perak (secepatnya), -1 =
+  /// pola/acak yang belum mendapat giliran (hanya saat [assign] false).
+  /// [assign] = level ini dinilai bintang: ambil giliran berikutnya dan
+  /// simpan, supaya diulang / dibuka lagi tetap target yang sama.
+  int _starTargetFor(Engine e, {String kind = 'lesson', bool assign = false}) {
+    final r = _ruleFor(e, kind);
+    if (r == null) return 0;
+    final (rule, key) = r;
+    if (!rule.variable) return engineTarget(rule.code);
+    if (key == 'g:?') return -1;
+    final acct = accounts.active() ?? '';
+    final sig = rule.sig(key);
+    final lvl = _levelNow(e) > 0 ? _levelNow(e) : _starLvl;
+    final lk = lvl > 0 ? '$lvl' : 'u:${e.st.statusUrl}';
+    final seq = _seqFor(acct);
+    final cur = Map<String, dynamic>.from((seq[sig] as Map?) ?? const {});
+    final lv = Map<String, dynamic>.from((cur['lv'] as Map?) ?? const {});
+    var idx = (lv[lk] as num?)?.toInt();
+    if (idx == null) {
+      if (!assign) return -1;
+      idx = ((cur['n'] as num?) ?? 0).toInt();
+      lv[lk] = idx;
+      seq[sig] = {'n': idx + 1, 'lv': lv};
+      _saveSeq(acct, seq);
+      final code = rule.at(idx, '$acct|$sig');
+      final siapa = gameKinds.contains(kind) ? '${gameNames[kind]!.toLowerCase()} ke-${idx + 1}' : 'level berbintang ke-${idx + 1}';
+      _log('[Bintang] ${lvl > 0 ? 'level $lvl' : 'level ini'}: ${rule.label}, $siapa -> '
+          'target ${codeLabel(code)}');
+    }
+    final code = rule.at(idx, '$acct|$sig');
+    if (assign || lvl > 0) {
+      _set('plan', {
+        'cur': {'level': lvl, 'code': code, 'kind': kind}
+      });
+    }
+    return engineTarget(code);
   }
 
   int _levelNow(Engine e) {

@@ -9,6 +9,8 @@ import '../state/store.dart';
 import '../theme/theme.dart';
 import 'menus.dart';
 import 'plan.dart';
+import 'plan_editor.dart';
+import 'rule_editor.dart';
 import 'web_area.dart';
 import 'widgets/common.dart';
 import 'widgets/logo.dart';
@@ -39,6 +41,8 @@ class Shell extends StatelessWidget {
                     // panel Rencana menimpa halaman (tidak mendorongnya):
                     // halaman dilubangi di kotak panel (WebHole)
                     _PlanDrawer(),
+                    // lembar editor rencana, di samping panel
+                    _EditorSlot(),
                   ]),
                 ),
               ]),
@@ -111,6 +115,33 @@ class _PlanDrawerState extends State<_PlanDrawer>
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Tempat lembar editor: kanan panel Rencana, lebar maks 680. Jendela
+/// sempit = menimpa panel juga.
+class _EditorSlot extends StatelessWidget {
+  const _EditorSlot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: LayoutBuilder(builder: (_, box) {
+        const kiriPanel = 12 + _PlanDrawerState.lebar + 8;
+        final muat = box.maxWidth - kiriPanel - 12 >= 400;
+        final left = muat ? kiriPanel : 12.0;
+        final w = (box.maxWidth - left - 12).clamp(0.0, 680.0);
+        return Stack(children: [
+          Positioned(
+            left: left,
+            top: 0,
+            bottom: 12,
+            width: w,
+            child: const PlanEditorSheet(),
+          ),
+        ]);
+      }),
     );
   }
 }
@@ -346,24 +377,35 @@ class _Capsule extends StatelessWidget {
               if (seg != null)
                 Padding(
                   padding: const EdgeInsets.only(left: 8),
-                  child: StarRow(seg.stars, silver: seg.silver, size: 13),
+                  child: _PlanTarget(seg),
                 ),
             ]),
           )
-        : Row(mainAxisSize: MainAxisSize.min, children: [
-            mode(Icons.tune_rounded, 'Bebas'),
-            Padding(
-              padding: const EdgeInsets.only(left: 2),
-              child: Tip(
-                message: 'Bisa diubah kapan saja, berlaku mulai level berikutnya',
-                child: StarPicker(
-                  stars: s.freeStars,
-                  silver: s.freeSilver,
-                  onChanged: s.setFreeStars,
+        : s.freeManual
+            ? Row(mainAxisSize: MainAxisSize.min, children: [
+                mode(Icons.bolt_rounded, 'Manual'),
+                const Padding(
+                  padding: EdgeInsets.only(left: 2),
+                  child: _GuessChip(),
                 ),
-              ),
-            ),
-          ]);
+                if (s.anyGameRule) const _GameRuleMark(),
+              ])
+            : Row(mainAxisSize: MainAxisSize.min, children: [
+                mode(Icons.tune_rounded, 'Bebas'),
+                Padding(
+                  padding: const EdgeInsets.only(left: 2),
+                  child: Tip(
+                    message: 'Bisa diubah kapan saja, berlaku mulai level berikutnya',
+                    child: StarPicker(
+                      stars: s.freeStars,
+                      silver: s.freeSilver,
+                      onChanged: s.setFreeStars,
+                      onManual: () => s.setFreeMode(true),
+                    ),
+                  ),
+                ),
+                if (s.anyGameRule) const _GameRuleMark(),
+              ]);
 
     return Container(
       height: 40,
@@ -405,6 +447,110 @@ class _Capsule extends StatelessWidget {
           ),
         ),
       ]),
+    );
+  }
+}
+
+/// Kapsul saat rencana jalan: target level ini. Pola/acak: target yang
+/// sudah ditentukan untuk level ini, kalau belum = ringkasan aturannya.
+class _PlanTarget extends StatelessWidget {
+  const _PlanTarget(this.seg);
+  final Segment seg;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final c = Theme.of(context).colorScheme;
+    final cur = s.curTarget;
+    final kini = cur != null && cur['level'] == s.levelNum && s.levelNum > 0;
+    if (!kini) {
+      return seg.rule.variable
+          ? RuleSummary(seg.rule, size: 13)
+          : StarRow(seg.stars, silver: seg.silver, size: 13);
+    }
+    final code = (cur['code'] as num).toInt();
+    final game = gameKinds.contains(cur['kind']);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      if (game || seg.rule.variable)
+        Padding(
+          padding: const EdgeInsets.only(right: 4),
+          child: Icon(
+              game
+                  ? Icons.sports_esports_rounded
+                  : seg.rule.type == 'pattern'
+                      ? Icons.repeat_rounded
+                      : Icons.shuffle_rounded,
+              size: 13,
+              color: c.onSurfaceVariant),
+        ),
+      StarRow(starsOfCode(code), silver: silverOfCode(code), size: 13),
+    ]);
+  }
+}
+
+/// Tanda kecil di kapsul: ada aturan khusus game (tanpa rencana).
+class _GameRuleMark extends StatelessWidget {
+  const _GameRuleMark();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final c = Theme.of(context).colorScheme;
+    final isi = [
+      for (final k in gameKinds)
+        if (!s.gameRule(k).follow) '${gameNames[k]}: ${s.gameRule(k).label}',
+    ].join(', ');
+    return Tip(
+      message: 'Aturan khusus game aktif. $isi',
+      child: Padding(
+        padding: const EdgeInsets.only(left: 4),
+        child: Icon(Icons.sports_esports_rounded, size: 14, color: c.onSurfaceVariant),
+      ),
+    );
+  }
+}
+
+/// Mode Manual di kapsul: perkiraan bintang level ini (redup = hasil,
+/// bukan pilihan). Klik = panel kecepatan & akurasi.
+class _GuessChip extends StatelessWidget {
+  const _GuessChip();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final t = Theme.of(context).textTheme;
+    final c = Theme.of(context).colorScheme;
+    final g = s.guess;
+    return Popover(
+      alignRight: false,
+      width: 300,
+      trigger: (_, toggle, open) => Tip(
+        message: g == null
+            ? 'Perkiraan bintang dari kecepatan & akurasimu, muncul saat level dibuka'
+            : 'Perkiraan bintang level ini dari kecepatan & akurasimu',
+        child: Material(
+          color: open ? c.surfaceContainerHighest : Colors.transparent,
+          borderRadius: BorderRadius.circular(Radii.sm),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(Radii.sm),
+            hoverColor: c.surfaceContainerHighest,
+            onTap: toggle,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(g == null ? '? ' : '≈ ',
+                    style: t.labelMedium!.copyWith(color: c.onSurfaceVariant)),
+                Opacity(
+                  opacity: 0.75,
+                  child: StarRow((g?['stars'] as num?)?.toInt() ?? 0,
+                      silver: g?['silver'] == true, size: 13),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
+      content: (_, close) => const SpeedPanel(),
     );
   }
 }

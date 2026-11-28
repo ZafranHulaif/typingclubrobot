@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart' show TextField;
 import 'package:typingbot/main.dart';
 import 'package:typingbot/src/native/accounts.dart';
 import 'package:typingbot/src/native/native_backend.dart';
@@ -82,6 +83,34 @@ void main() {
     expect([for (final g in store.segments) '${g.from}-${g.to}'],
         ['51-200', '201-400', '401-600']);
     expect(find.text('tidak tersambung'), findsNothing);
+
+    // lembar editor: bagian 51-200 jadi pola 2,4,4,3,4 (diketik)
+    await t.tap(find.text('51–200'));
+    await _settle(t);
+    expect(find.text('Ubah bagian 51–200'), findsOneWidget);
+    await t.tap(find.text('Pola'));
+    await _settle(t);
+    await t.enterText(find.widgetWithText(TextField, 'Atau ketik polanya'), '2,4,4,3,4');
+    await _settle(t);
+    expect(find.text('Urutannya nanti'), findsOneWidget);
+    await t.tap(find.text('Simpan'));
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await _settle(t);
+    expect(store.segments.first.rule.type, 'pattern');
+    expect(store.segments.first.rule.pattern, [2, 4, 4, 3, 4]);
+    expect(find.text('Ubah bagian 51–200'), findsNothing);
+
+    // aturan khusus game: balon selalu 3 bintang
+    await t.tap(find.text('Aturan khusus game'));
+    await _settle(t);
+    await t.tap(find.text('Tetap').first);
+    await _settle(t);
+    await t.tap(find.text('Simpan'));
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await _settle(t);
+    expect(store.gameRule('balloon').type, 'fixed');
+    expect(store.gameRule('monster').follow, isTrue);
+    expect(store.anyGameRule, isTrue);
 
     // tutup panel: lubang hilang
     await t.tap(find.text('Rencana').first);

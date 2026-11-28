@@ -522,6 +522,54 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
 - Same run's `[mem]`: GPU process 0.8-1.2 GB private, renderers 2x 0.65-1.3 GB (private bytes, higher
   than Task Manager's private working set).
 
+### 4.0.9: release (Windows + first Mac release, to test the Mac update flow)
+- 4.0.8 fixes plus the Mac build; the Mac updater reads GitHub releases (TypingBot-mac.zip).
+
+### 4.1.0: Manual mode (speed + accuracy, stars = estimate)
+- Owner idea: two modes for runs without a plan. **Bintang** (as before: pick stars, speed and accuracy
+  automatic; platinum is now locked at max speed, 400 wpm) and **Manual** (speed dial + new accuracy dial
+  85-100%, stars locked and shown as an estimate for the level being typed).
+- Engine (lessons/stars.dart): `planManual` is planStars inverted (same edclub formula, stars computed
+  instead of chosen). Below a level's min_wpm / min_accuracy (0 stars = level not passed, bot stuck on
+  Try again) it raises to the minimum + the planStars margin, logs it, and the UI says so. Block-mode
+  lessons and lessons < 25 chars stay 100%. 100% without a raise = old typing path at the dial speed
+  (exactly the old platinum behaviour). Games: `planManualGame` for the live-tested games (balloon,
+  monster) in block mode: speed clamped to [1.25x goal, 150], accuracy = real accuracy via gameMiss;
+  100% at >= 150 wpm and untested games = typed as before.
+- `EngineState.lessonGoal` holds the current lesson's goal data (reset on level change); the backend
+  recomputes `speed.guess` from it on every tick, so moving the sliders updates the estimate live.
+- Settings: `free.mode` ('stars' | 'manual'), `acc`. Migration: no `free.mode` + platinum + speed < 400
+  = Manual 100% (same behaviour as before); everything else = Bintang mode.
+- Plans stay star-only; while a plan runs the dial is locked and the engine types at 400.
+- UI: speed button = `140 wpm · 95%` in Manual, lock + "Atur sendiri" in Bintang mode; capsule shows
+  `Manual ≈ ★★★★☆` (click = same panel); star picker has "Atur kecepatan & akurasi sendiri".
+  Screens: docs/preview/manual-mode.png, docs/preview/star-picker.png.
+- Not yet: remembering goals of visited levels so the Rencana editor can show estimates ahead.
+
+### 4.1.0: Rencana star rules (idea from a user: "2,4,4,3,4", balloon games always 3 stars)
+- Each plan part has a rule (state/star_rule.dart, shared by backend + UI): **Tetap** (one target),
+  **Pola** (sequence repeated, e.g. 2,4,4,3,4; p = platinum) or **Acak** (random in a range, platinum
+  allowed). Target code 1-5, 6 = platinum. Old `{stars, silver}` parts load as Tetap and the JSON still
+  carries stars/silver.
+- **Aturan khusus game** (settings `game_rules`, one for all accounts): balloon / monster game =
+  Ikut bagian | Tetap | Pola | Acak. Applies in every mode (free, plan, Manual) and wins over the part.
+  Only these two games can be steered (live-tested); other games stay full speed.
+- Patterns follow the order of **scorable** levels, not level numbers: the engine asks
+  `starTarget(kind, assign: true)` only once the level is known to be scored and steerable (lesson goal
+  read, not objc/test; game data read, tested game in block mode). Videos, tutorials, test levels and
+  untested games never take a slot. Peeks (`assign: false`, UI / hold logic) return -1 for an
+  unassigned pattern/random level.
+- Assignments per account: settings `star_seq` {account: {rule sig: {n, lv: {level: slot}}}}. A retried or
+  reopened level keeps its slot. The sig = key (`p<from>` / `g:balloon`) + rule, so changing a rule starts
+  the sequence fresh (old sigs pruned on plan.set / games.set). Random = stable hash of
+  `account|sig#slot` (differs per account, same on every device, previewable). bot.log:
+  `[Bintang] level 42: pola 2,4,4,3,4, level berbintang ke-3 -> target 4`.
+- UI: tiles show the rule (repeat icon + sequence, shuffle icon + range); editing opens a wide sheet next
+  to the Rencana panel (plan_editor.dart, Esc closes) with the rule editor (rule_editor.dart: chips + typed
+  pattern, range pickers, preview of the next 12 targets continuing from the used slots). Capsule shows the
+  current level's target while a plan runs, and a game icon when game rules are on.
+  Screens: docs/preview/plan-panel.png, plan-pattern.png, plan-games.png.
+
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.
 1. **N1 page**: app opens, edclub shows with no white flash, Google login works inside the app,

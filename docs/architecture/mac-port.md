@@ -27,6 +27,12 @@ The owner has no Mac; the next real-world check is a friend's Mac.
 - macOS 12-13: one nonPersistent store per account; the edclub session comes back from tb_sesi.json
   (live-tested with TB_LEGACY_STORE=1). Google/Cloudflare cookies are lost when the app quits there.
 
+## 4.1.0 merge (2026-11-28)
+v4 merged: Manual mode (speed + accuracy, stars = estimate) and Rencana star rules (Tetap/Pola/Acak,
+balloon/monster game rules, wide editor sheet). Pure Dart/Flutter, nothing Mac-specific. The editor sheet
+is a WebHole like the Rencana panel, so on Mac it relies on the same `TBWebView.holeRects` pass-through.
+Not run live on a Mac yet.
+
 ## Approach
 - The Flutter UI, the Dart bot engine and the license/account code are shared with Windows.
 - Windows hosts the edclub page in WebView2 and drives it over CDP. WKWebView has no CDP, so:

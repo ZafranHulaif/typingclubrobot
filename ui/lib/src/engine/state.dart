@@ -81,6 +81,9 @@ class EngineState {
   double paceWpm = 0;
   /// [Video] hiasan terakhir yang dilaporkan (log sekali saja).
   String videoIgnored = '';
+  /// target lesson sekarang utk perkiraan bintang mode Manual (lihat
+  /// lessons/stars.dart guessManual); null = belum terbaca di level ini
+  Map<String, dynamic>? lessonGoal;
   double proWaitSince = 0;
 
   // ---- pop-up

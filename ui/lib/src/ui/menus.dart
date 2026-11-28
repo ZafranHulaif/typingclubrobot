@@ -127,9 +127,9 @@ class SpeedButton extends StatelessWidget {
     final s = StoreScope.of(context);
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
-    final kunci = s.autoStars > 0;
+    final kunci = s.speedLocked;
     final label = !kunci
-        ? '${s.wpm} wpm'
+        ? '${s.wpm} wpm · ${s.acc}%'
         : s.autoWpm > 0
             ? '${s.autoWpm} wpm'
             : 'Otomatis';
@@ -139,7 +139,7 @@ class SpeedButton extends StatelessWidget {
       trigger: (_, toggle, open) => BarButton(
         onTap: toggle,
         selected: open,
-        tooltip: kunci ? 'Kecepatan diatur otomatis' : 'Kecepatan mengetik',
+        tooltip: kunci ? 'Kecepatan diatur otomatis' : 'Kecepatan & akurasi',
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Icon(kunci ? Icons.lock_rounded : Icons.bolt_rounded,
               size: kunci ? 16 : null),
@@ -150,22 +150,32 @@ class SpeedButton extends StatelessWidget {
                   fontFeatures: const [FontFeature.tabularFigures()])),
         ]),
       ),
-      content: (_, close) => kunci ? _SpeedLocked(s.autoStars) : const _SpeedPanel(),
+      content: (_, close) => kunci ? const _SpeedLocked() : const SpeedPanel(),
     );
   }
 }
 
-/// Target bintang selain 5 perak: kecepatan tidak bisa diubah.
+/// Mode bintang (atau rencana jalan): kecepatan & akurasi otomatis.
 class _SpeedLocked extends StatelessWidget {
-  const _SpeedLocked(this.stars);
-  final int stars;
+  const _SpeedLocked();
 
   @override
   Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
+    final String isi;
+    if (s.planRunning) {
+      isi = 'Rencana sedang jalan, kecepatan & akurasi ikut target bintang '
+          'tiap bagian.';
+    } else if (s.autoStars == 0) {
+      isi = 'Target bintang 5 platinum: mengetik secepatnya tanpa salah.';
+    } else {
+      isi = 'Target bintang ${s.autoStars}. Kecepatan & akurasi menyesuaikan '
+          'tiap level, sebagian salah ketik memang disengaja supaya bintangnya pas.';
+    }
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Icon(Icons.lock_rounded, size: 18, color: c.primary),
@@ -173,25 +183,40 @@ class _SpeedLocked extends StatelessWidget {
           Text('Kecepatan otomatis', style: t.titleSmall),
         ]),
         const SizedBox(height: 10),
-        Text('Target bintang $stars. Kecepatan menyesuaikan tiap level, '
-            'dan sebagian salah ketik memang disengaja supaya bintangnya pas.',
-            style: t.bodyMedium!.copyWith(color: c.onSurfaceVariant)),
-        const SizedBox(height: 8),
-        Text('Pilih bintang 5 platinum untuk mengatur kecepatan sendiri.',
-            style: t.bodySmall!.copyWith(color: c.onSurfaceVariant)),
+        Text(isi, style: t.bodyMedium!.copyWith(color: c.onSurfaceVariant)),
+        if (!s.planRunning) ...[
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Press(
+              child: OutlinedButton.icon(
+                onPressed: () => s.setFreeMode(true),
+                icon: const Icon(Icons.tune_rounded, size: 18),
+                label: const Text('Atur sendiri'),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text('Pilih kecepatan & akurasi sendiri, bintangnya diperkirakan tiap level.',
+              style: t.bodySmall!.copyWith(color: c.onSurfaceVariant)),
+        ],
       ]),
     );
   }
 }
 
-class _SpeedPanel extends StatefulWidget {
-  const _SpeedPanel();
+/// Mode Manual: dial kecepatan + akurasi, perkiraan bintang level ini.
+class SpeedPanel extends StatefulWidget {
+  const SpeedPanel({super.key});
   @override
-  State<_SpeedPanel> createState() => _SpeedPanelState();
+  State<SpeedPanel> createState() => _SpeedPanelState();
 }
 
-class _SpeedPanelState extends State<_SpeedPanel> {
+class _SpeedPanelState extends State<SpeedPanel> {
   int? _drag;
+  int? _accDrag;
+
+  static const _accMin = 85;
 
   @override
   Widget build(BuildContext context) {
@@ -202,16 +227,25 @@ class _SpeedPanelState extends State<_SpeedPanel> {
     var idx = tiers.indexOf(s.wpm);
     if (idx < 0) idx = tiers.length - 1;
     final i = _drag ?? idx;
+    final acc = _accDrag ?? s.acc.clamp(_accMin, 100);
+    final angka = t.displaySmall!
+        .copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
+    final satuan = t.bodyMedium!.copyWith(color: c.onSurfaceVariant);
+    final slider = SliderTheme.of(context).copyWith(
+      trackHeight: 4,
+      tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 1.5),
+      activeTickMarkColor: c.onPrimary.withValues(alpha: 0.5),
+      inactiveTickMarkColor: c.outline,
+      showValueIndicator: ShowValueIndicator.never,
+    );
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 16, 10, 8),
+      padding: const EdgeInsets.fromLTRB(18, 16, 10, 12),
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic, children: [
-          Text('${tiers[i]}',
-              style: t.displaySmall!
-                  .copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+          Text('${tiers[i]}', style: angka),
           const SizedBox(width: 6),
-          Text('wpm', style: t.bodyMedium!.copyWith(color: c.onSurfaceVariant)),
+          Text('wpm', style: satuan),
           const Spacer(),
           Padding(
             padding: const EdgeInsets.only(right: 8),
@@ -220,13 +254,7 @@ class _SpeedPanelState extends State<_SpeedPanel> {
           ),
         ]),
         SliderTheme(
-          data: SliderTheme.of(context).copyWith(
-            trackHeight: 4,
-            tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 1.5),
-            activeTickMarkColor: c.onPrimary.withValues(alpha: 0.5),
-            inactiveTickMarkColor: c.outline,
-            showValueIndicator: ShowValueIndicator.never,
-          ),
+          data: slider,
           child: Slider(
             value: i.toDouble(),
             max: (tiers.length - 1).toDouble(),
@@ -241,8 +269,95 @@ class _SpeedPanelState extends State<_SpeedPanel> {
             },
           ),
         ),
+        const SizedBox(height: 4),
+        Row(crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic, children: [
+          Text('$acc', style: angka),
+          const SizedBox(width: 4),
+          Text('% akurasi', style: satuan),
+          const Spacer(),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Text(acc == 100 ? 'tanpa salah' : 'ada salah ketik',
+                style: t.labelLarge!.copyWith(color: c.primary)),
+          ),
+        ]),
+        SliderTheme(
+          data: slider.copyWith(tickMarkShape: SliderTickMarkShape.noTickMark),
+          child: Slider(
+            value: acc.toDouble(),
+            min: _accMin.toDouble(),
+            max: 100,
+            divisions: 100 - _accMin,
+            onChanged: (v) {
+              setState(() => _accDrag = v.round());
+              s.call('speed.set', {'acc': v.round(), 'save': false});
+            },
+            onChangeEnd: (v) {
+              s.call('speed.set', {'acc': v.round(), 'save': true});
+              setState(() => _accDrag = null);
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(right: 8, top: 2),
+          child: GuessLine(s),
+        ),
+        const SizedBox(height: 8),
+        Press(
+          child: TextButton.icon(
+            style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                visualDensity: VisualDensity.compact),
+            onPressed: s.planRunning ? null : () => s.setFreeMode(false),
+            icon: const Icon(Icons.star_rounded, size: 18),
+            label: const Text('Pakai target bintang'),
+          ),
+        ),
       ]),
     );
+  }
+}
+
+/// Satu baris perkiraan bintang mode Manual (panel kecepatan & kapsul).
+class GuessLine extends StatelessWidget {
+  const GuessLine(this.s, {super.key});
+  final AppStore s;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final c = Theme.of(context).colorScheme;
+    final g = s.guess;
+    final redup = t.bodySmall!.copyWith(color: c.onSurfaceVariant);
+    final lvl = s.guessLevel > 0 ? 'Level ${s.guessLevel}' : 'Level ini';
+    final note = s.guessNote;
+    if (g == null) {
+      return Text(
+          note.isNotEmpty
+              ? '$lvl: $note.'
+              : 'Perkiraan bintang muncul saat bot membuka level.',
+          style: redup);
+    }
+    final n = (g['stars'] as num?)?.toInt() ?? 0;
+    final sv = g['silver'] == true;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Text('$lvl  ≈ ', style: t.bodyMedium),
+        StarRow(n, silver: sv, size: 15),
+        const SizedBox(width: 6),
+        Text(sv ? 'platinum' : '$n bintang',
+            style: t.labelMedium!.copyWith(color: sv ? silverStar : c.onSurfaceVariant)),
+      ]),
+      if (note.isNotEmpty) ...[
+        const SizedBox(height: 2),
+        Text(note, style: redup),
+      ],
+      if (s.phase == 'running') ...[
+        const SizedBox(height: 2),
+        Text('Perubahan berlaku penuh mulai level berikutnya.', style: redup),
+      ],
+    ]);
   }
 }
 
