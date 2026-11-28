@@ -95,6 +95,14 @@ void main() {
     await t.enterText(find.byType(TextField).last, '2,4,4,3,4');
     await _settle(t);
     expect(find.text('Belum disimpan'), findsOneWidget);
+    // rentang tak sengaja dipendekkan jadi 2 level: pola tinggal 2 target,
+    // sisanya disembunyikan (bukan dihapus); dipanjangkan = kembali utuh
+    await t.enterText(find.byType(TextField).at(1), '52');
+    await _settle(t);
+    expect(find.text('+3'), findsOneWidget);
+    await t.enterText(find.byType(TextField).at(1), '200');
+    await _settle(t);
+    expect(find.text('+3'), findsNothing);
     // peta level mulai dari level awal bagian
     expect(find.text('51'), findsWidgets);
     expect(find.textContaining('level lagi'), findsOneWidget);

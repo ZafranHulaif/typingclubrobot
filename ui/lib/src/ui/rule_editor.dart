@@ -1,6 +1,8 @@
 // Editor aturan target bintang (bagian rencana & aturan khusus game):
 // tetap / pola / acak. Semua pilihan bintang memakai satu skala yang
 // sama: 1 bintang di kiri, platinum di kanan.
+import 'dart:math' as math;
+
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -325,11 +327,17 @@ class RuleEditor extends StatefulWidget {
     required this.onChanged,
     this.allowFollow = false,
     this.enabled = true,
+    this.maxPattern,
   });
   final StarRule rule;
   final ValueChanged<StarRule> onChanged;
   final bool allowFollow;
   final bool enabled;
+
+  /// panjang pola yang terpakai (= jumlah level bagian). Sisanya tetap
+  /// disimpan di draf (tidak hilang kalau rentang tak sengaja dipendekkan),
+  /// hanya disembunyikan. null = tanpa batas (sampai habis / game).
+  final int? maxPattern;
 
   @override
   State<RuleEditor> createState() => _RuleEditorState();
@@ -428,17 +436,20 @@ class _RuleEditorState extends State<RuleEditor> {
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
     final p = r.pattern;
+    final batas = math.min(widget.maxPattern ?? maxPatternLen, maxPatternLen);
+    final tampil = math.min(p.length, batas);
+    final sembunyi = p.length - tampil;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Wrap(spacing: 6, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-        for (final (i, code) in p.indexed)
+        for (var i = 0; i < tampil; i++)
           CodePicker(
             key: ValueKey('pola$i'),
-            code: code,
+            code: p[i],
             index: i + 1,
             onChanged: (v) => _pola([...p]..[i] = v),
-            onRemove: p.length > 1 ? () => _pola([...p]..removeAt(i)) : null,
+            onRemove: tampil > 1 ? () => _pola([...p]..removeAt(i)) : null,
           ),
-        if (p.length < maxPatternLen)
+        if (p.length < batas)
           Tip(
             message: 'Tambah target',
             child: SizedBox(
@@ -454,6 +465,13 @@ class _RuleEditorState extends State<RuleEditor> {
                 child: const Icon(Icons.add_rounded, size: 18),
               ),
             ),
+          ),
+        if (sembunyi > 0)
+          Tip(
+            message: 'Rentang levelnya cuma $batas. $sembunyi target sisanya muncul lagi '
+                'kalau rentangnya dipanjangkan (tidak ikut tersimpan).',
+            child: Text('+$sembunyi',
+                style: t.labelMedium!.copyWith(color: c.outline)),
           ),
       ]),
       const SizedBox(height: 12),
