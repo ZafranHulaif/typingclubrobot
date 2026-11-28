@@ -122,10 +122,33 @@ void main() {
             if (miss) g.key('x', dt * 0.4);
             g.key('a', miss ? dt * 0.6 : dt);
           }
-          expect(g.stars, s, reason: 'goal $goal n $n target $s -> rasio ${g.ratio}');
+          // target terlalu rendah utk kecepatan minimum game: naik ke
+          // bintang terendah yang terjangkau (p.stars)
+          expect(p.stars, greaterThanOrEqualTo(s));
+          expect(g.stars, p.stars, reason: 'goal $goal n $n target $s -> rasio ${g.ratio}');
         }
       }
     }
+  });
+
+  test('planGame: kecepatan minimum game, target terlalu rendah dinaikkan, coba lagi lebih cepat', () {
+    for (final goal in [5, 8, 10, 20, 40]) {
+      for (var s = 1; s <= 5; s++) {
+        final p = planGame(s, goal: goal)!;
+        expect(p.wpm, greaterThanOrEqualTo(gameMinWpm));
+        // salah disengaja tidak pernah lebih dari batas aman
+        expect(p.realTarget, greaterThanOrEqualTo(gameRealAccMin - 1e-9),
+            reason: 'goal $goal target $s -> ${p.stars}');
+        if (p.stars != s) expect(p.stars, greaterThan(s));
+      }
+    }
+    // goal 10: 3 bintang masih terjangkau di 22 wpm, 1 bintang tidak
+    expect(planGame(3, goal: 10)!.stars, 3);
+    expect(planGame(1, goal: 10)!.stars, greaterThan(1));
+    // goal tinggi: tidak ada yang dinaikkan
+    expect(planGame(1, goal: 40)!.stars, 1);
+    // coba lagi sesudah gagal: lebih cepat
+    expect(planGame(3, goal: 10, faster: 1.5)!.wpm, greaterThanOrEqualTo(33));
   });
 
   Future<(FakeGame, List<String>)> mainGame(FakeGame game, int target) async {
@@ -149,8 +172,11 @@ void main() {
     final text = List.filled(12, 'asdfj').join();
     for (var s = 1; s <= 5; s++) {
       final (g, logs) = await mainGame(FakeGame(text, goal: 10), s);
+      final rencana = planGame(s, goal: 10)!.stars;
       expect(g.ended, isTrue);
-      expect(g.stars, s, reason: 'target $s -> rasio ${g.ratio} wpm ${g.wpm} real ${g.realAccuracy}');
+      expect(g.stars, rencana, reason: 'target $s -> rasio ${g.ratio} wpm ${g.wpm} real ${g.realAccuracy}');
+      // kecepatan minimum game (balon tidak lepas)
+      expect(g.wpm, greaterThanOrEqualTo(gameMinWpm - 1));
       // tidak pernah lebih pelan dari goal (jeda goal 10 wpm = 1200 ms):
       // balon tidak sempat jatuh
       expect(g.maxGap, lessThan(1200), reason: 'target $s');
@@ -158,7 +184,7 @@ void main() {
       // jeda nyata: tidak ada rentetan kilat (game kalah di > 250 wpm)
       expect(g.minDelay, greaterThan(100));
       expect(logs.any((x) => x.contains('[Bintang] game BalloonValley target $s')), isTrue);
-      expect(logs.any((x) => x.contains('[Bintang] game selesai') && x.contains('= $s bintang')),
+      expect(logs.any((x) => x.contains('[Bintang] game selesai') && x.contains('= $rencana bintang')),
           isTrue,
           reason: logs.where((x) => x.contains('[Bintang]')).join('\n'));
     }
@@ -171,7 +197,7 @@ void main() {
           FakeGame(text, app: 'typing.games.MonsterAttack', goal: 10, endAfter: 70, spaceStart: true), s);
       expect(g.ended, isTrue);
       expect(g.valids, 70);
-      expect(g.stars, s, reason: 'target $s -> rasio ${g.ratio}');
+      expect(g.stars, planGame(s, goal: 10)!.stars, reason: 'target $s -> rasio ${g.ratio}');
       // huruf2 pertama setelah spasi tidak tersambar rantai cepat
       expect(g.minDelay, greaterThan(100));
     }

@@ -171,6 +171,31 @@ extension BalloonLesson on Engine {
           }
         }
       }
+      // layar akhir yang hanya bisa SPASI / 'Move On' di kanvas = game
+      // GAGAL (nyawa habis, 'Type SPACE to try again'). Game yang lulus
+      // selalu punya tombol maju biasa. Dulu bot menunggu di sini
+      // selamanya (laporan 28 Nov): spasi = coba lagi, lebih cepat.
+      if (now - st.balloonEndT > 20 && _gameRetryT != st.balloonEndT) {
+        _gameRetryT = st.balloonEndT;
+        final url = page.url;
+        final n = (_gameFails[url] ?? 0) + 1;
+        _gameFails[url] = n;
+        final nyawa = await runJs(nyawaJs, fr);
+        log('[Minigame/Balloon] layar akhir tanpa tombol maju 20 dtk: game gagal - spasi '
+            'untuk coba lagi (gagal ke-$n, berikutnya '
+            '${n >= 2 ? 'secepatnya' : 'lebih cepat'})'
+            '${nyawa is Map && nyawa.isNotEmpty ? ', nyawa $nyawa' : ''}');
+        // rencana ulang di percobaan berikutnya
+        _gamePaceUrl = '';
+        try {
+          await focusFrame(fr);
+          await markBotClick();
+          await page.keyboard.press('Space');
+        } catch (_) {}
+        st.lastActionTime = now;
+        st.balloonEndT = 0;
+        return true;
+      }
       if (now - st.balloonEndT > 25) {
         var klik2 = await runJs(cariUlangJs);
         if (!_truthy(klik2)) klik2 = await runJs(cariUlangJs, fr);
