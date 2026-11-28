@@ -33,6 +33,50 @@ void main() {
     }
   });
 
+  test('planStars acak: tetap di pita bintangnya, tapi tiap lesson beda', () {
+    final rnd = Random(3);
+    for (final goal in [10, 15, 20, 30, 45, 60, 75]) {
+      for (final chars in [40, 100, 300]) {
+        for (var s = 1; s <= 5; s++) {
+          final wpm = <int>{};
+          for (var rep = 0; rep < 30; rep++) {
+            final p = planStars(s, goal: goal, minWpm: 3, minAcc: 80, chars: chars, rnd: rnd)!;
+            final r = _rasio(chars, p.errors, p.wpm, goal);
+            expect(_bintang(r), s, reason: 'goal $goal chars $chars target $s -> rasio $r');
+            expect(p.accuracy, greaterThanOrEqualTo(85));
+            wpm.add(p.wpm.round());
+          }
+          if (goal >= 30) expect(wpm.length, greaterThan(2), reason: 'goal $goal target $s: $wpm');
+        }
+      }
+    }
+  });
+
+  test('platinum santai: tanpa salah, rasio penuh, jauh di bawah secepatnya', () {
+    final rnd = Random(5);
+    for (final goal in [10, 20, 40, 75]) {
+      for (var rep = 0; rep < 20; rep++) {
+        final p = planPlatinum(goal: goal, minWpm: 3, chars: 200, rnd: rnd)!;
+        expect(p.errors, 0);
+        expect(_rasio(200, 0, p.wpm, goal), 2.0, reason: 'goal $goal wpm ${p.wpm}');
+        expect(p.wpm, lessThanOrEqualTo(max(2.6 * goal, (2 + max(0.1, 1.5 / goal)) * goal)));
+      }
+    }
+    // platinum di atas batas wpm edclub: tidak bisa santai
+    expect(planPlatinum(goal: 110, chars: 200, rnd: rnd), isNull);
+  });
+
+  test('jadwal per frasa: kecepatan naik-turun, total waktu tetap', () {
+    final j = phraseSchedule(300, Random(9));
+    expect(j.length, 301);
+    expect(j.last, closeTo(300, 1e-6));
+    final laju = {for (var i = 1; i < j.length; i++) ((j[i] - j[i - 1]) * 100).round()};
+    expect(laju.length, greaterThan(3));
+    for (final x in laju) {
+      expect(x, inInclusiveRange(70, 135));
+    }
+  });
+
   test('salah ketik tersebar rata, tidak pernah menggerombol', () {
     final rnd = Random(7);
     for (final (chars, acc) in [(400, 85), (148, 85), (441, 90), (320, 95), (60, 85)]) {

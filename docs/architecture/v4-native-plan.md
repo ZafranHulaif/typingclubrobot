@@ -648,6 +648,16 @@ Released 2026-11-28: GitHub v4.1.2 (target v4 a34a943, Mac from mac 791e06b), wo
   `LevelCell.noStar` renders them faint green with a hollow star ("selesai tanpa bintang" in the legend), and
   they no longer take a pattern / random turn in `levelMap`. The list label's lesson title is stored as
   `level_done[acct][level].t` and shown in the square's tooltip. Screen: docs/preview/plan-map-nostar.png.
+- Less robotic speed on star targets (owner's friend, 28 Nov): `planStars(rnd:)` picks the ratio at random inside
+  the safe part of the star band (`starBand`, margin max(0.06, 1.2/goal); small goals fall back to the middle)
+  and the accuracy between the safe floor and +10 points (max 98%). `typePaced` follows `phraseSchedule`:
+  phrases of 12-40 keys at +-20% speed, normalised so the lesson average stays the planned wpm (edclub scores
+  only the average). Applies to Manual lessons too. Games keep a flat pace (lives depend on speed).
+- Platinum speed setting (`free.plat` 'fast' | 'relaxed', global for free mode and plans): 'Santai' plans
+  `planPlatinum`: 0 errors at a random 2+margin .. 2.6x (goal+diff) wpm (platinum = ratio 2 at 100%), capped
+  under edclub's 200 wpm count; goals too high for that type at full speed (logged). Switch "Platinum:
+  Secepatnya | Santai" in the mode popover (also while a plan runs); top bar says "santai" until a level
+  sets the pace. Screen: docs/preview/platinum-pace.png.
 
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.

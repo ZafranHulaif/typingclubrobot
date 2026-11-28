@@ -494,9 +494,12 @@ class _ModeControl extends StatelessWidget {
 
     final String laju = manual
         ? '${s.wpm} wpm · ${s.acc}%'
-        : s.autoWpm > 0
-            ? '${s.autoWpm} wpm'
-            : 'otomatis';
+        // platinum santai belum mengetik: kecepatannya baru tahu dari level
+        : s.autoWpm >= 400 && s.platinumRelaxed
+            ? 'santai'
+            : s.autoWpm > 0
+                ? '${s.autoWpm} wpm'
+                : 'otomatis';
 
     return Popover(
       alignRight: false,
@@ -576,6 +579,8 @@ class _ModePanel extends StatelessWidget {
           const SizedBox(height: 8),
           Text('Target & kecepatan ikut bagian rencana. Stop dulu untuk pakai Manual.',
               style: redup),
+          const SizedBox(height: 12),
+          const _PlatinumPace(),
         ]),
       );
     }
@@ -613,13 +618,49 @@ class _ModePanel extends StatelessWidget {
                     Expanded(
                       child: Text(
                           s.freeSilver
-                              ? 'Platinum: secepatnya tanpa salah.'
-                              : 'Kecepatan & akurasi menyesuaikan tiap level supaya bintangnya pas.',
+                              ? (s.platinumRelaxed
+                                  ? 'Platinum: tanpa salah, sedikit di atas kecepatan minimalnya.'
+                                  : 'Platinum: secepatnya tanpa salah.')
+                              : 'Kecepatan naik-turun tiap frasa, rata-ratanya pas untuk bintangnya.',
                           style: redup),
                     ),
                   ]),
+                  const SizedBox(height: 12),
+                  const _PlatinumPace(),
                 ]),
               ),
+      ),
+    ]);
+  }
+}
+
+/// Kecepatan target platinum (bebas & rencana): secepatnya / santai.
+class _PlatinumPace extends StatelessWidget {
+  const _PlatinumPace();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final t = Theme.of(context).textTheme;
+    final c = Theme.of(context).colorScheme;
+    return Row(children: [
+      Icon(Icons.workspace_premium_rounded, size: 16, color: c.onSurfaceVariant),
+      const SizedBox(width: 6),
+      Text('Platinum', style: t.labelLarge),
+      const Spacer(),
+      Tip(
+        message: 'Santai: tetap tanpa salah, tapi cuma sedikit di atas kecepatan '
+            'minimal platinum level itu, naik-turun tiap frasa.',
+        child: SegmentedButton<bool>(
+          showSelectedIcon: false,
+          style: const ButtonStyle(visualDensity: VisualDensity.compact),
+          segments: const [
+            ButtonSegment(value: false, label: Text('Secepatnya')),
+            ButtonSegment(value: true, label: Text('Santai')),
+          ],
+          selected: {s.platinumRelaxed},
+          onSelectionChanged: (v) => s.setPlatinumRelaxed(v.first),
+        ),
       ),
     ]);
   }

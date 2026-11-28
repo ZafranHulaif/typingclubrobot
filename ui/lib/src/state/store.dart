@@ -123,6 +123,10 @@ class AppStore extends ChangeNotifier {
   /// mode tanpa rencana: 'stars' (pilih bintang) / 'manual' (atur
   /// kecepatan & akurasi sendiri, bintang = perkiraan)
   bool get freeManual => free['mode'] == 'manual';
+
+  /// target platinum: tanpa salah tapi santai (sedikit di atas kecepatan
+  /// minimal platinum), bukan secepatnya
+  bool get platinumRelaxed => free['plat'] == 'relaxed';
   bool get licensed => license['state'] == null || license['state'] == 'ok';
   int get levelNum => (level['num'] as num?)?.toInt() ?? 0;
   int get wpm => (speed['wpm'] as num?)?.toInt() ?? 400;
@@ -298,6 +302,14 @@ class AppStore extends ChangeNotifier {
     // sedang mengetik tanpa rencana: lesson ini tetap, ganti di level berikutnya
     if (r != null && phase == 'running' && !planRunning) {
       say('Target bintang baru berlaku mulai level berikutnya.');
+    }
+  }
+
+  /// Platinum secepatnya <-> santai (berlaku di bebas & rencana).
+  Future<void> setPlatinumRelaxed(bool on) async {
+    final r = await call('free.set', {'plat': on ? 'relaxed' : 'fast'});
+    if (r != null && phase == 'running') {
+      say('Kecepatan platinum baru berlaku mulai level berikutnya.');
     }
   }
 
