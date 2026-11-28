@@ -227,15 +227,28 @@ class AppStore extends ChangeNotifier {
   /// kunci akun utk benih acak (sama dgn backend)
   String get seqAcct => (plan['acct'] as String?) ?? '';
 
+  /// urutan tersimpan akun aktif: {tanda aturan: {n, lv: {level: giliran}}}
+  Map? get seq => plan['seq'] as Map?;
+
   /// giliran yang sudah terpakai utk aturan bertanda [sig]
-  int usedFor(String sig) => ((plan['used'] as Map?)?[sig] as num?)?.toInt() ?? 0;
+  int usedFor(String sig) => seqState(seq, sig).n;
+
+  /// jenis level kursus yang sudah dikenal: {'377': 'star' / 'free' /
+  /// 'balloon' / 'monster'}
+  Map get catalog => (snap['catalog'] as Map?) ?? const {};
+
+  /// aturan khusus game yang aktif (bukan 'ikut rencana')
+  Map<String, StarRule> get gameRules => {
+        for (final k in gameKinds)
+          if (!gameRule(k).follow) k: gameRule(k),
+      };
 
   /// target level yang sedang dikerjakan (pola/acak/game): {level, code, kind}
   Map<String, dynamic>? get curTarget => (plan['cur'] as Map?)?.cast<String, dynamic>();
 
   Future<bool> saveGames(Map<String, StarRule> rules) async {
     final r = await call('games.set', {for (final e in rules.entries) e.key: e.value.toJson()});
-    if (r != null && phase == 'running') {
+    if (r != null && planRunning) {
       say('Aturan game berlaku mulai game berikutnya.');
     }
     return r != null;

@@ -37,6 +37,7 @@ extension HoldKeyLesson on Engine {
           await page.keyboard.up(key);
         } catch (_) {}
       }
+      levelKind?.call('free');
       st.bump('hold');
       st.lastActionTime = now;
       return true;

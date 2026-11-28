@@ -269,8 +269,12 @@ void main() {
     expect(logs.any((l) => l.startsWith('[Bintang] level 2: pola 2,4, level berbintang ke-2 -> target 4')), isTrue);
     expect(logs.any((l) => l.startsWith('[Bintang] target 2: goal 10')), isTrue);
     expect(logs.any((l) => l.startsWith('[Bintang] target 4: goal 10')), isTrue);
-    final sig = ((plan()['used'] as Map).keys).single;
-    expect((plan()['used'] as Map)[sig], 2);
+    final sig = ((plan()['seq'] as Map).keys).single;
+    expect((plan()['seq'] as Map)[sig]['n'], 2);
+    expect((plan()['seq'] as Map)[sig]['lv'], {'1': 0, '2': 1});
+    // jenis level tercatat utk peta level editor
+    expect((last['catalog'] as Map)['1'], 'star');
+    expect((last['catalog'] as Map)['2'], 'star');
     // level 2 diulang: tetap target 4, tidak mengambil giliran baru
     logs.clear();
     fake.lesson = FakeLesson(text, label: 'L2');
@@ -287,7 +291,7 @@ void main() {
       ]
     });
     await pumpEventQueue();
-    expect(plan()['used'], isEmpty);
+    expect(plan()['seq'], isEmpty);
     // pola kosong ditolak
     expect(
         () => be.request('plan.set', {
@@ -315,11 +319,12 @@ void main() {
     await be.request('bot.stop');
     await be.stopped;
     await pumpEventQueue();
-    expect(plan()['used'], isEmpty);
+    expect(plan()['seq'], isEmpty);
     expect(logs.any((l) => l.contains('level berbintang ke-')), isFalse);
+    expect((last['catalog'] as Map)['1'], 'free');
   });
 
-  test('aturan khusus game: tersimpan, ikut bagian = default, Manual tetap untuk lesson', () async {
+  test('aturan khusus game: tersimpan, ikut rencana = default', () async {
     Map games() => last['games'] as Map;
     expect(games()['balloon']['rule'], 'follow');
     await be.request('games.set', {
@@ -335,28 +340,39 @@ void main() {
         throwsA(isA<RpcException>()));
   });
 
-  for (final manual in [false, true]) {
-    test('game balon selalu 3 bintang (${manual ? 'mode Manual' : 'platinum'}): aturan khusus menang', () async {
-      final game = FakeGame(List.filled(12, 'asdfj').join(), goal: 10);
-      fake.url = 'https://www.edclub.com/sportal/program-3/2953.play';
-      fake.game = game;
-      await be.request('games.set', {'balloon': {'rule': 'fixed', 'stars': 3}});
-      if (manual) {
-        await be.request('free.set', {'mode': 'manual'});
-        await be.request('speed.set', {'wpm': 400, 'acc': 100});
-      }
-      await be.request('bot.start', {'mode': 'free'});
-      await waitFor(() => game.ended, ms: 20000);
-      if (manual) {
-        await waitFor(() => (last['speed'] as Map)['guess'] != null);
-        expect(((last['speed'] as Map)['guess'] as Map)['stars'], 3);
-      }
-      await be.request('bot.stop');
-      await be.stopped;
-      expect(game.stars, 3, reason: 'rasio ${game.ratio}');
-      expect(logs.any((l) => l.startsWith('[Bintang] game BalloonValley target 3')), isTrue);
+  test('game balon selalu 3 bintang saat rencana jalan: aturan khusus menang', () async {
+    final game = FakeGame(List.filled(12, 'asdfj').join(), goal: 10);
+    fake.url = 'https://www.edclub.com/sportal/program-3/2953.play';
+    fake.game = game;
+    await be.request('games.set', {'balloon': {'rule': 'fixed', 'stars': 3}});
+    await be.request('plan.set', {
+      'segments': [
+        {'from': 62, 'to': 62, 'stars': 5, 'silver': true},
+      ]
     });
-  }
+    await be.request('bot.start', {'mode': 'plan'});
+    await waitFor(() => game.ended, ms: 20000);
+    await be.request('bot.stop');
+    await be.stopped;
+    expect(game.stars, 3, reason: 'rasio ${game.ratio}');
+    expect(logs.any((l) => l.startsWith('[Bintang] game BalloonValley target 3')), isTrue);
+    expect((last['catalog'] as Map)['62'], 'balloon');
+  });
+
+  test('aturan khusus game tidak berlaku tanpa rencana', () async {
+    final game = FakeGame(List.filled(12, 'asdfj').join(), goal: 10);
+    fake.url = 'https://www.edclub.com/sportal/program-3/2953.play';
+    fake.game = game;
+    await be.request('games.set', {'balloon': {'rule': 'fixed', 'stars': 3}});
+    await be.request('bot.start', {'mode': 'free'});
+    await waitFor(() => game.ended, ms: 20000);
+    await be.request('bot.stop');
+    await be.stopped;
+    expect(logs.any((l) => l.startsWith('[Bintang] game BalloonValley target 3')), isFalse);
+    expect(game.stars, isNot(3), reason: 'rasio ${game.ratio}');
+    // tetap tercatat jenisnya walau platinum
+    expect((last['catalog'] as Map)['62'], 'balloon');
+  });
 
   test('Stop saat menunggu = kembali siap', () async {
     fake.url = 'https://www.edclub.com/student/course/3';

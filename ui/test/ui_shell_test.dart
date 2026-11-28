@@ -63,7 +63,8 @@ void main() {
     await _settle(t);
     expect(find.text('Bagian baru'), findsOneWidget);
     expect(store.segments, isEmpty); // draf belum tersimpan
-    await t.tap(find.text('Buat'));
+    expect(find.text('Peta level'), findsOneWidget);
+    await t.tap(find.text('Tambahkan'));
     await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await _settle(t);
     expect(store.segments.single.to, store.segments.single.from + 9);
@@ -77,7 +78,7 @@ void main() {
     await t.tap(find.text('201-400'));
     await _settle(t);
     expect(find.text('Bagian baru'), findsOneWidget);
-    await t.tap(find.text('Buat'));
+    await t.tap(find.text('Tambahkan'));
     await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await _settle(t);
     expect([for (final g in store.segments) '${g.from}-${g.to}'],
@@ -87,21 +88,25 @@ void main() {
     // lembar editor: bagian 51-200 jadi pola 2,4,4,3,4 (diketik)
     await t.tap(find.text('51–200'));
     await _settle(t);
-    expect(find.text('Ubah bagian 51–200'), findsOneWidget);
+    expect(find.text('Bagian 51–200'), findsOneWidget);
+    expect(find.text('Belum disimpan'), findsNothing);
     await t.tap(find.text('Pola'));
     await _settle(t);
-    await t.enterText(find.widgetWithText(TextField, 'Atau ketik polanya'), '2,4,4,3,4');
+    await t.enterText(find.byType(TextField).last, '2,4,4,3,4');
     await _settle(t);
-    expect(find.text('Urutannya nanti'), findsOneWidget);
-    await t.tap(find.text('Simpan'));
+    expect(find.text('Belum disimpan'), findsOneWidget);
+    // peta level mulai dari level awal bagian
+    expect(find.text('51'), findsWidgets);
+    expect(find.textContaining('level lagi'), findsOneWidget);
+    await t.tap(find.text('Simpan perubahan'));
     await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await _settle(t);
     expect(store.segments.first.rule.type, 'pattern');
     expect(store.segments.first.rule.pattern, [2, 4, 4, 3, 4]);
-    expect(find.text('Ubah bagian 51–200'), findsNothing);
+    expect(find.text('Bagian 51–200'), findsNothing);
 
     // aturan khusus game: balon selalu 3 bintang
-    await t.tap(find.text('Aturan khusus game'));
+    await t.tap(find.text('Aturan game'));
     await _settle(t);
     await t.tap(find.text('Tetap').first);
     await _settle(t);

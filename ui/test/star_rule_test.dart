@@ -62,4 +62,62 @@ void main() {
     expect(patternText([4, platinumCode, 3]), '4, p, 3');
     expect(parsePattern(List.filled(30, '3').join(','))!.length, maxPatternLen);
   });
+
+  test('peta level: mulai dari level awal, video dilewati, giliran tersimpan dipakai', () {
+    final r = StarRule(type: 'pattern', pattern: [2, 4, 3]);
+    final sig = r.sig('p377');
+    final sel = levelMap(
+      from: 377,
+      to: 386,
+      lastLevel: 685,
+      rule: r,
+      key: 'p377',
+      acct: 'a',
+      kinds: {'378': 'free', '380': 'balloon'},
+      // level 377 sudah dapat giliran ke-1 (indeks 0)
+      seq: {
+        sig: {
+          'n': 1,
+          'lv': {'377': 0}
+        }
+      },
+    );
+    expect(sel.first.level, 377);
+    expect(sel.length, 10);
+    expect([for (final x in sel) x.code], [2, null, 4, 3, 2, 4, 3, 2, 4, 3]);
+    expect(sel[0].assigned, isTrue);
+    expect(sel[2].assigned, isFalse);
+    expect(sel[1].kind, 'free');
+    expect(sel[3].known, isTrue);
+    expect(sel[4].known, isFalse);
+    // game balon dgn aturan khusus: urutannya sendiri, tidak memakai giliran bagian
+    final g = levelMap(
+      from: 377,
+      to: 386,
+      lastLevel: 685,
+      rule: r,
+      key: 'p377',
+      acct: 'a',
+      kinds: {'378': 'free', '380': 'balloon'},
+      seq: const {},
+      games: {'balloon': StarRule.fixed(3)},
+    );
+    expect([for (final x in g) x.code], [2, null, 4, 3, 3, 2, 4, 3, 2, 4]);
+    expect(g[3].game, 'balloon');
+    // jendela mulai di tengah (rencana jalan) tetap menghitung dari awal
+    final w = levelMap(
+      from: 377,
+      to: 0,
+      lastLevel: 685,
+      rule: r,
+      key: 'p377',
+      acct: 'a',
+      kinds: const {},
+      seq: const {},
+      start: 380,
+      count: 3,
+    );
+    expect([for (final x in w) x.level], [380, 381, 382]);
+    expect([for (final x in w) x.code], [2, 4, 3]);
+  });
 }

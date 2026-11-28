@@ -48,10 +48,10 @@ class StarRule {
 
   StarRule.fixed(int code) : this(type: 'fixed', code: code);
 
-  /// aturan game 'ikut bagian' (tanpa aturan khusus)
+  /// aturan game 'ikut rencana' (tanpa aturan khusus)
   StarRule.follow() : this(type: 'follow');
 
-  /// 'fixed' | 'pattern' | 'random' | 'follow' (game: ikut bagian/mode)
+  /// 'fixed' | 'pattern' | 'random' | 'follow' (game: ikut rencana)
   String type;
 
   /// target 'fixed'
@@ -127,7 +127,7 @@ class StarRule {
   String get label => switch (type) {
         'pattern' => 'pola ${pattern.map(codeLabel).join(',')}',
         'random' => 'acak ${codeLabel(min)}-${codeLabel(max)}',
-        'follow' => 'ikut bagian',
+        'follow' => 'ikut rencana',
         _ => codeLabel(code),
       };
 }
@@ -162,3 +162,111 @@ String patternText(List<int> pat) =>
 const gameKinds = ['balloon', 'monster'];
 
 const gameNames = {'balloon': 'Game balon', 'monster': 'Game monster'};
+
+// ------------------------------------------------------------ peta level
+/// Satu kotak di peta level editor rencana.
+class LevelCell {
+  const LevelCell({
+    required this.level,
+    required this.kind,
+    this.code,
+    this.idx,
+    this.assigned = false,
+    this.game,
+  });
+  final int level;
+
+  /// jenis dari katalog: 'star' / 'free' / 'balloon' / 'monster';
+  /// '' = level belum pernah dibuka (dianggap berbintang)
+  final String kind;
+
+  /// target (kode) level ini; null = tanpa target (video, tutorial, dll.)
+  final int? code;
+
+  /// giliran ke-berapa di urutannya (0 = pertama); null = aturan tetap /
+  /// tanpa giliran
+  final int? idx;
+
+  /// giliran sudah tersimpan (level ini pernah dibuka dgn aturan ini)
+  final bool assigned;
+
+  /// game yang ikut aturan khusus game ('balloon' / 'monster')
+  final String? game;
+
+  bool get known => kind.isNotEmpty;
+}
+
+/// Urutan (tanda aturan) tersimpan: giliran berikutnya + giliran per level.
+({int n, Map<int, int> lv}) seqState(Map? seq, String sig) {
+  final m = (seq?[sig] as Map?) ?? const {};
+  final lv = <int, int>{};
+  ((m['lv'] as Map?) ?? const {}).forEach((k, v) {
+    final l = int.tryParse('$k');
+    if (l != null && v is num) lv[l] = v.toInt();
+  });
+  return (n: ((m['n'] as num?) ?? 0).toInt(), lv: lv);
+}
+
+/// Peta level satu bagian rencana: target tiap level dari [from], sama
+/// dgn cara backend membagi giliran. Level tersimpan pakai gilirannya;
+/// level baru mengambil giliran berikutnya berurutan, kecuali yang di
+/// [kinds] tercatat 'free' (tidak memakai giliran) dan game yang punya
+/// aturan khusus di [games] (urutannya sendiri).
+List<LevelCell> levelMap({
+  required int from,
+  required int to,
+  required int lastLevel,
+  required StarRule rule,
+  required String key,
+  required String acct,
+  required Map kinds,
+  required Map? seq,
+  Map<String, StarRule> games = const {},
+  int start = 0,
+  int count = 30,
+}) {
+  final sig = rule.sig(key);
+  final st = seqState(seq, sig);
+  var n = st.n;
+  // game dgn aturan khusus: giliran masing2
+  final gs = {
+    for (final e in games.entries)
+      if (!e.value.follow) e.key: (e.value, e.value.sig('g:${e.key}'), seqState(seq, e.value.sig('g:${e.key}'))),
+  };
+  final gn = {for (final e in gs.entries) e.key: e.value.$3.n};
+  final akhir = to == 0 ? lastLevel : to;
+  final mulai = start < from ? from : start;
+  final out = <LevelCell>[];
+  for (var l = from; l <= akhir && out.length < count; l++) {
+    final kind = '${kinds['$l'] ?? ''}';
+    LevelCell cell;
+    final g = gs[kind];
+    if (kind == 'free') {
+      cell = LevelCell(level: l, kind: kind);
+    } else if (g != null) {
+      final (gr, gsig, gst) = g;
+      final simpan = gst.lv[l];
+      final i = gr.variable ? (simpan ?? gn[kind]!) : null;
+      if (gr.variable && simpan == null) gn[kind] = gn[kind]! + 1;
+      cell = LevelCell(
+          level: l,
+          kind: kind,
+          code: i == null ? gr.code : gr.at(i, '$acct|$gsig'),
+          idx: i,
+          assigned: simpan != null,
+          game: kind);
+    } else {
+      final simpan = st.lv[l];
+      final i = rule.variable ? (simpan ?? n) : null;
+      if (rule.variable && simpan == null) n++;
+      cell = LevelCell(
+          level: l,
+          kind: kind,
+          code: i == null ? rule.code : rule.at(i, '$acct|$sig'),
+          idx: i,
+          assigned: simpan != null);
+    }
+    if (l >= mulai) out.add(cell);
+  }
+  return out;
+}

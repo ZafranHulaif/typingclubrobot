@@ -552,7 +552,8 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   allowed). Target code 1-5, 6 = platinum. Old `{stars, silver}` parts load as Tetap and the JSON still
   carries stars/silver.
 - **Aturan khusus game** (settings `game_rules`, one for all accounts): balloon / monster game =
-  Ikut bagian | Tetap | Pola | Acak. Applies in every mode (free, plan, Manual) and wins over the part.
+  Ikut rencana | Tetap | Pola | Acak. Applies **only while a plan runs** (`_ruleFor` checks
+  `_mode == 'plan'`), and wins over the part there. Free mode and Manual ignore it.
   Only these two games can be steered (live-tested); other games stay full speed.
 - Patterns follow the order of **scorable** levels, not level numbers: the engine asks
   `starTarget(kind, assign: true)` only once the level is known to be scored and steerable (lesson goal
@@ -564,11 +565,24 @@ main frame, nothing typed): reload after 8 s idle instead of 25 s (log 05:36:47 
   the sequence fresh (old sigs pruned on plan.set / games.set). Random = stable hash of
   `account|sig#slot` (differs per account, same on every device, previewable). bot.log:
   `[Bintang] level 42: pola 2,4,4,3,4, level berbintang ke-3 -> target 4`.
-- UI: tiles show the rule (repeat icon + sequence, shuffle icon + range); editing opens a wide sheet next
-  to the Rencana panel (plan_editor.dart, Esc closes) with the rule editor (rule_editor.dart: chips + typed
-  pattern, range pickers, preview of the next 12 targets continuing from the used slots). Capsule shows the
-  current level's target while a plan runs, and a game icon when game rules are on.
-  Screens: docs/preview/plan-panel.png, plan-pattern.png, plan-games.png.
+- **Level catalog** (settings `level_kinds`, snapshot `catalog`, course-wide, same for every account):
+  `{level: 'star' | 'free' | 'balloon' | 'monster'}`, learned while the bot runs. Engine hooks
+  `levelKind(kind)` (starPace / gamePace / video / tutorial / hold key) and `levelKnown()`: in platinum
+  the lesson goal is read once per unknown level just to classify it. A scored kind is never downgraded
+  to 'free'. Snapshot `plan.seq` carries the account's `{sig: {n, lv}}` so the UI can draw the same
+  assignment the backend will make (`levelMap()` in star_rule.dart, unit-tested).
+- UI: tiles show the rule (repeat icon + sequence, shuffle icon + range). Tapping a tile opens a wide
+  sheet (up to 860 px) next to the Rencana panel (plan_editor.dart, Esc closes): left = level range
+  ("Sampai habis" checkbox) + rule editor (rule_editor.dart), right = **Peta level**, one square per level
+  from the part's first level with its target; video/tutorial squares show a skip icon, game squares a
+  game icon (game rule target when one is set), never-opened levels are hollow (estimate). One star
+  scale is used everywhere: 1 star on the left, platinum on the right; Acak = drag a range on it.
+  Three feels with the same content: new part (green-tinted header, plus icon, "Tambahkan"), edit
+  (pencil, "Belum disimpan" pill, "Simpan perubahan" only when changed), running/locked part (view only,
+  "Sedang jalan" pill, a "Sekarang · Level N" card and the map window starting just before the current
+  level). Game rules sheet: one card per game with the same editor and a "Berikutnya" strip.
+  Screens: docs/preview/plan-panel.png, plan-new.png, plan-pattern.png, plan-random.png,
+  plan-running.png, plan-games.png.
 
 ## Owner test checklist (Windows, build 4.0.0-dev24 from the CI artifact)
 Close any running 3.5.x first (same data folder). Everything happens inside the app window.

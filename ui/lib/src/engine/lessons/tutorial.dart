@@ -112,6 +112,7 @@ extension TutorialLesson on Engine {
     // pengetikan terputus (stop / user pindah halaman): JANGAN Enter -
     // dulu Enter jatuh ke halaman yang dibuka user (log 08:02:04)
     if (rem.isNotEmpty) return false;
+    levelKind?.call('free');
     st.bump('tut');
     st.lastActionTime = now;
     await _tutSelesai(frame, pendSig, awal, melacak);
