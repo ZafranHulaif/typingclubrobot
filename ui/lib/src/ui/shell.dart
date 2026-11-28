@@ -574,7 +574,7 @@ class _ModePanel extends StatelessWidget {
               _PlanTarget(seg),
             ]),
           const SizedBox(height: 8),
-          Text('Target & kecepatan ikut bagian rencana. Stop dulu untuk ganti ke Bintang atau Manual.',
+          Text('Target & kecepatan ikut bagian rencana. Stop dulu untuk pakai Manual.',
               style: redup),
         ]),
       );
