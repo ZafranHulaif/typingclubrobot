@@ -139,7 +139,9 @@ const gameMinWpm = 22;
 
 /// Akurasi asli terendah yang dipakai. Target yang butuh lebih rendah dari
 /// ini (di kecepatan minimum) dinaikkan ke bintang terendah yang terjangkau.
-const gameRealAccMin = 0.2;
+/// Salah ketik di game TIDAK mengurangi nyawa (kata owner 28 Nov, hanya
+/// kelambatan), jadi boleh banyak: tiap huruf paling banyak sekali salah.
+const gameRealAccMin = 0.1;
 
 /// Kecepatan aman untuk [stars] bintang di game: minimal [gameMinWpm] dan
 /// 1.25x goal (balon jatuh ~2x jeda goal, yeti terdorong kalau >= goal),

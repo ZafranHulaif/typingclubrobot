@@ -198,8 +198,9 @@ class _TopBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           const _Capsule(),
-          const SizedBox(width: 6),
-          const SpeedButton(),
+          const SizedBox(width: 8),
+          // mode + target bintang + kecepatan jadi satu kontrol
+          const _ModeControl(),
           const Spacer(),
           const MuteButton(),
           const SizedBox(width: 2),
@@ -307,9 +308,6 @@ class _Capsule extends StatelessWidget {
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
     final look = phaseLook(context, s);
-    final segs = s.segments;
-    final ai = s.activeSegment;
-    final seg = ai != null && ai < segs.length ? segs[ai] : null;
     final prog = s.phase == 'running'
         ? ((s.level['progress'] as num?)?.toDouble() ?? 0)
         : 0.0;
@@ -366,53 +364,6 @@ class _Capsule extends StatelessWidget {
             ],
           ]);
 
-    // bintang: rencana jalan = ikut bagian aktif (terkunci); selain itu
-    // target "tanpa rencana" yang bisa diubah kapan saja
-    // label mode: rencana (bintang terkunci) atau bebas (bisa diubah)
-    Widget mode(IconData ikon, String teks) => Padding(
-          padding: const EdgeInsets.only(left: 10),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(ikon, size: 13, color: c.onSurfaceVariant),
-            const SizedBox(width: 4),
-            Text(teks, style: t.labelMedium!.copyWith(color: c.onSurfaceVariant)),
-          ]),
-        );
-    final Widget bintang = s.planRunning
-        ? Tip(
-            message: 'Bintang ikut rencana',
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              mode(Icons.lock_rounded, 'Rencana'),
-              if (seg != null)
-                Padding(
-                  padding: const EdgeInsets.only(left: 8),
-                  child: _PlanTarget(seg),
-                ),
-            ]),
-          )
-        : s.freeManual
-            ? Row(mainAxisSize: MainAxisSize.min, children: [
-                mode(Icons.bolt_rounded, 'Manual'),
-                const Padding(
-                  padding: EdgeInsets.only(left: 2),
-                  child: _GuessChip(),
-                ),
-              ])
-            : Row(mainAxisSize: MainAxisSize.min, children: [
-                mode(Icons.tune_rounded, 'Bebas'),
-                Padding(
-                  padding: const EdgeInsets.only(left: 2),
-                  child: Tip(
-                    message: 'Bisa diubah kapan saja, berlaku mulai level berikutnya',
-                    child: StarPicker(
-                      stars: s.freeStars,
-                      silver: s.freeSilver,
-                      onChanged: s.setFreeStars,
-                      onManual: () => s.setFreeMode(true),
-                    ),
-                  ),
-                ),
-              ]);
-
     return Container(
       height: 40,
       clipBehavior: Clip.antiAlias,
@@ -437,8 +388,7 @@ class _Capsule extends StatelessWidget {
               child: kata,
             ),
           ),
-          bintang,
-          const SizedBox(width: 10),
+          const SizedBox(width: 14),
         ]),
         // garis progres level, menyatukan tombol & status
         Positioned(
@@ -494,48 +444,184 @@ class _PlanTarget extends StatelessWidget {
   }
 }
 
-/// Mode Manual di kapsul: perkiraan bintang level ini (redup = hasil,
-/// bukan pilihan). Klik = panel kecepatan & akurasi.
-class _GuessChip extends StatelessWidget {
-  const _GuessChip();
+// ------------------------------------------------------------- mode
+/// Satu kontrol: mode (Rencana / Bebas / Manual) + target bintang +
+/// kecepatan, tersambung. Klik = panel dgn tombol ganti Bintang / Manual
+/// di paling atas.
+class _ModeControl extends StatelessWidget {
+  const _ModeControl();
 
   @override
   Widget build(BuildContext context) {
     final s = StoreScope.of(context);
     final t = Theme.of(context).textTheme;
     final c = Theme.of(context).colorScheme;
+    final plan = s.planRunning;
+    final manual = !plan && s.freeManual;
+    final segs = s.segments;
+    final ai = s.activeSegment;
+    final seg = ai != null && ai < segs.length ? segs[ai] : null;
+    final angka = t.labelLarge!.copyWith(
+        color: c.onSurface, fontFeatures: const [FontFeature.tabularFigures()]);
+    final redup = t.labelMedium!.copyWith(color: c.onSurfaceVariant);
+
+    Widget garis() => Container(
+          width: 1,
+          height: 18,
+          margin: const EdgeInsets.symmetric(horizontal: 10),
+          color: c.outlineVariant,
+        );
+
+    final (IconData ikon, String nama) = plan
+        ? (Icons.lock_rounded, 'Rencana')
+        : manual
+            ? (Icons.bolt_rounded, 'Manual')
+            : (Icons.star_rounded, 'Bintang');
+
     final g = s.guess;
-    return Popover(
-      alignRight: false,
-      width: 300,
-      trigger: (_, toggle, open) => Tip(
-        message: g == null
-            ? 'Perkiraan bintang dari kecepatan & akurasimu, muncul saat level dibuka'
-            : 'Perkiraan bintang level ini dari kecepatan & akurasimu',
-        child: Material(
-          color: open ? c.surfaceContainerHighest : Colors.transparent,
-          borderRadius: BorderRadius.circular(Radii.sm),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(Radii.sm),
-            hoverColor: c.surfaceContainerHighest,
-            onTap: toggle,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Text(g == null ? '? ' : '≈ ',
-                    style: t.labelMedium!.copyWith(color: c.onSurfaceVariant)),
+    final Widget target = plan
+        ? (seg == null ? Text('-', style: redup) : _PlanTarget(seg))
+        : manual
+            ? Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(g == null ? '? ' : '≈ ', style: redup),
                 Opacity(
                   opacity: 0.75,
                   child: StarRow((g?['stars'] as num?)?.toInt() ?? 0,
                       silver: g?['silver'] == true, size: 13),
                 ),
-              ]),
+              ])
+            : StarRow(s.freeStars, silver: s.freeSilver, size: 13);
+
+    final String laju = manual
+        ? '${s.wpm} wpm · ${s.acc}%'
+        : s.autoWpm > 0
+            ? '${s.autoWpm} wpm'
+            : 'otomatis';
+
+    return Popover(
+      alignRight: false,
+      width: 340,
+      trigger: (_, toggle, open) => Tip(
+        message: plan
+            ? 'Rencana jalan: target & kecepatan ikut bagian rencana'
+            : 'Mode, target bintang & kecepatan',
+        child: Material(
+          color: open ? c.surfaceContainerHigh : c.surfaceContainer,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radii.lg),
+            side: BorderSide(color: open ? c.primary : c.outlineVariant),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(Radii.lg),
+            hoverColor: c.surfaceContainerHigh,
+            onTap: toggle,
+            child: SizedBox(
+              height: 40,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(ikon, size: 15, color: plan ? c.onSurfaceVariant : c.primary),
+                  const SizedBox(width: 6),
+                  Text(nama, style: t.labelLarge!.copyWith(color: c.onSurface)),
+                  garis(),
+                  target,
+                  garis(),
+                  if (!manual) ...[
+                    Icon(Icons.speed_rounded, size: 14, color: c.onSurfaceVariant),
+                    const SizedBox(width: 5),
+                  ],
+                  Text(laju, style: manual ? angka : redup),
+                  const SizedBox(width: 2),
+                  Icon(Icons.expand_more_rounded, size: 18, color: c.onSurfaceVariant),
+                ]),
+              ),
             ),
           ),
         ),
       ),
-      content: (_, close) => const SpeedPanel(),
+      content: (_, close) => const _ModePanel(),
     );
+  }
+}
+
+/// Isi panel mode: ganti Bintang / Manual di atas, lalu pilihannya.
+class _ModePanel extends StatelessWidget {
+  const _ModePanel();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = StoreScope.of(context);
+    final t = Theme.of(context).textTheme;
+    final c = Theme.of(context).colorScheme;
+    final redup = t.bodySmall!.copyWith(color: c.onSurfaceVariant);
+    if (s.planRunning) {
+      final segs = s.segments;
+      final ai = s.activeSegment;
+      final seg = ai != null && ai < segs.length ? segs[ai] : null;
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(Icons.lock_rounded, size: 16, color: c.onSurfaceVariant),
+            const SizedBox(width: 8),
+            Text('Rencana sedang jalan', style: t.titleSmall),
+          ]),
+          const SizedBox(height: 12),
+          if (seg != null)
+            Row(children: [
+              Text('Bagian ${seg.label}', style: t.bodyMedium),
+              const Spacer(),
+              _PlanTarget(seg),
+            ]),
+          const SizedBox(height: 8),
+          Text('Target & kecepatan ikut bagian rencana. Stop dulu untuk ganti ke Bintang atau Manual.',
+              style: redup),
+        ]),
+      );
+    }
+    final manual = s.freeManual;
+    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 4),
+        child: SegmentedButton<bool>(
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment(value: false, label: Text('Bintang'), icon: Icon(Icons.star_rounded, size: 16)),
+            ButtonSegment(value: true, label: Text('Manual'), icon: Icon(Icons.bolt_rounded, size: 16)),
+          ],
+          selected: {manual},
+          onSelectionChanged: (v) => s.setFreeMode(v.first),
+        ),
+      ),
+      AnimatedSize(
+        duration: Motion.medium,
+        curve: Motion.out,
+        alignment: Alignment.topCenter,
+        child: manual
+            ? const SpeedPanel()
+            : Padding(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  StarScale.single(
+                    value: codeOf(s.freeStars, s.freeSilver),
+                    onChanged: (k) => s.setFreeStars(starsOfCode(k), silverOfCode(k)),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    Icon(Icons.speed_rounded, size: 14, color: c.onSurfaceVariant),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                          s.freeSilver
+                              ? 'Platinum: secepatnya tanpa salah.'
+                              : 'Kecepatan & akurasi menyesuaikan tiap level supaya bintangnya pas.',
+                          style: redup),
+                    ),
+                  ]),
+                ]),
+              ),
+      ),
+    ]);
   }
 }
 

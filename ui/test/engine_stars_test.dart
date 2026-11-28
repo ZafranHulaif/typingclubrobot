@@ -142,9 +142,11 @@ void main() {
         if (p.stars != s) expect(p.stars, greaterThan(s));
       }
     }
-    // goal 10: 3 bintang masih terjangkau di 22 wpm, 1 bintang tidak
+    // goal 10: 1 bintang masih terjangkau di 22 wpm (banyak salah, nyawa
+    // aman); goal 5: 1 bintang butuh terlalu banyak salah -> naik
     expect(planGame(3, goal: 10)!.stars, 3);
-    expect(planGame(1, goal: 10)!.stars, greaterThan(1));
+    expect(planGame(1, goal: 10)!.stars, 1);
+    expect(planGame(1, goal: 5)!.stars, greaterThan(1));
     // goal tinggi: tidak ada yang dinaikkan
     expect(planGame(1, goal: 40)!.stars, 1);
     // coba lagi sesudah gagal: lebih cepat
